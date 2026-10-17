@@ -38,6 +38,21 @@ public sealed class AppServices : IDisposable
     /// <summary>Schreibt Untertitel in MKV-Dateien (ffmpeg).</summary>
     public required MkvSubtitleEmbedder Embedder { get; init; }
 
+    /// <summary>Bearbeitet MKV-Dateien: Spuren entfernen, hinzufügen, ändern, verschieben (ffmpeg).</summary>
+    public required MkvEditor Editor { get; init; }
+
+    /// <summary>Liest die Spuren einer Datei (ffprobe).</summary>
+    public required FfprobeReader Probe { get; init; }
+
+    /// <summary>Ohne Zeitlimit des Clients: Antworten eines großen Modells brauchen lange, <see cref="OllamaClient"/> setzt sein eigenes.</summary>
+    public required HttpClient OllamaHttp { get; init; }
+
+    /// <summary>Liest den extrahierten Text einer Untertitelspur.</summary>
+    public required SubtitleExtractor SubtitleText { get; init; }
+
+    /// <summary>Spricht mit dem Ollama aus den Einstellungen (Adresse kann sich zur Laufzeit ändern, daher jedes Mal neu).</summary>
+    public OllamaClient Ollama() => new(OllamaHttp, Settings.OllamaUri);
+
     public static AppServices Create()
     {
         var settings = AppSettings.Load();
@@ -68,6 +83,10 @@ public sealed class AppServices : IDisposable
             Podcasts = new PodcastService(db, new PodcastFeedClient(http), images),
             Subtitles = new SubtitleStore(Path.Combine(AppSettings.DataDirectory, "subtitles")),
             Embedder = MkvSubtitleEmbedder.FromEnvironment(),
+            Editor = MkvEditor.FromEnvironment(),
+            Probe = probe,
+            OllamaHttp = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan },
+            SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
     }
 
@@ -75,6 +94,7 @@ public sealed class AppServices : IDisposable
     {
         Audio.Dispose();
         Http.Dispose();
+        OllamaHttp.Dispose();
         Db.Dispose();
     }
 }

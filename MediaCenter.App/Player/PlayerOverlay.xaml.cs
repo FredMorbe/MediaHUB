@@ -11,7 +11,8 @@ namespace MediaCenter.App.Player;
 
 /// <summary>Eine Ton- oder Untertitelspur aus der Spurliste von mpv.</summary>
 /// <param name="Removable">Selbst hinzugefügter Untertitel: das Menü bietet „entfernen“ an.</param>
-public sealed record TrackInfo(int Id, string Type, string Label, bool Selected, bool Removable = false);
+/// <param name="Translatable">Textuntertitel, aus dem sich eine Übersetzung machen lässt.</param>
+public sealed record TrackInfo(int Id, string Type, string Label, bool Selected, bool Removable = false, bool Translatable = false);
 
 /// <summary>
 /// Bedienung des Players als durchsichtiges Fenster über dem Video (ein WPF-Element kann nicht über das native
@@ -95,14 +96,16 @@ public partial class PlayerOverlay : Window
         AudioButton.Click += (_, _) => ToggleMenu("audio");
         SubButton.Click += (_, _) => ToggleMenu("sub");
 
-        SeekSlider.PreviewMouseLeftButtonDown += (_, _) => _seeking = true;
-        SeekSlider.PreviewMouseLeftButtonUp += (_, _) =>
+        // handledEventsToo: Ein Klick auf die Linie wird vom Slider selbst behandelt (IsMoveToPointEnabled) und als erledigt
+        // markiert; ohne diese Anmeldung bliebe _seeking aus, und die nächste Positionsmeldung setzte den Regler zurück.
+        SeekSlider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), handledEventsToo: true);
+        SeekSlider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) =>
             // Wert erst nach der eigenen Behandlung des Sliders lesen.
             Dispatcher.BeginInvoke(() =>
             {
                 SeekAbsolute?.Invoke(SeekSlider.Value);
                 _seeking = false;
-            });
+            })), handledEventsToo: true);
         VolumeSlider.ValueChanged += (_, e) =>
         {
             if (!_settingVolume) VolumeChanged?.Invoke(e.NewValue);
@@ -286,6 +289,7 @@ public partial class PlayerOverlay : Window
     {
         var show = AdjustPanel.Visibility != Visibility.Visible;
         CloseMenu();
+        TranslatePanel.Visibility = Visibility.Collapsed;
         AdjustPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -387,6 +391,7 @@ public partial class PlayerOverlay : Window
             return;
         }
         AdjustPanel.Visibility = Visibility.Collapsed;
+        TranslatePanel.Visibility = Visibility.Collapsed;
         _menuType = type;
         BuildMenu(type);
         TrackMenu.Visibility = Visibility.Visible;
@@ -473,6 +478,12 @@ public partial class PlayerOverlay : Window
                 SubtitleFileRequested?.Invoke();
             };
             TrackList.Children.Add(load);
+
+            var translate = new Button { Content = "Untertitel übersetzen …", Foreground = Brushes.White, Padding = new Thickness(18, 7, 18, 7), Margin = new Thickness(0, 6, 0, 0) };
+            translate.SetResourceReference(StyleProperty, "GhostButton");
+            System.Windows.Automation.AutomationProperties.SetName(translate, "Untertitel übersetzen");
+            translate.Click += (_, _) => ShowTranslatePanel();
+            TrackList.Children.Add(translate);
         }
         _building = false;
     }

@@ -94,7 +94,7 @@ public partial class HomePage : UserControl
 
     private void AddRow(string heading, IReadOnlyList<CardItem> cards, Action<CardItem> onActivated)
     {
-        var row = new CardRow(heading, cards, onActivated) { Margin = new Thickness(0, 0, 0, 22) };
+        var row = new CardRow(heading, cards, onActivated, card => LibraryActions.EditMovie(_shell, card.TitleId)) { Margin = new Thickness(0, 0, 0, 22) };
         Rows.Children.Add(row);
     }
 

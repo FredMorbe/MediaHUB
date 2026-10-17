@@ -5,9 +5,10 @@ namespace MediaCenter.Core;
 /// <summary>Eine Ton- oder Untertitelspur, wie mpv sie in <c>track-list</c> meldet.</summary>
 /// <param name="File">Pfad einer externen Untertiteldatei.</param>
 /// <param name="UserAdded">Vom Nutzer über „Untertitel-Datei laden“ hinzugefügt (liegt im <see cref="SubtitleStore"/>).</param>
+/// <param name="FfIndex">Streamnummer in der Containerdatei (für ffmpeg); null bei externen Dateien.</param>
 public sealed partial record MediaTrack(
     int Id, string Type, string? Lang, string? Title, string? Codec, bool Default, bool Forced, bool External, bool Selected, int? Channels = null,
-    string? File = null, bool UserAdded = false)
+    string? File = null, bool UserAdded = false, int? FfIndex = null)
 {
     public Language? Language => Languages.Find(Lang) ?? Languages.FindInText(Title);
 

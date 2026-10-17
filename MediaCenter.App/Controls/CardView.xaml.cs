@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Automation.Peers;
+using System.Windows.Automation;
 using System.Windows.Automation.Provider;
 using System.Windows.Media.Animation;
 using System.Windows.Controls;
@@ -53,12 +54,17 @@ public partial class CardView : UserControl
             Activate();
             e.Handled = true;
         };
+        MouseRightButtonUp += (_, e) => e.Handled = ShowMenu();
         KeyDown += (_, e) =>
         {
             if (e.Key is Key.Enter or Key.Space)
             {
                 Activate();
                 e.Handled = true;
+            }
+            else if (e.Key == Key.Apps || (e.Key == Key.F10 && Keyboard.Modifiers == ModifierKeys.Shift))
+            {
+                e.Handled = ShowMenu();
             }
         };
     }
@@ -67,12 +73,22 @@ public partial class CardView : UserControl
 
     public event Action<CardItem>? Activated;
 
+    /// <summary>„Bearbeiten …“ im Kontextmenü (Rechtsklick, Menütaste); ohne Abonnenten gibt es kein Menü.</summary>
+    public event Action<CardItem>? EditRequested;
+
     internal void Activate() => Activated?.Invoke(Item);
+
+    private bool ShowMenu()
+    {
+        if (EditRequested is null) return false;
+        ContextPopup.Show(this, new (string, Action)[] { ("Bearbeiten …", () => EditRequested?.Invoke(Item)) }, Item.Title);
+        return true;
+    }
 
     /// <summary>Die Karte ist für Screenreader und Automation ein Knopf mit dem Titel als Namen.</summary>
     protected override AutomationPeer OnCreateAutomationPeer() => new CardPeer(this);
 
-    private sealed class CardPeer(CardView owner) : FrameworkElementAutomationPeer(owner), IInvokeProvider
+    private sealed class CardPeer(CardView owner) : FrameworkElementAutomationPeer(owner), IInvokeProvider, IExpandCollapseProvider
     {
         protected override string GetClassNameCore() => nameof(CardView);
 
@@ -80,8 +96,21 @@ public partial class CardView : UserControl
 
         protected override string GetNameCore() => owner.Item.Title;
 
-        public override object? GetPattern(PatternInterface patternInterface) =>
-            patternInterface == PatternInterface.Invoke ? this : base.GetPattern(patternInterface);
+        // „Aufklappen“ öffnet das Kontextmenü (für Bedienhilfen und Automation, die nicht rechtsklicken können).
+        public override object? GetPattern(PatternInterface patternInterface) => patternInterface switch
+        {
+            PatternInterface.Invoke => this,
+            PatternInterface.ExpandCollapse when owner.EditRequested is not null => this,
+            _ => base.GetPattern(patternInterface),
+        };
+
+        public ExpandCollapseState ExpandCollapseState => ExpandCollapseState.Collapsed;
+
+        public void Expand() => owner.Dispatcher.BeginInvoke(() => owner.ShowMenu());
+
+        public void Collapse()
+        {
+        }
 
         // Asynchron, damit der Aufrufer nicht blockiert, wenn die Aktion ein Fenster öffnet.
         public void Invoke() => owner.Dispatcher.BeginInvoke(owner.Activate);

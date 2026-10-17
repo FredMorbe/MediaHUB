@@ -43,6 +43,7 @@ public sealed class SettingsPage : UserControl
             },
         }));
         stack.Children.Add(Section("Wiedergabe", PlaybackSettings()));
+        stack.Children.Add(Section("Übersetzung", TranslationSettings()));
         stack.Children.Add(Section("Player", new StackPanel
         {
             Children =
@@ -113,6 +114,81 @@ public sealed class SettingsPage : UserControl
                     "Untertitel-Dateien neben dem Video (Film.de.srt, Film.German.srt, Ordner Subs) werden automatisch geladen."),
             },
         };
+    }
+
+    private readonly WrapPanel _modelChips = new();
+    private readonly WrapPanel _chineseModelChips = new();
+    private readonly TextBlock _modelStatus = PageParts.Muted("");
+
+    private UIElement TranslationSettings()
+    {
+        var settings = _shell.Services.Settings;
+        _modelStatus.Margin = new Thickness(0, 10, 0, 0);
+
+        var reload = PageParts.Button("Modelle von Ollama laden", "GhostButton", async (_, _) => await LoadModelsAsync(), new Thickness(0, 14, 0, 0));
+        System.Windows.Automation.AutomationProperties.SetName(reload, "Modelle von Ollama laden");
+
+        _ = LoadModelsAsync();
+        return new StackPanel
+        {
+            Children =
+            {
+                PageParts.Muted($"Ollama: {settings.OllamaUrl}  (Adresse in {AppSettings.FilePath} unter OllamaUrl ändern)"),
+                Label("Modell für Übersetzungen"), _modelChips,
+                Label("Modell für Chinesisch"), _chineseModelChips,
+                reload, _modelStatus,
+                PageParts.Muted("Übersetzt wird im Player über das Untertitelmenü („Untertitel übersetzen“). Ein Film dauert je nach Modell und Grafikkarte einige Minuten bis eine Stunde; " +
+                    "die Übersetzung läuft im Hintergrund und setzt nach einem Abbruch fort. Ollama muss laufen und das Modell geladen sein (ollama pull <Name>)."),
+            },
+        };
+    }
+
+    /// <summary>Füllt die Modellauswahl mit den in Ollama installierten Modellen; ist Ollama nicht erreichbar, steht der Grund da.</summary>
+    private async Task LoadModelsAsync()
+    {
+        var settings = _shell.Services.Settings;
+        _modelStatus.Text = "Lade Modelle …";
+        try
+        {
+            var models = await _shell.Services.Ollama().ListModelsAsync();
+            FillModels(_modelChips, "Übersetzungsmodell", models, settings.TranslationModel, includeSame: false, name => settings.TranslationModel = name);
+            FillModels(_chineseModelChips, "Chinesisch-Modell", models, settings.TranslationModelChinese, includeSame: true, name => settings.TranslationModelChinese = name);
+            _modelStatus.Text = models.Count == 0
+                ? "Ollama läuft, aber es ist noch kein Modell installiert (ollama pull <Name>)."
+                : $"{models.Count} Modell(e) installiert.";
+        }
+        catch (Exception ex) when (ex is OllamaException or ArgumentException)
+        {
+            _modelChips.Children.Clear();
+            _chineseModelChips.Children.Clear();
+            _modelStatus.Text = ex.Message;
+            _shell.ShowMessage(ex.Message, isError: true);
+        }
+    }
+
+    private void FillModels(WrapPanel panel, string group, IReadOnlyList<string> installed, string? selected, bool includeSame, Action<string?> apply)
+    {
+        var settings = _shell.Services.Settings;
+        panel.Children.Clear();
+
+        // Ein gewähltes, aber nicht (mehr) installiertes Modell bleibt sichtbar, damit klar ist, was die Einstellung sagt.
+        var names = installed.ToList();
+        if (selected is not null && !names.Contains(selected)) names.Add(selected);
+
+        var options = (includeSame ? new[] { ((string?)null, "Wie oben") } : Array.Empty<(string?, string)>())
+            .Concat(names.Select(n => ((string?)n, n + (installed.Contains(n) ? "" : "  (nicht installiert)"))));
+        foreach (var (name, text) in options)
+        {
+            var chip = new RadioButton { Content = text, GroupName = group, IsChecked = name == selected };
+            chip.SetResourceReference(StyleProperty, "Chip");
+            System.Windows.Automation.AutomationProperties.SetName(chip, $"{group} {text}");
+            chip.Checked += (_, _) =>
+            {
+                apply(name);
+                settings.Save();
+            };
+            panel.Children.Add(chip);
+        }
     }
 
     private static TextBlock Label(string text)

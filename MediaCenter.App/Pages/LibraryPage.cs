@@ -76,6 +76,7 @@ public sealed class LibraryPage : UserControl
         {
             var card = new CardView(_model.ToCard(title)) { Margin = new Thickness(0, 0, 22, 28) };
             card.Activated += item => _shell.OpenTitle(item.TitleId);
+            if (title.Kind == TitleKind.Movie) card.EditRequested += item => LibraryActions.EditMovie(_shell, item.TitleId);
             _grid.Children.Add(card);
         }
 

@@ -1,8 +1,10 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 using Microsoft.Win32;
@@ -123,6 +125,16 @@ public partial class DetailPage : UserControl
         CoverPanel.Children.Add(CoverChip("Poster ersetzen", () => ReplaceCoverAsync(ArtworkKind.Poster)));
         CoverPanel.Children.Add(CoverChip("Hintergrund ersetzen", () => ReplaceCoverAsync(ArtworkKind.Landscape)));
         CoverPanel.Children.Add(CoverChip("Automatische Cover wiederherstellen", ResetCoversAsync));
+        if (_title.Kind == TitleKind.Movie && _model.VideosOf(_title.Id).FirstOrDefault() is { } movie && MkvEditor.CanEdit(movie.RelPath))
+        {
+            var edit = CoverChip("MKV bearbeiten …", () =>
+            {
+                LibraryActions.EditVideo(_shell, movie);
+                return Task.CompletedTask;
+            });
+            AutomationProperties.SetName(edit, "MKV bearbeiten");
+            CoverPanel.Children.Add(edit);
+        }
     }
 
     private static ToggleButton CoverChip(string text, Func<Task> action)
@@ -225,12 +237,22 @@ public partial class DetailPage : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 12, 0), Children = { label, meta } };
         Grid.SetColumn(info, 1);
         Grid.SetColumn(watchedToggle, 2);
         grid.Children.Add(thumb);
         grid.Children.Add(info);
         grid.Children.Add(watchedToggle);
+
+        if (MkvEditor.CanEdit(video.RelPath))
+        {
+            var editButton = new Button { Content = "", Style = (Style)FindResource("IconButton"), ToolTip = "MKV bearbeiten …", VerticalAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(editButton, $"Bearbeiten: {label.Text}");
+            editButton.Click += (_, _) => LibraryActions.EditVideo(_shell, video);
+            Grid.SetColumn(editButton, 3);
+            grid.Children.Add(editButton);
+        }
 
         var row = new Border
         {
@@ -244,6 +266,14 @@ public partial class DetailPage : UserControl
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "LineBrush");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += async (_, _) => await _shell.PlayAsync(video, resume: true);
+        if (MkvEditor.CanEdit(video.RelPath))
+        {
+            row.MouseRightButtonUp += (_, e) =>
+            {
+                ContextPopup.Show(row, new (string, Action)[] { ("Bearbeiten …", () => LibraryActions.EditVideo(_shell, video)) }, label.Text);
+                e.Handled = true;
+            };
+        }
         return row;
     }
 }

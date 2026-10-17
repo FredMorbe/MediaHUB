@@ -2,6 +2,7 @@
 
 // Aufruf: MediaCenter.Cli <befehl> [argument] [--db <pfad>]
 //   add-folder <ordner>   add-file <datei>   rescan   volumes   list   cleanup
+//   ollama-models   translate-srt <ein.srt> <aus.srt> --to <de|zh-Hant> --model <name> [--source <Sprache>] [--url <adresse>]
 var arguments = args.ToList();
 var dbPath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MediaCenter", "library.db");
@@ -21,6 +22,20 @@ if (artIndex >= 0)
     arguments.RemoveRange(artIndex, 2);
 }
 var force = arguments.Remove("--force");
+
+string? Option(string name)
+{
+    var index = arguments.IndexOf(name);
+    if (index < 0) return null;
+    var value = arguments.ElementAtOrDefault(index + 1) ?? throw new ArgumentException($"{name} braucht einen Wert.");
+    arguments.RemoveRange(index, 2);
+    return value;
+}
+
+var ollamaUrl = Option("--url") ?? "http://localhost:11434";
+var translateTo = Option("--to");
+var translateModel = Option("--model");
+var translateSource = Option("--source");
 
 using var db = new LibraryDb(dbPath);
 var service = new LibraryService(db, new WindowsVolumeProvider(), FfprobeReader.FromEnvironment());
@@ -129,6 +144,42 @@ switch (arguments.FirstOrDefault())
         return 0;
     }
 
+    case "ollama-models":
+    {
+        using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        var models = await new OllamaClient(http, new Uri(ollamaUrl)).ListModelsAsync();
+        Console.WriteLine(models.Count == 0 ? "Ollama läuft, aber es ist kein Modell installiert (ollama pull <Name>)." : string.Join(Environment.NewLine, models));
+        return 0;
+    }
+
+    case "translate-srt":
+    {
+        if (arguments.Count != 3) throw new ArgumentException("translate-srt <ein.srt> <aus.srt> --to <de|zh-Hant> --model <name>");
+        var target = TranslationTarget.Get(translateTo ?? throw new ArgumentException("--to fehlt (de oder zh-Hant)."));
+        var model = translateModel ?? throw new ArgumentException("--model fehlt (siehe ollama-models).");
+        var cues = Srt.Parse(SubtitleText.ReadAsUtf8(arguments[1]));
+
+        using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        var ollama = new OllamaClient(http, new Uri(ollamaUrl));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var last = -1;
+        var progress = new Progress<TranslationProgress>(p =>
+        {
+            var percent = p.TotalCues == 0 ? 100 : p.DoneCues * 100 / p.TotalCues;
+            if (percent == last) return;
+            last = percent;
+            Console.Error.Write($"\r{p.DoneCues}/{p.TotalCues} ({percent} %)  {clock.Elapsed:mm\\:ss}   ");
+        });
+        var translated = await new SubtitleTranslator(ollama.Model(model))
+            .TranslateAsync(cues, target, new TranslationOptions(SourceLanguage: translateSource), progress);
+        Console.Error.WriteLine();
+        File.WriteAllText(arguments[2], Srt.Format(translated), new System.Text.UTF8Encoding(false));
+
+        var placement = await ollama.GetPlacementAsync(model);
+        Console.WriteLine($"{cues.Count} Einträge nach {target.DisplayName} in {clock.Elapsed:mm\\:ss}, Modell läuft auf: {placement.Describe()}. Geschrieben: {arguments[2]}");
+        return 0;
+    }
+
     case "cleanup":
         Console.WriteLine($"Entfernt: {db.RemoveMissingFiles()} als fehlend markierte Dateien, {artwork.PruneOrphans()} verwaiste Cover.");
         return 0;
@@ -136,7 +187,8 @@ switch (arguments.FirstOrDefault())
     default:
         Console.Error.WriteLine(
             "Verwendung: add-folder <ordner> | add-file <datei> | rescan | volumes | list | titles | artwork [--force] |\n" +
-            "            set-cover <title|video> <id> <poster|landscape> <bild> | cleanup   [--db <pfad>] [--art <ordner>]");
+            "            set-cover <title|video> <id> <poster|landscape> <bild> | cleanup   [--db <pfad>] [--art <ordner>]\n" +
+            "            ollama-models | translate-srt <ein.srt> <aus.srt> --to <de|zh-Hant> --model <name> [--source <Sprache>] [--url <adresse>]");
         return 2;
 }
 

@@ -30,6 +30,24 @@ public sealed class AppSettings
     /// <summary>Nach einer Folge die nächste der Serie automatisch starten (mit Countdown).</summary>
     public bool AutoPlayNext { get; set; } = true;
 
+    /// <summary>Adresse des lokalen Ollama, das Untertitel übersetzt.</summary>
+    public string OllamaUrl { get; set; } = "http://localhost:11434";
+
+    /// <summary>Name des Ollama-Modells für Übersetzungen („qwen3:14b“); null, solange keins gewählt ist.</summary>
+    public string? TranslationModel { get; set; }
+
+    /// <summary>Eigenes Modell für Chinesisch; null nimmt <see cref="TranslationModel"/>.</summary>
+    public string? TranslationModelChinese { get; set; }
+
+    /// <summary>Das Modell für diese Zielsprache; null, wenn noch keins gewählt wurde.</summary>
+    public string? ModelFor(TranslationTarget target) =>
+        target.Id == TranslationTarget.TraditionalChinese.Id ? TranslationModelChinese ?? TranslationModel : TranslationModel;
+
+    [JsonIgnore]
+    public Uri OllamaUri => Uri.TryCreate(OllamaUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+        ? uri
+        : throw new ArgumentException($"Die Ollama-Adresse „{OllamaUrl}“ ist keine http-Adresse (z. B. http://localhost:11434).");
+
     [JsonIgnore]
     public PlaybackPreferences Playback => new PlaybackPreferences(AudioLanguage, Subtitles, SubtitleLanguage).Validated();
 
@@ -38,6 +56,9 @@ public sealed class AppSettings
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MediaCenter");
 
     public static string FilePath { get; } = Path.Combine(DataDirectory, "settings.json");
+
+    /// <summary>Zwischenstände laufender Untertitel-Übersetzungen (zum Fortsetzen nach einem Abbruch).</summary>
+    public static string TranslationDirectory { get; } = Path.Combine(DataDirectory, "translation");
 
     /// <summary>Fehlt die Datei, gelten die Standardwerte (erster Start); eine kaputte Datei ist ein lauter Fehler.</summary>
     public static AppSettings Load()
@@ -48,6 +69,7 @@ public sealed class AppSettings
             var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath))
                 ?? throw new InvalidDataException("Datei ist leer.");
             _ = settings.Playback; // prüft die Sprachschlüssel
+            _ = settings.OllamaUri;
             return settings;
         }
         catch (Exception ex) when (ex is JsonException or InvalidDataException or ArgumentException)

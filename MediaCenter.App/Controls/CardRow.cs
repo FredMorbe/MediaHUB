@@ -2,13 +2,15 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using MediaCenter.App.Services;
+using MediaCenter.Core;
 
 namespace MediaCenter.App.Controls;
 
 /// <summary>Überschrift und waagerecht scrollende Reihe von Karten, mit Pfeilen an den Rändern.</summary>
 public sealed class CardRow : Grid
 {
-    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated)
+    /// <param name="onEdit">„Bearbeiten …“ im Kontextmenü der Filmkarten; ohne Angabe gibt es kein Menü.</param>
+    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated, Action<CardItem>? onEdit = null)
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -22,6 +24,7 @@ public sealed class CardRow : Grid
         {
             var card = new CardView(item) { Margin = new Thickness(0, 0, 18, 0) };
             card.Activated += onActivated;
+            if (onEdit is not null && item is { Kind: TitleKind.Movie, TitleId: > 0, Tag: null }) card.EditRequested += onEdit;
             strip.Children.Add(card);
         }
 

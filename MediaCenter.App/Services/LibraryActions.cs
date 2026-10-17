@@ -32,6 +32,36 @@ public static class LibraryActions
         await shell.RefreshArtworkAsync();
     }
 
+    /// <summary>Papierkorb, wo es einen gibt; auf Laufwerken ohne Papierkorb (USB) wird endgültig gelöscht.</summary>
+    public static void Recycle(string path) => Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
+        path, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+
+    /// <summary>Öffnet den MKV-Editor für den Film eines Titels; sagt dem Nutzer, warum es nicht geht (offline, keine MKV).</summary>
+    public static void EditMovie(IShell shell, long titleId)
+    {
+        if (shell.Services.Model.VideosOf(titleId).FirstOrDefault() is not { } video)
+        {
+            shell.ShowMessage("Zu diesem Titel gibt es keine Videodatei.", isError: true);
+            return;
+        }
+        EditVideo(shell, video);
+    }
+
+    public static void EditVideo(IShell shell, VideoRow video)
+    {
+        if (shell.Services.Model.PathOf(video) is not { } path)
+        {
+            shell.ShowMessage($"Die Datei ist nicht erreichbar (Laufwerk abgesteckt oder Datei fehlt): {video.RelPath}", isError: true);
+            return;
+        }
+        if (!MkvEditor.CanEdit(path))
+        {
+            shell.ShowMessage("Bearbeiten ist nur bei MKV-Dateien möglich.", isError: true);
+            return;
+        }
+        shell.Open(() => new Pages.MkvEditorPage(shell, video, path));
+    }
+
     private static async Task AddAsync(IShell shell, string busyText, Func<Task<(long SourceId, ScanResult Scan)>> add)
     {
         ScanResult? scan = null;

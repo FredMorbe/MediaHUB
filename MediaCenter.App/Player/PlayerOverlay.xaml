@@ -73,6 +73,12 @@
             <StackPanel x:Name="AdjustContent"/>
         </Border>
 
+        <!-- Untertitel übersetzen: Quelle und Zielsprachen wählen, Fortschritt (Inhalt entsteht im Code) -->
+        <Border x:Name="TranslatePanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14" MinWidth="400" MaxWidth="520">
+            <StackPanel x:Name="TranslateContent"/>
+        </Border>
+
         <!-- Arbeit im Gang (Einbetten): sperrt die Bedienung darunter -->
         <Grid x:Name="BusyLayer" Visibility="Collapsed" Background="#B0000000">
             <Border VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="18" Background="#F50B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="30,26" MinWidth="460" MaxWidth="620">

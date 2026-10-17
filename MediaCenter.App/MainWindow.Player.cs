@@ -71,6 +71,8 @@ public partial class MainWindow
         };
         _overlay.AdjustmentChanged += OnAdjustmentChanged;
         _overlay.SubtitleEmbedRequested += trackId => _ = EmbedSubtitleAsync(trackId);
+        _overlay.TranslateRequested += (trackId, targets) => _ = TranslateSubtitleAsync(trackId, targets);
+        _overlay.TranslateCancelled += () => _translateCts?.Cancel();
         _overlay.BusyCancelled += () =>
         {
             _overlay.SetBusyCancelling();
@@ -315,7 +317,7 @@ public partial class MainWindow
                 break;
             case "track-list" when data is { ValueKind: JsonValueKind.Array } v:
                 _tracks = ParseTracks(v);
-                _overlay.SetTracks(_tracks.Select(t => new TrackInfo(t.Id, t.Type, t.Label, t.Selected, t.UserAdded)).ToList());
+                _overlay.SetTracks(_tracks.Select(t => new TrackInfo(t.Id, t.Type, t.Label, t.Selected, t.UserAdded, Translatable: CanTranslate(t))).ToList());
                 AutoSelectSubtitle();
                 break;
             default:
@@ -339,12 +341,13 @@ public partial class MainWindow
             string? Text(string name) => t.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
             bool Flag(string name) => t.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.True;
             int? channels = t.TryGetProperty("demux-channel-count", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : null;
+            int? ffIndex = t.TryGetProperty("ff-index", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetInt32() : null;
 
             var file = Text("external-filename");
             tracks.Add(new MediaTrack(
                 t.GetProperty("id").GetInt32(), type, Text("lang"), Text("title"), Text("codec"),
                 Flag("default"), Flag("forced"), Flag("external"), Flag("selected"), channels,
-                file, UserAdded: file is not null && Services.Subtitles.Contains(file)));
+                file, UserAdded: file is not null && Services.Subtitles.Contains(file), FfIndex: ffIndex));
         }
         return tracks;
     }
@@ -471,8 +474,7 @@ public partial class MainWindow
     private static string FormatSize(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.0} GB" : $"{bytes / (double)(1L << 20):0} MB";
 
     /// <summary>Papierkorb, wo es einen gibt; auf Laufwerken ohne Papierkorb (USB) wird endgültig gelöscht.</summary>
-    private static void RecycleOriginal(string path) => Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(
-        path, Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+    private static void RecycleOriginal(string path) => MediaCenter.App.Services.LibraryActions.Recycle(path);
 
     /// <summary>
     /// Schreibt den gespeicherten Untertitel in die MKV (ohne Neukodierung), nach Rückfrage. Das Video wird dafür beendet und
@@ -723,6 +725,7 @@ public partial class MainWindow
         _saveTimer.Stop();
         _adjustSaveTimer.Stop();
         _embedCts?.Cancel();
+        _translateCts?.Cancel();
         SaveProgress();
         FlushAdjustment();
         _overlay.Close();
