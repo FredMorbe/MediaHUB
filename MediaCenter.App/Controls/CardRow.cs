@@ -9,8 +9,8 @@ namespace MediaCenter.App.Controls;
 /// <summary>Überschrift und waagerecht scrollende Reihe von Karten, mit Pfeilen an den Rändern.</summary>
 public sealed class CardRow : Grid
 {
-    /// <param name="onEdit">„Bearbeiten …“ im Kontextmenü der Filmkarten; ohne Angabe gibt es kein Menü.</param>
-    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated, Action<CardItem>? onEdit = null)
+    /// <param name="menu">Einträge des Kontextmenüs einer Karte; ohne Angabe gibt es kein Menü.</param>
+    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated, Func<CardItem, IReadOnlyList<(string Text, Action Click)>>? menu = null)
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -22,9 +22,8 @@ public sealed class CardRow : Grid
         var strip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 14) };
         foreach (var item in items)
         {
-            var card = new CardView(item) { Margin = new Thickness(0, 0, 18, 0) };
+            var card = new CardView(item) { Margin = new Thickness(0, 0, 18, 0), Menu = menu };
             card.Activated += onActivated;
-            if (onEdit is not null && item is { Kind: TitleKind.Movie, TitleId: > 0, Tag: null }) card.EditRequested += onEdit;
             strip.Children.Add(card);
         }
 

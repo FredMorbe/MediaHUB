@@ -44,6 +44,22 @@ public sealed class AppServices : IDisposable
     /// <summary>Liest die Spuren einer Datei (ffprobe).</summary>
     public required FfprobeReader Probe { get; init; }
 
+    /// <summary>Lädt Bilder aus dem Netz in den Cover-Cache.</summary>
+    public required RemoteImages Images { get; init; }
+
+    /// <summary>Serienposter von TVmaze; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
+    public required TvMazeClient TvMaze { get; init; }
+
+    /// <summary>Filmposter von OMDb; null, solange kein Schlüssel in <see cref="OmdbKeyVariable"/> steht.</summary>
+    public OmdbClient? Omdb { get; init; }
+
+    /// <summary>Name der Umgebungsvariable mit dem OMDb-Schlüssel (der Schlüssel selbst steht nie in einer Datei der App).</summary>
+    public const string OmdbKeyVariable = "MEDIACENTER_OMDB_KEY";
+
+    /// <summary>Schaltet die Online-Suche nach Postern nach der Einstellung ein oder aus (gilt ab dem nächsten Cover-Durchlauf).</summary>
+    public void ApplyOnlineCovers() =>
+        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images) : null;
+
     /// <summary>Ohne Zeitlimit des Clients: Antworten eines großen Modells brauchen lange, <see cref="OllamaClient"/> setzt sein eigenes.</summary>
     public required HttpClient OllamaHttp { get; init; }
 
@@ -68,7 +84,7 @@ public sealed class AppServices : IDisposable
         var images = new RemoteImages(http, ffmpeg, cache);
         var mpvPath = Environment.GetEnvironmentVariable("MEDIACENTER_MPV") ?? DefaultMpvPath;
 
-        return new AppServices
+        var services = new AppServices
         {
             Settings = settings,
             Theme = new ThemeService(settings),
@@ -77,6 +93,11 @@ public sealed class AppServices : IDisposable
             MpvPath = mpvPath,
             Audio = new AudioController(mpvPath, db, settings),
             Http = http,
+            Images = images,
+            TvMaze = new TvMazeClient(http),
+            Omdb = Environment.GetEnvironmentVariable(OmdbKeyVariable) is { } omdbKey && !string.IsNullOrWhiteSpace(omdbKey)
+                ? new OmdbClient(http, omdbKey.Trim())
+                : null,
             RadioSearch = new RadioBrowserClient(http),
             RadioStations = new RadioService(db, images),
             PodcastSearch = new PodcastSearchClient(http),
@@ -88,6 +109,8 @@ public sealed class AppServices : IDisposable
             OllamaHttp = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan },
             SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
+        services.ApplyOnlineCovers();
+        return services;
     }
 
     public void Dispose()

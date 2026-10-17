@@ -31,6 +31,7 @@ public partial class MainWindow
     private readonly DispatcherTimer _nextTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     private readonly DispatcherTimer _adjustSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private readonly DispatcherTimer _colorSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
 
     private MpvPlayer? _mpv;
     private SubtitleAdjustment _adjustment = SubtitleAdjustment.Default;
@@ -70,6 +71,14 @@ public partial class MainWindow
             _ = _mpv?.CommandAsync("set", type == "audio" ? "aid" : "sid", id < 0 ? "no" : id.ToString(CultureInfo.InvariantCulture));
         };
         _overlay.AdjustmentChanged += OnAdjustmentChanged;
+        _overlay.PictureChanged += picture => _ = ApplyPictureAsync(picture);
+        _overlay.ColorChanged += OnColorChanged;
+        _colorSaveTimer.Tick += (_, _) =>
+        {
+            _colorSaveTimer.Stop();
+            FlushColor();
+        };
+        _overlay.FrameStepRequested += direction => _ = StepFrameAsync(direction);
         _overlay.SubtitleEmbedRequested += trackId => _ = EmbedSubtitleAsync(trackId);
         _overlay.TranslateRequested += (trackId, targets) => _ = TranslateSubtitleAsync(trackId, targets);
         _overlay.TranslateCancelled += () => _translateCts?.Cancel();
@@ -117,6 +126,7 @@ public partial class MainWindow
             // Wechsel mitten im Player (nächste Folge): die verlassene Folge sichern
             SaveProgress();
             FlushAdjustment();
+            FlushColor();
         }
 
         var start = 0.0;
@@ -165,6 +175,8 @@ public partial class MainWindow
             _overlay.SetAdjustment(_adjustment);
             _overlay.SetCanEmbed(MkvSubtitleEmbedder.CanEmbedInto(path));
             await ApplyAdjustmentAsync(_adjustment);
+            await ResetPictureAsync();
+            await LoadColorAsync(video);
             await _mpv.CommandAsync("loadfile", path, "replace", -1, $"start={start.ToString("0.###", CultureInfo.InvariantCulture)}");
             await _mpv.CommandAsync("set", "pause", "no");
             _lastActivity = DateTime.UtcNow;
@@ -208,7 +220,7 @@ public partial class MainWindow
         foreach (var property in new[]
         {
             "time-pos", "duration", "pause", "eof-reached", "volume", "mute", "track-list",
-            "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps",
+            "video-params", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps",
         })
         {
             await mpv.ObserveAsync(property);
@@ -248,6 +260,7 @@ public partial class MainWindow
         CancelNextCountdown(declined: false);
         SaveProgress();
         FlushAdjustment();
+        FlushColor();
         _playing = null;
         _selectEmbedded = null;
         _nextVideo = null;
@@ -314,6 +327,11 @@ public partial class MainWindow
                 break;
             case "mute" when data is { } v:
                 _overlay.SetMuted(v.GetBoolean());
+                break;
+            case "video-params" when _switching:
+                break;
+            case "video-params":
+                _overlay.SetVideoAspect(data is { ValueKind: JsonValueKind.Object } p && p.TryGetProperty("aspect", out var aspect) && aspect.ValueKind == JsonValueKind.Number ? aspect.GetDouble() : null);
                 break;
             case "track-list" when data is { ValueKind: JsonValueKind.Array } v:
                 _tracks = ParseTracks(v);
@@ -491,6 +509,7 @@ public partial class MainWindow
         }
 
         FlushAdjustment();
+        FlushColor();
         var delay = _adjustment.DelaySeconds;
         var question = new StringBuilder()
             .AppendLine($"Den Untertitel „{Path.GetFileName(stored)}“ in diese Datei einbetten?")
@@ -651,8 +670,27 @@ public partial class MainWindow
     {
         if (!PlayerActive) return;
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         switch (e.Key)
         {
+            // Bild (Belegung wie im MPC-BE): Strg+←/→ Einzelbild, Strg+↑/↓ Tempo, Strg+R Tempo zurück
+            case Key.Left when ctrl && shift: _overlay.Pan(-PictureSettings.PanStep, 0); break;
+            case Key.Right when ctrl && shift: _overlay.Pan(PictureSettings.PanStep, 0); break;
+            case Key.Up when ctrl && shift: _overlay.Pan(0, -PictureSettings.PanStep); break;
+            case Key.Down when ctrl && shift: _overlay.Pan(0, PictureSettings.PanStep); break;
+            case Key.Left when ctrl: _ = StepFrameAsync(-1); break;
+            case Key.Right when ctrl: _ = StepFrameAsync(1); break;
+            case Key.Up when ctrl: _overlay.StepSpeed(1); break;
+            case Key.Down when ctrl: _overlay.StepSpeed(-1); break;
+            case Key.R when ctrl: _overlay.ResetSpeed(); break;
+            case Key.OemComma: _ = StepFrameAsync(-1); break;
+            case Key.OemPeriod: _ = StepFrameAsync(1); break;
+            case Key.OemPlus or Key.Add: _overlay.StepZoom(1); break;
+            case Key.OemMinus or Key.Subtract: _overlay.StepZoom(-1); break;
+            case Key.D0 or Key.NumPad0: _overlay.ResetZoom(); break;
+            case Key.R: _overlay.Rotate(shift ? -90 : 90); break;
+            case Key.A: _overlay.NextAspect(); break;
+
             case Key.Space or Key.K: _ = TogglePauseAsync(); break;
             case Key.F11 or Key.F: ToggleFullscreen(); break;
             case Key.Escape: if (_fullscreen) ToggleFullscreen(); else _ = ExitPlayerAsync(); break;
@@ -724,10 +762,12 @@ public partial class MainWindow
         _idleTimer.Stop();
         _saveTimer.Stop();
         _adjustSaveTimer.Stop();
+        _colorSaveTimer.Stop();
         _embedCts?.Cancel();
         _translateCts?.Cancel();
         SaveProgress();
         FlushAdjustment();
+        FlushColor();
         _overlay.Close();
         _mpv?.Dispose();
         _mpv = null;

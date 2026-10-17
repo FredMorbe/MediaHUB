@@ -107,7 +107,7 @@ public sealed class SubtitleAdjustmentTests : IDisposable
     }
 
     [Fact]
-    public async Task A_schema_4_database_is_migrated_to_5_keeping_all_data()
+    public async Task A_schema_4_database_is_migrated_to_the_current_schema_keeping_all_data()
     {
         await _service.AddFolderAsync(_drive);
         var solo = VideoId("Solo");
@@ -119,7 +119,7 @@ public sealed class SubtitleAdjustmentTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE subtitle_settings; PRAGMA user_version = 4;";
+            cmd.CommandText = "DROP TABLE online_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 4;";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();

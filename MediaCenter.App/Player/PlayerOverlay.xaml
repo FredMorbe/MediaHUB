@@ -46,12 +46,18 @@
                             <Button x:Name="NextButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE893;" Visibility="Collapsed" AutomationProperties.Name="Nächste Folge"/>
                             <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE767;" Margin="14,0,0,0" ToolTip="Ton aus (M)" AutomationProperties.Name="Stumm schalten"/>
                             <Slider x:Name="VolumeSlider" Style="{StaticResource SeekSlider}" Background="#40FFFFFF" Width="96" Minimum="0" Maximum="100" Value="100" VerticalAlignment="Center"/>
+                            <!-- Einzelbild nur bei Pause; Tempo nur, wenn es nicht 1× ist -->
+                            <Button x:Name="FramePrevButton" Style="{StaticResource GhostButton}" Foreground="White" Content="−1 Bild" Padding="12,6" Margin="14,0,0,0" Visibility="Collapsed" ToolTip="Ein Bild zurück (Strg+←, Komma)" AutomationProperties.Name="Ein Bild zurück"/>
+                            <Button x:Name="FrameNextButton" Style="{StaticResource GhostButton}" Foreground="White" Content="+1 Bild" Padding="12,6" Margin="6,0,0,0" Visibility="Collapsed" ToolTip="Ein Bild vor (Strg+→, Punkt)" AutomationProperties.Name="Ein Bild vor"/>
+                            <Button x:Name="SpeedButton" Style="{StaticResource GhostButton}" Foreground="White" Content="1×" Padding="12,6" Margin="14,0,0,0" Visibility="Collapsed" ToolTip="Normale Geschwindigkeit (Strg+R)" AutomationProperties.Name="Geschwindigkeit zurücksetzen"/>
                         </StackPanel>
                         <TextBlock x:Name="StatsText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" Foreground="#B0FFFFFF" Visibility="Collapsed"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button x:Name="AudioButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Ton" Padding="18,7" Margin="0,0,8,0"/>
                             <Button x:Name="SubButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Untertitel" Padding="18,7" Margin="0,0,8,0"/>
                             <Button x:Name="AdjustButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Anpassen" Padding="18,7" Margin="0,0,8,0" ToolTip="Untertitel: Zeitversatz, Größe, Position (Z / X = 0,1 s früher / später)" AutomationProperties.Name="Untertitel anpassen"/>
+                            <Button x:Name="PictureButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Bild" Padding="18,7" Margin="0,0,8,0" ToolTip="Seitenverhältnis, Tempo, Zoom, Drehen" AutomationProperties.Name="Bildoptionen"/>
+                            <Button x:Name="ColorButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Farbe" Padding="18,7" Margin="0,0,8,0" ToolTip="Helligkeit, Kontrast, Sättigung, Weißabgleich, Invertieren" AutomationProperties.Name="Farbeinstellungen"/>
                             <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE740;" ToolTip="Vollbild (F)" AutomationProperties.Name="Vollbild"/>
                         </StackPanel>
                     </Grid>
@@ -71,6 +77,22 @@
         <Border x:Name="AdjustPanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
                 CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14" MinWidth="380">
             <StackPanel x:Name="AdjustContent"/>
+        </Border>
+
+        <!-- Bild: Seitenverhältnis, Tempo, Zoom und Ausschnitt, Drehen (Inhalt entsteht im Code) -->
+        <Border x:Name="PicturePanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14,10,14" Width="480">
+            <ScrollViewer x:Name="PictureScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="PictureContent" Margin="0,0,8,0"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Farbe: Helligkeit, Kontrast, Sättigung, Farbton, Gamma, Weißabgleich, Schärfe, Invertieren (Inhalt entsteht im Code) -->
+        <Border x:Name="ColorPanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14,10,14" Width="480">
+            <ScrollViewer x:Name="ColorScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="ColorContent" Margin="0,0,8,0"/>
+            </ScrollViewer>
         </Border>
 
         <!-- Untertitel übersetzen: Quelle und Zielsprachen wählen, Fortschritt (Inhalt entsteht im Code) -->

@@ -86,6 +86,8 @@ public partial class PlayerOverlay : Window
             Notice.Visibility = Visibility.Collapsed;
         };
         BuildAdjustPanel();
+        BuildPicturePanel();
+        BuildColorPanel();
         AdjustButton.Click += (_, _) => ToggleAdjust();
         BusyCancelButton.Click += (_, _) => BusyCancelled?.Invoke();
         BusyBar.SetResourceReference(Control.ForegroundProperty, "AccentBrush");
@@ -153,7 +155,7 @@ public partial class PlayerOverlay : Window
     {
         for (var node = element; node is not null; node = node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
         {
-            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, BusyLayer)) return true;
+            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, PicturePanel) || ReferenceEquals(node, ColorPanel) || ReferenceEquals(node, BusyLayer)) return true;
         }
         return false;
     }
@@ -174,7 +176,12 @@ public partial class PlayerOverlay : Window
         SeekSlider.Maximum = Math.Max(seconds, 1);
     }
 
-    public void SetPaused(bool paused) => PlayPauseButton.Content = paused ? "" : "";
+    public void SetPaused(bool paused)
+    {
+        PlayPauseButton.Content = paused ? "" : "";
+        // Einzelbild-Knöpfe nur bei Pause (die Tasten Strg+←/→ pausieren selbst).
+        FramePrevButton.Visibility = FrameNextButton.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     public void SetVolume(double volume)
     {
@@ -237,13 +244,15 @@ public partial class PlayerOverlay : Window
         {
             CloseMenu();
             AdjustPanel.Visibility = Visibility.Collapsed;
+            PicturePanel.Visibility = Visibility.Collapsed;
+            ColorPanel.Visibility = Visibility.Collapsed;
         }
         Controls.IsHitTestVisible = visible;
         Cursor = visible ? Cursors.Arrow : Cursors.None;
         Controls.BeginAnimation(OpacityProperty, new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromMilliseconds(visible ? 120 : 350)));
     }
 
-    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible;
+    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible || PicturePanel.Visibility == Visibility.Visible || ColorPanel.Visibility == Visibility.Visible;
 
     // --- Untertitel anpassen -------------------------------------------------------------------------------
 
@@ -290,6 +299,8 @@ public partial class PlayerOverlay : Window
         var show = AdjustPanel.Visibility != Visibility.Visible;
         CloseMenu();
         TranslatePanel.Visibility = Visibility.Collapsed;
+        PicturePanel.Visibility = Visibility.Collapsed;
+        ColorPanel.Visibility = Visibility.Collapsed;
         AdjustPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -363,6 +374,8 @@ public partial class PlayerOverlay : Window
     {
         CloseMenu();
         AdjustPanel.Visibility = Visibility.Collapsed;
+        PicturePanel.Visibility = Visibility.Collapsed;
+        ColorPanel.Visibility = Visibility.Collapsed;
         BusyTitle.Text = title;
         BusyText.Text = text;
         BusyBar.Value = 0;
@@ -392,6 +405,8 @@ public partial class PlayerOverlay : Window
         }
         AdjustPanel.Visibility = Visibility.Collapsed;
         TranslatePanel.Visibility = Visibility.Collapsed;
+        PicturePanel.Visibility = Visibility.Collapsed;
+        ColorPanel.Visibility = Visibility.Collapsed;
         _menuType = type;
         BuildMenu(type);
         TrackMenu.Visibility = Visibility.Visible;

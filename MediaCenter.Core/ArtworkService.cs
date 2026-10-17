@@ -7,12 +7,34 @@ public sealed record ArtworkFailure(string Subject, string Error);
 /// <param name="Unreachable">Titel, deren Dateien gerade nicht erreichbar sind (Laufwerk offline oder Datei fehlt).</param>
 public sealed record ArtworkResult(int Created, int Skipped, int Unreachable, IReadOnlyList<ArtworkFailure> Failures);
 
+/// <summary>Quellen für Poster aus dem Internet (je Titelart, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
+public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images);
+
 /// <summary>
-/// Beschafft Cover ohne Internet. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Standbild.
+/// Beschafft Cover. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Poster aus dem Internet → Standbild.
+/// Das Internet wird nur gefragt, wenn <see cref="Online"/> gesetzt ist und lokal kein Poster da ist.
 /// Bilder liegen verkleinert im Cache; die Datenbank merkt sich nur Verweis und Herkunft.
 /// </summary>
 public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe probe, string cacheDir)
 {
+    /// <summary>Eine ergebnislose Suche im Internet gilt so lange, bevor erneut gefragt wird (neue Serien kommen später dazu).</summary>
+    private static readonly TimeSpan NoMatchRetry = TimeSpan.FromDays(14);
+
+    /// <summary>
+    /// Version des Suchverfahrens in den Clients (Titelvergleich, Abfragevarianten). Bei jeder Änderung erhöhen: gemerkte
+    /// ergebnislose Suchen älterer Versionen gelten dann nicht mehr und werden mit dem besseren Verfahren neu versucht.
+    /// </summary>
+    private const int MatchVersion = 2;
+
+    /// <summary>Null schaltet das Internet ab; die Einstellung der App setzt es.</summary>
+    public OnlineArtwork? Online { get; set; }
+
+    /// <summary>Zustand eines Durchlaufs: fällt ein Anbieter aus, wird das einmal gemeldet und er nicht weiter gefragt (die anderen schon).</summary>
+    private sealed class OnlineRun
+    {
+        public HashSet<string> Unavailable { get; } = new();
+    }
+
     private static readonly (int W, int H) PosterSize = (400, 600);
     private static readonly (int W, int H) BackdropSize = (1280, 720);
     private static readonly (int W, int H) ThumbSize = (480, 270);
@@ -39,6 +61,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     {
         int created = 0, skipped = 0, unreachable = 0;
         var failures = new List<ArtworkFailure>();
+        var online = new OnlineRun();
 
         foreach (var title in db.GetTitles())
         {
@@ -57,7 +80,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
 
             try
             {
-                var made = await RefreshTitleAsync(title, reachable, force, ct);
+                var made = await RefreshTitleAsync(title, reachable, force, online, failures, ct);
                 made += await RefreshEpisodeThumbsAsync(title, reachable, force, ct, failures);
                 if (made == 0) skipped++;
                 created += made;
@@ -70,7 +93,8 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
         return new ArtworkResult(created, skipped, unreachable, failures);
     }
 
-    private async Task<int> RefreshTitleAsync(TitleRow title, List<(TitleVideo Video, string Path)> reachable, bool force, CancellationToken ct)
+    private async Task<int> RefreshTitleAsync(
+        TitleRow title, List<(TitleVideo Video, string Path)> reachable, bool force, OnlineRun online, List<ArtworkFailure> failures, CancellationToken ct)
     {
         var needPoster = Needs(ArtworkOwner.Title, title.Id, ArtworkKind.Poster, force);
         var needLandscape = Needs(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape, force);
@@ -103,6 +127,10 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
                 db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Poster, ArtworkSource.Embedded, file);
                 created++;
             }
+            else if (await TryOnlinePosterAsync(title, file, force, online, failures, ct))
+            {
+                created++;
+            }
             // Kein Poster gefunden: bleibt leer; die Oberfläche zeigt das Querformat-Bild oder den Platzhalter.
         }
 
@@ -128,6 +156,50 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
             created++;
         }
         return created;
+    }
+
+    /// <summary>
+    /// Sucht das Poster eines Titels im Internet (Serien bei TVmaze, Filme bei OMDb). Fehler stoppen den Durchlauf nicht: fällt ein
+    /// Anbieter aus (Netz weg, falscher Schlüssel, Tageslimit), steht einmal eine Meldung in den Fehlern und er wird nicht weiter
+    /// gefragt; ein Fehler bei einem Titel betrifft nur diesen.
+    /// </summary>
+    private async Task<bool> TryOnlinePosterAsync(TitleRow title, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    {
+        if (Online is not { } online) return false;
+        if ((title.Kind == TitleKind.Series ? online.Series : online.Movies) is not { } finder || run.Unavailable.Contains(finder.Provider)) return false;
+
+        var provider = finder.Provider;
+        var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
+        if (!force && db.GetOnlineLookup(title.Id, provider) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
+        {
+            return false;
+        }
+
+        try
+        {
+            var poster = await finder.FindAsync(title.Name, title.Year, ct);
+            if (poster is null)
+            {
+                db.SetOnlineLookup(title.Id, provider, query, found: false);
+                return false;
+            }
+
+            await online.Images.DownloadAsync(poster.ImageUrl, file, PosterSize.W, PosterSize.H, ct);
+            db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Poster, ArtworkSource.Online, file);
+            db.SetOnlineLookup(title.Id, provider, query, found: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
+        {
+            run.Unavailable.Add(provider);
+            failures.Add(new ArtworkFailure($"Online-Cover ({provider})", $"nicht verfügbar: {ex.Message}"));
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failures.Add(new ArtworkFailure(title.Name, $"Online-Poster nicht übernommen: {ex.Message}"));
+            return false;
+        }
     }
 
     /// <summary>Standbilder je Episode für die Episodenliste.</summary>
@@ -160,11 +232,23 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     {
         if (!File.Exists(imagePath)) throw new FileNotFoundException($"Bild existiert nicht: {imagePath}", imagePath);
 
-        var size = kind == ArtworkKind.Poster ? PosterSize : owner == ArtworkOwner.Title ? BackdropSize : ThumbSize;
+        var size = SizeOf(owner, kind);
         var file = CacheFile(owner, ownerId, kind);
         await images.ScaleImageAsync(imagePath, Absolute(file), size.W, size.H, ct);
         db.SetArtwork(owner, ownerId, kind, ArtworkSource.User, file);
     }
+
+    /// <summary>Wie <see cref="SetUserArtworkAsync"/>, nur lädt es das Bild von einer Webadresse (z. B. Poster, das der Nutzer im Browser gewählt hat).</summary>
+    public async Task SetUserArtworkFromUrlAsync(RemoteImages remote, ArtworkOwner owner, long ownerId, ArtworkKind kind, string url, CancellationToken ct = default)
+    {
+        var size = SizeOf(owner, kind);
+        var file = CacheFile(owner, ownerId, kind);
+        await remote.DownloadAsync(url, file, size.W, size.H, ct);
+        db.SetArtwork(owner, ownerId, kind, ArtworkSource.User, file);
+    }
+
+    private static (int W, int H) SizeOf(ArtworkOwner owner, ArtworkKind kind) =>
+        kind == ArtworkKind.Poster ? PosterSize : owner == ArtworkOwner.Title ? BackdropSize : ThumbSize;
 
     /// <summary>Entfernt das Cover samt Datei; ein späterer Refresh beschafft es wieder automatisch.</summary>
     public void ClearArtwork(ArtworkOwner owner, long ownerId, ArtworkKind kind)

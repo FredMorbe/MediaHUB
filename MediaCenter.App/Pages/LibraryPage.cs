@@ -39,6 +39,13 @@ public sealed class LibraryPage : UserControl
         var stack = new StackPanel { Margin = new Thickness(48, 92, 48, 60) };
         stack.Children.Add(heading);
         stack.Children.Add(_count);
+        if (kind == TitleKind.Movie)
+        {
+            var rename = PageParts.Button("Dateien umbenennen …", "GhostButton", (_, _) => _shell.Open(() => new RenamePage(_shell)), new Thickness(0, 0, 0, 12));
+            rename.Padding = new Thickness(16, 7, 16, 7);
+            System.Windows.Automation.AutomationProperties.SetName(rename, "Filme umbenennen");
+            stack.Children.Add(rename);
+        }
         stack.Children.Add(chips);
         stack.Children.Add(_grid);
 
@@ -74,9 +81,8 @@ public sealed class LibraryPage : UserControl
         _grid.Children.Clear();
         foreach (var title in titles)
         {
-            var card = new CardView(_model.ToCard(title)) { Margin = new Thickness(0, 0, 22, 28) };
+            var card = new CardView(_model.ToCard(title)) { Margin = new Thickness(0, 0, 22, 28), Menu = item => LibraryActions.CardMenu(_shell, item) };
             card.Activated += item => _shell.OpenTitle(item.TitleId);
-            if (title.Kind == TitleKind.Movie) card.EditRequested += item => LibraryActions.EditMovie(_shell, item.TitleId);
             _grid.Children.Add(card);
         }
 

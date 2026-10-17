@@ -46,6 +46,26 @@ public sealed partial class LibraryDb
         "DELETE FROM artwork WHERE owner_kind = $owner AND owner_id = $id AND kind = $kind",
         ("$owner", OwnerText(owner)), ("$id", ownerId), ("$kind", KindText(kind)));
 
+    // --- Suchen im Internet (nur ergebnislose Suchen werden gemerkt) ----------------------------------------
+
+    /// <summary>Letzte Suche dieses Titels bei diesem Anbieter, oder null.</summary>
+    public OnlineLookup? GetOnlineLookup(long titleId, string provider)
+    {
+        using var cmd = Command(
+            "SELECT query, found, checked_utc FROM online_lookups WHERE title_id = $id AND provider = $provider",
+            ("$id", titleId), ("$provider", provider));
+        using var r = cmd.ExecuteReader();
+        return r.Read()
+            ? new OnlineLookup(r.GetString(0), r.GetInt32(1) == 1, DateTime.Parse(r.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime())
+            : null;
+    }
+
+    public void SetOnlineLookup(long titleId, string provider, string query, bool found) => Run("""
+        INSERT INTO online_lookups (title_id, provider, query, found, checked_utc) VALUES ($id, $provider, $query, $found, $now)
+        ON CONFLICT (title_id, provider) DO UPDATE SET query = excluded.query, found = excluded.found, checked_utc = excluded.checked_utc
+        """,
+        ("$id", titleId), ("$provider", provider), ("$query", query), ("$found", found ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
+
     public List<TitleRow> GetTitles()
     {
         var rows = new List<TitleRow>();

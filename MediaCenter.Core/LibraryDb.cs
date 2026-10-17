@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 5;
+    private const int SchemaVersion = 7;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -220,12 +220,55 @@ public sealed partial class LibraryDb : IDisposable
                 """);
 
             // Schema 5: Zeitversatz, Größe und Lage der Untertitel pro Video (Nutzerdaten; fehlt die Zeile, gelten die Standardwerte).
-            Run("""
+            if (version < 5) Run("""
                 CREATE TABLE subtitle_settings (
                     video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
                     delay_sec REAL NOT NULL,
                     scale REAL NOT NULL,
                     position INTEGER NOT NULL
+                );
+                """);
+
+            // Schema 6: Farbeinstellungen pro Video (Nutzerdaten; fehlt die Zeile, gelten die Standardwerte).
+            if (version < 6) Run("""
+                CREATE TABLE color_settings (
+                    video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+                    brightness INTEGER NOT NULL,
+                    contrast INTEGER NOT NULL,
+                    saturation INTEGER NOT NULL,
+                    hue INTEGER NOT NULL,
+                    gamma INTEGER NOT NULL,
+                    temperature INTEGER NOT NULL,
+                    tint INTEGER NOT NULL,
+                    sharpness INTEGER NOT NULL,
+                    invert INTEGER NOT NULL
+                );
+                """);
+
+            // Schema 7: Cover aus dem Internet. SQLite kann eine CHECK-Bedingung nicht ändern, deshalb wird artwork neu aufgebaut
+            // (gleiche Spalten, source darf jetzt auch 'online' sein). online_lookups merkt sich ergebnislose Suchen, damit nicht
+            // bei jedem Durchlauf erneut gefragt wird.
+            Run("""
+                CREATE TABLE artwork_new (
+                    owner_kind TEXT NOT NULL CHECK (owner_kind IN ('title', 'video')),
+                    owner_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('poster', 'landscape')),
+                    source TEXT NOT NULL CHECK (source IN ('user', 'sidecar', 'embedded', 'online', 'frame')),
+                    file TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (owner_kind, owner_id, kind)
+                );
+                INSERT INTO artwork_new SELECT owner_kind, owner_id, kind, source, file, updated_utc FROM artwork;
+                DROP TABLE artwork;
+                ALTER TABLE artwork_new RENAME TO artwork;
+
+                CREATE TABLE online_lookups (
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    query TEXT NOT NULL,
+                    found INTEGER NOT NULL,
+                    checked_utc TEXT NOT NULL,
+                    PRIMARY KEY (title_id, provider)
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

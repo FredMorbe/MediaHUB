@@ -189,6 +189,95 @@ public sealed partial class LibraryDb
         return kind == TitleKind.Series ? $"series|{normalized}" : $"movie|{normalized}|{year}";
     }
 
+    // --- Datei umbenennen ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Die Datei wurde auf dem Laufwerk umbenannt: ändert den Pfad am bestehenden Eintrag (Datei-ID und Video-ID bleiben, damit
+    /// Fortschritt, Untertitel- und Farbeinstellungen hängen bleiben) und liest den neuen Namen aus.
+    /// Wandert das Video dadurch zu einem anderen Titel, wird der alte Titel zusammengeführt, wenn er leer zurückbleibt; hat das Video
+    /// den Titel für sich allein und ist der neue Name noch unbekannt, wird der Titel stattdessen umbenannt (Genres und eigene Bilder bleiben so am Titel).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Die Datei ist unbekannt oder der neue Pfad gehört schon einer anderen Datei.</exception>
+    public void RenameVideoFile(long fileId, string newRelPath, ParsedName parsed) => InTransaction(() =>
+    {
+        long volumeId;
+        string oldRel;
+        using (var cmd = Command("SELECT volume_id, rel_path FROM files WHERE id = $id", ("$id", fileId)))
+        using (var r = cmd.ExecuteReader())
+        {
+            if (!r.Read()) throw new InvalidOperationException($"Datei {fileId} ist nicht in der Bibliothek.");
+            volumeId = r.GetInt64(0);
+            oldRel = r.GetString(1);
+        }
+
+        var taken = Scalar<long?>("SELECT id FROM files WHERE volume_id = $vol AND rel_path = $rel AND id <> $id",
+            ("$vol", volumeId), ("$rel", newRelPath), ("$id", fileId));
+        if (taken is not null) throw new InvalidOperationException($"Der Pfad {newRelPath} gehört schon einer anderen Datei der Bibliothek.");
+
+        Run("UPDATE files SET rel_path = $new WHERE id = $id", ("$new", newRelPath), ("$id", fileId));
+        // Eine einzeln hinzugefügte Datei ist selbst die Quelle.
+        Run("UPDATE sources SET rel_path = $new WHERE volume_id = $vol AND kind = 'file' AND rel_path = $old COLLATE NOCASE",
+            ("$new", newRelPath), ("$vol", volumeId), ("$old", oldRel));
+
+        long? oldTitle = null;
+        var locked = false;
+        long? videoId = null;
+        using (var cmd = Command("SELECT id, title_id, locked FROM videos WHERE file_id = $id", ("$id", fileId)))
+        using (var r = cmd.ExecuteReader())
+        {
+            if (r.Read())
+            {
+                videoId = r.GetInt64(0);
+                oldTitle = r.GetInt64OrNull(1);
+                locked = r.GetInt32(2) == 1;
+            }
+        }
+
+        if (oldTitle is { } own && videoId is { } vid && !locked && parsed.Certain && parsed.Kind == VideoKind.Movie
+            && Scalar<string>("SELECT kind FROM titles WHERE id = $t", ("$t", own)) == "movie")
+        {
+            var key = TitleKey(TitleKind.Movie, parsed.Title, parsed.Year);
+            var keyOwner = Scalar<long?>("SELECT title_id FROM title_keys WHERE match_key = $key", ("$key", key));
+            var others = Scalar<int>("SELECT COUNT(*) FROM videos WHERE title_id = $t AND id <> $v", ("$t", own), ("$v", vid));
+            if (others == 0)
+            {
+                if (keyOwner is null)
+                {
+                    // Neuer Name, den noch kein Titel trägt: der Titel selbst wird umbenannt (der alte Schlüssel bleibt, damit ein Zurücknehmen ihn wiederfindet).
+                    Run("UPDATE titles SET name = $name, year = $year WHERE id = $t", ("$name", parsed.Title), ("$year", parsed.Year), ("$t", own));
+                    Run("INSERT INTO title_keys (match_key, title_id) VALUES ($key, $t)", ("$key", key), ("$t", own));
+                }
+                else if (keyOwner == own)
+                {
+                    // Derselbe Schlüssel, nur andere Schreibweise („the matrix reloaded“ → „The Matrix Reloaded“): den Anzeigenamen angleichen,
+                    // aber nur, wenn er sich so nur in der Schreibweise unterscheidet – ein vom Nutzer gewählter anderer Name bleibt.
+                    var current = Scalar<string>("SELECT name FROM titles WHERE id = $t", ("$t", own));
+                    if (PosterNames.MatchKey(current) == PosterNames.MatchKey(parsed.Title))
+                    {
+                        Run("UPDATE titles SET name = $name WHERE id = $t", ("$name", parsed.Title), ("$t", own));
+                    }
+                }
+            }
+        }
+
+        ApplyScanned(fileId, parsed);
+
+        if (oldTitle is { } old)
+        {
+            var now = Scalar<long?>("SELECT title_id FROM videos WHERE file_id = $id", ("$id", fileId));
+            if (now is { } target && target != old && Scalar<int>("SELECT COUNT(*) FROM videos WHERE title_id = $t", ("$t", old)) == 0)
+            {
+                // Vom Nutzer gesetzte Bilder des leeren Titels wandern zum Ziel (soweit dort das Bild noch fehlt), dann werden die Titel zusammengeführt.
+                Run("""
+                    UPDATE artwork SET owner_id = $target
+                    WHERE owner_kind = 'title' AND owner_id = $old AND source = 'user'
+                      AND kind NOT IN (SELECT kind FROM artwork WHERE owner_kind = 'title' AND owner_id = $target)
+                    """, ("$target", target), ("$old", old));
+                MergeTitles(old, target);
+            }
+        }
+    });
+
     // --- Abfragen ------------------------------------------------------------------------------------------
 
     public List<VideoRow> ListVideos()

@@ -57,11 +57,18 @@ public enum ArtworkSource
     User,
     Sidecar,
     Embedded,
+
+    /// <summary>Aus dem Internet geholt (bisher: Serienposter von TVmaze).</summary>
+    Online,
     Frame,
 }
 
 /// <param name="File">Dateiname im Cover-Cache, nicht der Originalpfad.</param>
 public sealed record ArtworkRow(ArtworkOwner Owner, long OwnerId, ArtworkKind Kind, ArtworkSource Source, string File, string UpdatedUtc);
+
+/// <summary>Eine Suche im Internet nach dem Cover eines Titels.</summary>
+/// <param name="Query">Wonach gesucht wurde (Name und Jahr); ändert sich der Titel, gilt die Suche als neu.</param>
+public sealed record OnlineLookup(string Query, bool Found, DateTime CheckedUtc);
 
 public sealed record TitleRow(long Id, TitleKind Kind, string Name, int? Year);
 

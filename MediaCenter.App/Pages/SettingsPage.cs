@@ -39,11 +39,14 @@ public sealed class SettingsPage : UserControl
                 PageParts.Muted($"Datenbank: {Path.Combine(AppSettings.DataDirectory, "library.db")}"),
                 PageParts.Muted($"Cover-Cache: {_shell.Services.Model.Artwork.CacheDir}"),
                 PageParts.Muted($"Einstellungen: {AppSettings.FilePath}"),
-                PageParts.Button("Alle Cover neu erzeugen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(force: true), new Thickness(0, 14, 0, 0)),
+                OnlineCoverSettings(),
+                PageParts.Button("Fehlende Cover suchen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(), new Thickness(0, 14, 0, 0)),
+                PageParts.Button("Alle Cover neu erzeugen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(force: true), new Thickness(0, 10, 0, 0)),
             },
         }));
         stack.Children.Add(Section("Wiedergabe", PlaybackSettings()));
         stack.Children.Add(Section("Übersetzung", TranslationSettings()));
+        stack.Children.Add(Section("Tastenkürzel", Hotkeys()));
         stack.Children.Add(Section("Player", new StackPanel
         {
             Children =
@@ -59,6 +62,39 @@ public sealed class SettingsPage : UserControl
         Build();
         Loaded += (_, _) => _theme.Changed += Build;
         Unloaded += (_, _) => _theme.Changed -= Build;
+    }
+
+    private UIElement OnlineCoverSettings()
+    {
+        var settings = _shell.Services.Settings;
+        var row = new WrapPanel();
+        foreach (var (text, value) in new[] { ("An", true), ("Aus", false) })
+        {
+            var chip = new RadioButton { Content = text, GroupName = "online-covers", IsChecked = settings.OnlineCovers == value };
+            chip.SetResourceReference(StyleProperty, "Chip");
+            System.Windows.Automation.AutomationProperties.SetName(chip, $"Poster online {text}");
+            chip.Checked += (_, _) =>
+            {
+                settings.OnlineCovers = value;
+                settings.Save();
+                _shell.Services.ApplyOnlineCovers();
+            };
+            row.Children.Add(chip);
+        }
+        return new StackPanel
+        {
+            Children =
+            {
+                Label("Poster aus dem Internet"),
+                row,
+                PageParts.Muted("Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com). " +
+                    "Gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; deutsche Filmtitel findet OMDb oft nicht. " +
+                    "Ein selbst gesetztes Poster bleibt immer. Die Suche läuft beim nächsten Durchlauf (Ordner hinzufügen, Scan, „Fehlende Cover suchen“); ohne Treffer wird erst nach zwei Wochen neu gefragt."),
+                PageParts.Muted(_shell.Services.Omdb is null
+                    ? $"Filme: kein OMDb-Schlüssel. Kostenlosen Schlüssel auf omdbapi.com/apikey.aspx anfordern und in der Umgebungsvariable {AppServices.OmdbKeyVariable} setzen, dann die App neu starten."
+                    : $"Filme: OMDb-Schlüssel aus {AppServices.OmdbKeyVariable} gefunden."),
+            },
+        };
     }
 
     /// <summary>Sprachen, die als Schaltflächen angeboten werden; eine von Hand in die Datei geschriebene andere kommt dazu.</summary>
@@ -189,6 +225,77 @@ public sealed class SettingsPage : UserControl
             };
             panel.Children.Add(chip);
         }
+    }
+
+    // Muss zu den Tasten in MainWindow.Player.cs (OnPlayerKey), CardView und MainWindow.OnPreviewKeyDown passen.
+    private static readonly (string Group, (string Keys, string Action)[] Items)[] HotkeyGroups =
+    {
+        ("Wiedergabe", new[]
+        {
+            ("Leertaste · K", "Wiedergabe / Pause"),
+            ("Klick auf das Video", "Wiedergabe / Pause"),
+            ("Doppelklick auf das Video", "Vollbild an / aus"),
+            ("F · F11", "Vollbild an / aus"),
+            ("Esc", "Vollbild verlassen, sonst Player schließen"),
+            ("←  /  →", "10 Sekunden zurück / vor"),
+            ("Umschalt + ←  /  →", "60 Sekunden zurück / vor"),
+            ("↑  /  ↓", "Lautstärke um 5 erhöhen / senken"),
+            ("M", "Ton aus / an"),
+            ("N", "Nächste Folge (nur bei Serien)"),
+            ("I", "Statistik (Hardware-Decoding, verworfene Bilder) ein- / ausblenden"),
+        }),
+        ("Bild", new[]
+        {
+            ("A", "Nächstes Seitenverhältnis (Original, 4:3, 5:4, 16:9, 16:10, 21:9, 2,35:1, 1,85:1, Füllen, Strecken)"),
+            ("Strg + ↑  /  ↓", "Tempo schneller / langsamer (0,25× bis 8×)"),
+            ("Strg + R", "Tempo auf 1× zurücksetzen"),
+            ("Strg + →  /  ←", "Ein Bild vor / zurück (pausiert)"),
+            (".  /  ,", "Ein Bild vor / zurück (pausiert)"),
+            ("+  /  −", "Zoom vergrößern / verkleinern (10-%-Schritte, 50 bis 400 %)"),
+            ("0", "Zoom und Ausschnitt zurücksetzen"),
+            ("Strg + Umschalt + Pfeiltasten", "Ausschnitt des gezoomten Bildes verschieben"),
+            ("R  /  Umschalt + R", "Bild um 90° im / gegen den Uhrzeigersinn drehen"),
+            ("Knopf „Bild“", "Alle Bildeinstellungen als Panel, mit Reglern für den Ausschnitt"),
+            ("Knopf „Farbe“", "Helligkeit, Kontrast, Sättigung, Farbton, Gamma, Farbtemperatur, Tönung, Schärfe, Invertieren"),
+        }),
+        ("Untertitel", new[]
+        {
+            ("Z  /  X", "Untertitel 0,1 Sekunden früher / später"),
+            ("Datei auf das Video ziehen", "Untertitel-Datei hinzufügen"),
+            ("Knopf „Anpassen“", "Zeitversatz, Größe und Höhe der Untertitel"),
+        }),
+        ("Bibliothek", new[]
+        {
+            ("Esc", "Eine Seite zurück"),
+            ("Enter · Leertaste", "Karte oder Zeile öffnen"),
+            ("Rechtsklick · Menütaste · Umschalt + F10", "Menü einer Filmkarte („Bearbeiten …“ öffnet den MKV-Editor)"),
+            ("Enter", "In den Suchfeldern von Radio und Podcasts: suchen"),
+        }),
+    };
+
+    private static UIElement Hotkeys()
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(PageParts.Muted("Gelten im Player und in der Bibliothek. Die Tasten lassen sich noch nicht ändern."));
+        foreach (var (group, items) in HotkeyGroups)
+        {
+            panel.Children.Add(Label(group));
+            foreach (var (keys, action) in items)
+            {
+                var row = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var keyText = PageParts.Semi(keys, 14);
+                keyText.TextWrapping = TextWrapping.Wrap;
+                keyText.Margin = new Thickness(0, 0, 14, 0);
+                var actionText = PageParts.Muted(action);
+                Grid.SetColumn(actionText, 1);
+                row.Children.Add(keyText);
+                row.Children.Add(actionText);
+                panel.Children.Add(row);
+            }
+        }
+        return panel;
     }
 
     private static TextBlock Label(string text)

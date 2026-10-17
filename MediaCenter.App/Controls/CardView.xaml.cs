@@ -73,15 +73,17 @@ public partial class CardView : UserControl
 
     public event Action<CardItem>? Activated;
 
-    /// <summary>„Bearbeiten …“ im Kontextmenü (Rechtsklick, Menütaste); ohne Abonnenten gibt es kein Menü.</summary>
-    public event Action<CardItem>? EditRequested;
+    /// <summary>Einträge des Kontextmenüs (Rechtsklick, Menütaste); ohne Angabe oder ohne Einträge gibt es kein Menü.</summary>
+    public Func<CardItem, IReadOnlyList<(string Text, Action Click)>>? Menu { get; set; }
 
     internal void Activate() => Activated?.Invoke(Item);
 
+    private bool HasMenu => Menu?.Invoke(Item).Count > 0;
+
     private bool ShowMenu()
     {
-        if (EditRequested is null) return false;
-        ContextPopup.Show(this, new (string, Action)[] { ("Bearbeiten …", () => EditRequested?.Invoke(Item)) }, Item.Title);
+        if (Menu?.Invoke(Item) is not { Count: > 0 } items) return false;
+        ContextPopup.Show(this, items, Item.Title);
         return true;
     }
 
@@ -100,7 +102,7 @@ public partial class CardView : UserControl
         public override object? GetPattern(PatternInterface patternInterface) => patternInterface switch
         {
             PatternInterface.Invoke => this,
-            PatternInterface.ExpandCollapse when owner.EditRequested is not null => this,
+            PatternInterface.ExpandCollapse when owner.HasMenu => this,
             _ => base.GetPattern(patternInterface),
         };
 

@@ -18,4 +18,8 @@
     <Resource Include="Fonts\*.ttf" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+  </ItemGroup>
+
 </Project>

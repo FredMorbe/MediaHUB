@@ -122,8 +122,13 @@ public partial class DetailPage : UserControl
 
     private void BuildCoverPanel()
     {
-        CoverPanel.Children.Add(CoverChip("Poster ersetzen", () => ReplaceCoverAsync(ArtworkKind.Poster)));
-        CoverPanel.Children.Add(CoverChip("Hintergrund ersetzen", () => ReplaceCoverAsync(ArtworkKind.Landscape)));
+        CoverPanel.Children.Add(CoverChip("Poster ersetzen", () => LibraryActions.ReplaceArtworkAsync(_shell, _title.Id, ArtworkKind.Poster)));
+        CoverPanel.Children.Add(CoverChip("Poster auf IMDb suchen", () =>
+        {
+            LibraryActions.SearchPosterOnline(_shell, _title.Id);
+            return Task.CompletedTask;
+        }));
+        CoverPanel.Children.Add(CoverChip("Hintergrund ersetzen", () => LibraryActions.ReplaceArtworkAsync(_shell, _title.Id, ArtworkKind.Landscape)));
         CoverPanel.Children.Add(CoverChip("Automatische Cover wiederherstellen", ResetCoversAsync));
         if (_title.Kind == TitleKind.Movie && _model.VideosOf(_title.Id).FirstOrDefault() is { } movie && MkvEditor.CanEdit(movie.RelPath))
         {
@@ -147,17 +152,6 @@ public partial class DetailPage : UserControl
             await action();
         };
         return chip;
-    }
-
-    private async Task ReplaceCoverAsync(ArtworkKind kind)
-    {
-        var filter = string.Join(";", MediaExtensions.Image.Select(e => "*" + e));
-        var dialog = new OpenFileDialog { Title = kind == ArtworkKind.Poster ? "Poster wählen" : "Hintergrundbild wählen", Filter = $"Bilder|{filter}" };
-        if (dialog.ShowDialog() != true) return;
-
-        await _shell.RunBusyAsync("Bild wird übernommen …",
-            () => _model.Artwork.SetUserArtworkAsync(ArtworkOwner.Title, _title.Id, kind, dialog.FileName));
-        _shell.ReloadView();
     }
 
     private async Task ResetCoversAsync()

@@ -131,6 +131,41 @@ public sealed partial class LibraryDb
             ("$id", videoId), ("$delay", adjustment.DelaySeconds), ("$scale", adjustment.Scale), ("$pos", adjustment.Position));
     }
 
+    // --- Farbeinstellungen -----------------------------------------------------------------------------------
+
+    /// <summary>Gespeicherte Farbeinstellungen des Videos, sonst die Standardwerte.</summary>
+    public ColorSettings GetColorSettings(long videoId)
+    {
+        using var cmd = Command(
+            "SELECT brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert FROM color_settings WHERE video_id = $id",
+            ("$id", videoId));
+        using var r = cmd.ExecuteReader();
+        return r.Read()
+            ? new ColorSettings(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6), r.GetInt32(7), r.GetInt32(8) == 1).Validated()
+            : ColorSettings.Default;
+    }
+
+    /// <summary>Speichert die Farbeinstellungen; die Standardwerte löschen die Zeile.</summary>
+    public void SaveColorSettings(long videoId, ColorSettings color)
+    {
+        color.Validated();
+        if (color.IsDefault)
+        {
+            Run("DELETE FROM color_settings WHERE video_id = $id", ("$id", videoId));
+            return;
+        }
+        Run("""
+            INSERT INTO color_settings (video_id, brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert)
+            VALUES ($id, $brightness, $contrast, $saturation, $hue, $gamma, $temperature, $tint, $sharpness, $invert)
+            ON CONFLICT (video_id) DO UPDATE SET brightness = excluded.brightness, contrast = excluded.contrast, saturation = excluded.saturation,
+                hue = excluded.hue, gamma = excluded.gamma, temperature = excluded.temperature, tint = excluded.tint,
+                sharpness = excluded.sharpness, invert = excluded.invert
+            """,
+            ("$id", videoId), ("$brightness", color.Brightness), ("$contrast", color.Contrast), ("$saturation", color.Saturation),
+            ("$hue", color.Hue), ("$gamma", color.Gamma), ("$temperature", color.Temperature), ("$tint", color.Tint),
+            ("$sharpness", color.Sharpness), ("$invert", color.Invert ? 1 : 0));
+    }
+
     /// <summary>
     /// Angefangene, nicht fertig gesehene Videos von Titeln, die als Datei erreichbar sind (nicht als fehlend markiert).
     /// Je Titel nur das zuletzt gesehene, zuletzt gesehene Titel zuerst.

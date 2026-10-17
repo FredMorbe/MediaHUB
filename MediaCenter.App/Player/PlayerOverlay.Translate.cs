@@ -91,6 +91,8 @@ public partial class PlayerOverlay
         }
         CloseMenu();
         AdjustPanel.Visibility = Visibility.Collapsed;
+        PicturePanel.Visibility = Visibility.Collapsed;
+        ColorPanel.Visibility = Visibility.Collapsed;
         if (!_translateRunning) FillTranslateChoices();
         TranslatePanel.Visibility = Visibility.Visible;
     }

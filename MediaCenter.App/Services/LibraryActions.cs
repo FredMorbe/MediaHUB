@@ -62,6 +62,43 @@ public static class LibraryActions
         shell.Open(() => new Pages.MkvEditorPage(shell, video, path));
     }
 
+    /// <summary>Der Nutzer wählt eine Bilddatei als Poster oder Hintergrund des Titels; sie ersetzt das automatische Bild.</summary>
+    public static async Task ReplaceArtworkAsync(IShell shell, long titleId, ArtworkKind kind)
+    {
+        var filter = string.Join(";", MediaExtensions.Image.Select(e => "*" + e));
+        var dialog = new OpenFileDialog { Title = kind == ArtworkKind.Poster ? "Poster wählen" : "Hintergrundbild wählen", Filter = $"Bilder|{filter}" };
+        if (dialog.ShowDialog() != true) return;
+
+        await shell.RunBusyAsync("Bild wird übernommen …",
+            () => shell.Services.Model.Artwork.SetUserArtworkAsync(ArtworkOwner.Title, titleId, kind, dialog.FileName));
+        shell.ReloadView();
+    }
+
+    /// <summary>Öffnet den eingebetteten Browser auf der IMDb-Suche zum Titel; dort lässt sich ein Bild per Rechtsklick als Poster übernehmen.</summary>
+    public static void SearchPosterOnline(IShell shell, long titleId)
+    {
+        if (shell.Services.Model.Titles.FirstOrDefault(t => t.Id == titleId) is not { } title)
+        {
+            shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
+            return;
+        }
+        shell.Open(() => new Pages.PosterBrowserPage(shell, title));
+    }
+
+    /// <summary>Kontextmenü einer Titelkarte; leer für Karten ohne Titel in der Bibliothek (Alben, Podcasts, Sender).</summary>
+    public static IReadOnlyList<(string Text, Action Click)> CardMenu(IShell shell, CardItem item)
+    {
+        if (item.TitleId <= 0 || item.Tag is not null) return Array.Empty<(string, Action)>();
+
+        var menu = new List<(string, Action)>
+        {
+            ("Poster wählen …", async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
+            ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
+        };
+        if (item.Kind == TitleKind.Movie) menu.Add(("Bearbeiten …", () => EditMovie(shell, item.TitleId)));
+        return menu;
+    }
+
     private static async Task AddAsync(IShell shell, string busyText, Func<Task<(long SourceId, ScanResult Scan)>> add)
     {
         ScanResult? scan = null;

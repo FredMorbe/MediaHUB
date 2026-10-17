@@ -30,6 +30,11 @@ public sealed class AppSettings
     /// <summary>Nach einer Folge die nächste der Serie automatisch starten (mit Countdown).</summary>
     public bool AutoPlayNext { get; set; } = true;
 
+    /// <summary>
+    /// Fehlende Poster im Internet suchen: Serien bei TVmaze, Filme bei OMDb (nur mit Schlüssel). Gesendet werden Titel und Jahr.
+    /// </summary>
+    public bool OnlineCovers { get; set; } = true;
+
     /// <summary>Adresse des lokalen Ollama, das Untertitel übersetzt.</summary>
     public string OllamaUrl { get; set; } = "http://localhost:11434";
 

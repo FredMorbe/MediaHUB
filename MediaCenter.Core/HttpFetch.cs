@@ -20,6 +20,12 @@ public static class HttpFetch
         {
             throw new HttpRequestException($"{uri.Host} antwortete mit {(int)response.StatusCode} {response.ReasonPhrase}.");
         }
+        return await ReadLimitedAsync(response, uri, maxBytes, ct);
+    }
+
+    /// <summary>Liest den Inhalt einer bereits geprüften Antwort, bricht aber bei mehr als <paramref name="maxBytes"/> ab.</summary>
+    public static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage response, Uri uri, long maxBytes, CancellationToken ct)
+    {
         if (response.Content.Headers.ContentLength is { } length && length > maxBytes)
         {
             throw new InvalidDataException($"Antwort von {uri.Host} ist mit {length / 1_000_000} MB zu groß (Limit {maxBytes / 1_000_000} MB).");
