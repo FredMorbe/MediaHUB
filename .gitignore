@@ -1,0 +1,15 @@
+# Build-Ausgaben
+bin/
+obj/
+*.wpftmp
+*_wpftmp.csproj
+
+# IDE / lokal
+.vs/
+*.user
+*.suo
+
+# Testdaten und Scratch
+*.db
+*.db-wal
+*.db-shm

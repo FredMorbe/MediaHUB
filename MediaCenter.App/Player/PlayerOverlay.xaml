@@ -1,0 +1,107 @@
+<Window x:Class="MediaCenter.App.Player.PlayerOverlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize"
+        FontFamily="{StaticResource BodyFont}" TextElement.Foreground="White">
+    <!-- #01000000 statt Transparent: so fängt das Fenster Klicks auf das Video ab (Pause, Doppelklick = Vollbild). -->
+    <Grid x:Name="Root" Background="#01000000">
+        <Grid x:Name="Controls">
+            <Border VerticalAlignment="Top" Height="130">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#B0000000" Offset="0"/>
+                        <GradientStop Color="#00000000" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="22,18,0,0">
+                    <Button x:Name="BackButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE72B;" ToolTip="Zurück (Esc)" AutomationProperties.Name="Zurück"/>
+                    <TextBlock x:Name="TitleText" FontFamily="{StaticResource DisplayFont}" FontSize="30" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <Border VerticalAlignment="Bottom">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#00000000" Offset="0"/>
+                        <GradientStop Color="#D0000000" Offset="0.55"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel Margin="28,60,28,20">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="PositionText" Text="0:00:00" VerticalAlignment="Center" FontSize="13"/>
+                        <Slider x:Name="SeekSlider" Grid.Column="1" Style="{StaticResource SeekSlider}" Background="#40FFFFFF" Margin="14,0" Minimum="0" Maximum="1"/>
+                        <TextBlock x:Name="DurationText" Grid.Column="2" Text="0:00:00" VerticalAlignment="Center" FontSize="13"/>
+                    </Grid>
+                    <Grid Margin="0,6,0,0">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                            <Button x:Name="BackButton10" Style="{StaticResource IconButton}" Foreground="White" Content="&#xED3C;" ToolTip="10 s zurück" AutomationProperties.Name="10 Sekunden zurück"/>
+                            <Button x:Name="PlayPauseButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE769;" FontSize="22" Width="48" Height="48" ToolTip="Wiedergabe / Pause (Leertaste)" AutomationProperties.Name="Wiedergabe oder Pause"/>
+                            <Button x:Name="ForwardButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xED3D;" ToolTip="30 s vor" AutomationProperties.Name="30 Sekunden vor"/>
+                            <Button x:Name="NextButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE893;" Visibility="Collapsed" AutomationProperties.Name="Nächste Folge"/>
+                            <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE767;" Margin="14,0,0,0" ToolTip="Ton aus (M)" AutomationProperties.Name="Stumm schalten"/>
+                            <Slider x:Name="VolumeSlider" Style="{StaticResource SeekSlider}" Background="#40FFFFFF" Width="96" Minimum="0" Maximum="100" Value="100" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="StatsText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" Foreground="#B0FFFFFF" Visibility="Collapsed"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="AudioButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Ton" Padding="18,7" Margin="0,0,8,0"/>
+                            <Button x:Name="SubButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Untertitel" Padding="18,7" Margin="0,0,8,0"/>
+                            <Button x:Name="AdjustButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Anpassen" Padding="18,7" Margin="0,0,8,0" ToolTip="Untertitel: Zeitversatz, Größe, Position (Z / X = 0,1 s früher / später)" AutomationProperties.Name="Untertitel anpassen"/>
+                            <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE740;" ToolTip="Vollbild (F)" AutomationProperties.Name="Vollbild"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Spurauswahl über der Leiste, rechts -->
+            <Border x:Name="TrackMenu" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
+                    CornerRadius="16" Background="#EE0B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="8" MinWidth="220" MaxHeight="320">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="TrackList"/>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Untertitel anpassen: Zeitversatz, Größe, Höhe (Inhalt entsteht im Code) -->
+        <Border x:Name="AdjustPanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,120"
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14" MinWidth="380">
+            <StackPanel x:Name="AdjustContent"/>
+        </Border>
+
+        <!-- Arbeit im Gang (Einbetten): sperrt die Bedienung darunter -->
+        <Grid x:Name="BusyLayer" Visibility="Collapsed" Background="#B0000000">
+            <Border VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="18" Background="#F50B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="30,26" MinWidth="460" MaxWidth="620">
+                <StackPanel>
+                    <TextBlock x:Name="BusyTitle" FontFamily="{StaticResource DisplayFont}" FontSize="28"/>
+                    <TextBlock x:Name="BusyText" FontSize="14" Foreground="#B0FFFFFF" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                    <ProgressBar x:Name="BusyBar" Minimum="0" Maximum="1" Height="6" Margin="0,18,0,18" BorderThickness="0"/>
+                    <Button x:Name="BusyCancelButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Abbrechen" Padding="18,8" HorizontalAlignment="Left" AutomationProperties.Name="Einbetten abbrechen"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Kurzer Hinweis oben mittig (Toasts des Hauptfensters liegen unter dem Video) -->
+        <Border x:Name="Notice" Visibility="Collapsed" VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,70,0,0"
+                CornerRadius="14" Background="#EE0B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,10">
+            <TextBlock x:Name="NoticeText" FontSize="15" TextWrapping="Wrap" MaxWidth="640"/>
+        </Border>
+
+        <!-- Nächste Folge: bleibt auch bei ausgeblendeter Steuerung sichtbar, solange der Countdown läuft -->
+        <Border x:Name="NextCard" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,130"
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="20,16" MinWidth="300">
+            <StackPanel>
+                <TextBlock x:Name="NextHint" FontSize="13" Foreground="#B0FFFFFF"/>
+                <TextBlock x:Name="NextTitle" FontFamily="{StaticResource DisplayFont}" FontSize="26" Margin="0,2,0,12" TextWrapping="Wrap" MaxWidth="360"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="NextNowButton" Style="{StaticResource PrimaryButton}" Content="Jetzt abspielen" Padding="18,8" Margin="0,0,8,0" AutomationProperties.Name="Nächste Folge jetzt abspielen"/>
+                    <Button x:Name="NextCancelButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Abbrechen" Padding="18,8" AutomationProperties.Name="Automatischen Start abbrechen"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

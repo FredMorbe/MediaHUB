@@ -1,0 +1,299 @@
+using Microsoft.Data.Sqlite;
+
+namespace MediaCenter.Core;
+
+/// <summary>
+/// SQLite-Datenbank der Mediathek. Zwei Schichten: abgeleitete Daten (Dateien, ffprobe, Parser-Ergebnis)
+/// werden beim Scan überschrieben, Nutzerdaten (Titel, Genres, gesperrte Zuordnungen, Fortschritt) nie.
+/// </summary>
+public sealed partial class LibraryDb : IDisposable
+{
+    private const int SchemaVersion = 5;
+
+    private readonly SqliteConnection _connection;
+    private SqliteTransaction? _tx;
+
+    public LibraryDb(string dbPath)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(dbPath));
+        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+
+        _connection = new SqliteConnection($"Data Source={dbPath}");
+        _connection.Open();
+        Run("PRAGMA foreign_keys = ON;");
+        Migrate();
+    }
+
+    private void Migrate()
+    {
+        var version = Scalar<int>("PRAGMA user_version;");
+        if (version == SchemaVersion) return;
+        if (version is not (0 or 2 or 3 or 4))
+        {
+            throw new InvalidOperationException(
+                $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
+        }
+
+        InTransaction(() =>
+        {
+            if (version == 0) Run("""
+                CREATE TABLE volumes (
+                    id INTEGER PRIMARY KEY,
+                    serial TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    file_system TEXT NOT NULL,
+                    capacity INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    last_root TEXT,
+                    last_seen_utc TEXT
+                );
+                CREATE INDEX volumes_serial ON volumes(serial);
+
+                CREATE TABLE sources (
+                    id INTEGER PRIMARY KEY,
+                    volume_id INTEGER NOT NULL REFERENCES volumes(id),
+                    kind TEXT NOT NULL CHECK (kind IN ('folder', 'file')),
+                    rel_path TEXT NOT NULL COLLATE NOCASE,
+                    added_utc TEXT NOT NULL,
+                    UNIQUE (volume_id, rel_path)
+                );
+
+                CREATE TABLE files (
+                    id INTEGER PRIMARY KEY,
+                    volume_id INTEGER NOT NULL REFERENCES volumes(id),
+                    rel_path TEXT NOT NULL COLLATE NOCASE,
+                    size INTEGER NOT NULL,
+                    mtime_utc TEXT NOT NULL,
+                    missing INTEGER NOT NULL DEFAULT 0,
+                    duration_sec REAL,
+                    container TEXT,
+                    width INTEGER,
+                    height INTEGER,
+                    video_codec TEXT,
+                    is_hdr INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE (volume_id, rel_path)
+                );
+
+                CREATE TABLE streams (
+                    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                    idx INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    codec TEXT,
+                    profile TEXT,
+                    channels INTEGER,
+                    language TEXT,
+                    title TEXT,
+                    is_default INTEGER NOT NULL,
+                    is_forced INTEGER NOT NULL,
+                    PRIMARY KEY (file_id, idx)
+                );
+
+                CREATE TABLE titles (
+                    id INTEGER PRIMARY KEY,
+                    kind TEXT NOT NULL CHECK (kind IN ('movie', 'series')),
+                    name TEXT NOT NULL,
+                    year INTEGER,
+                    created_by TEXT NOT NULL CHECK (created_by IN ('scan', 'user'))
+                );
+
+                -- Normalisierte Namen, die auf einen Titel zeigen; so überlebt die Zuordnung ein Umbenennen oder Zusammenführen.
+                CREATE TABLE title_keys (
+                    match_key TEXT PRIMARY KEY COLLATE NOCASE,
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE videos (
+                    id INTEGER PRIMARY KEY,
+                    file_id INTEGER NOT NULL UNIQUE REFERENCES files(id) ON DELETE CASCADE,
+                    parsed_kind TEXT NOT NULL CHECK (parsed_kind IN ('movie', 'episode')),
+                    parsed_title TEXT NOT NULL,
+                    parsed_year INTEGER,
+                    parsed_season INTEGER,
+                    parsed_episode INTEGER,
+                    parsed_certain INTEGER NOT NULL,
+                    title_id INTEGER REFERENCES titles(id),
+                    season INTEGER,
+                    episode INTEGER,
+                    locked INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX videos_title ON videos(title_id, season, episode);
+
+                CREATE TABLE genres (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                );
+
+                CREATE TABLE title_genres (
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    genre_id INTEGER NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+                    PRIMARY KEY (title_id, genre_id)
+                );
+
+                CREATE TABLE playback (
+                    video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+                    position_sec REAL NOT NULL,
+                    watched INTEGER NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+                """);
+
+            // Schema 3: Cover. Gehört zu den Nutzerdaten, soweit source = 'user'.
+            if (version < 3) Run("""
+                CREATE TABLE artwork (
+                    owner_kind TEXT NOT NULL CHECK (owner_kind IN ('title', 'video')),
+                    owner_id INTEGER NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('poster', 'landscape')),
+                    source TEXT NOT NULL CHECK (source IN ('user', 'sidecar', 'embedded', 'frame')),
+                    file TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (owner_kind, owner_id, kind)
+                );
+                """);
+
+            // Schema 4: Musik (Tags sind abgeleitete Daten und werden beim Scan überschrieben), Radio und Podcasts (Nutzerdaten).
+            if (version < 4) Run("""
+                CREATE TABLE tracks (
+                    id INTEGER PRIMARY KEY,
+                    file_id INTEGER NOT NULL UNIQUE REFERENCES files(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    artist TEXT,
+                    album_artist TEXT,
+                    album TEXT,
+                    track_no INTEGER,
+                    disc_no INTEGER,
+                    year INTEGER,
+                    genre TEXT
+                );
+
+                CREATE TABLE album_art (
+                    album_key TEXT PRIMARY KEY,
+                    source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded')),
+                    file TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE radio_stations (
+                    id INTEGER PRIMARY KEY,
+                    station_uuid TEXT UNIQUE,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL UNIQUE,
+                    favicon_url TEXT,
+                    favicon_file TEXT,
+                    country TEXT,
+                    tags TEXT,
+                    codec TEXT,
+                    bitrate INTEGER,
+                    added_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE podcasts (
+                    id INTEGER PRIMARY KEY,
+                    feed_url TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    author TEXT,
+                    description TEXT,
+                    image_url TEXT,
+                    image_file TEXT,
+                    last_refreshed_utc TEXT,
+                    added_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE podcast_episodes (
+                    id INTEGER PRIMARY KEY,
+                    podcast_id INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+                    guid TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    published_utc TEXT,
+                    audio_url TEXT NOT NULL,
+                    duration_sec REAL,
+                    description TEXT,
+                    UNIQUE (podcast_id, guid)
+                );
+                CREATE INDEX podcast_episodes_published ON podcast_episodes(podcast_id, published_utc);
+
+                CREATE TABLE podcast_progress (
+                    episode_id INTEGER PRIMARY KEY REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+                    position_sec REAL NOT NULL,
+                    played INTEGER NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+                """);
+
+            // Schema 5: Zeitversatz, Größe und Lage der Untertitel pro Video (Nutzerdaten; fehlt die Zeile, gelten die Standardwerte).
+            Run("""
+                CREATE TABLE subtitle_settings (
+                    video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+                    delay_sec REAL NOT NULL,
+                    scale REAL NOT NULL,
+                    position INTEGER NOT NULL
+                );
+                """);
+            Run($"PRAGMA user_version = {SchemaVersion};");
+        });
+    }
+
+    // --- Hilfsmethoden -------------------------------------------------------------------------------------
+
+    private void InTransaction(Action body) => InTransaction(() => { body(); return 0; });
+
+    private T InTransaction<T>(Func<T> body)
+    {
+        if (_tx is not null) return body(); // an äußere Transaktion anschließen
+
+        _tx = _connection.BeginTransaction();
+        try
+        {
+            var result = body();
+            _tx.Commit();
+            return result;
+        }
+        catch
+        {
+            _tx.Rollback();
+            throw;
+        }
+        finally
+        {
+            _tx.Dispose();
+            _tx = null;
+        }
+    }
+
+    private SqliteCommand Command(string sql, params (string Name, object? Value)[] parameters)
+    {
+        var cmd = _connection.CreateCommand();
+        cmd.Transaction = _tx;
+        cmd.CommandText = sql;
+        foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value ?? DBNull.Value);
+        return cmd;
+    }
+
+    private int Run(string sql, params (string Name, object? Value)[] parameters)
+    {
+        using var cmd = Command(sql, parameters);
+        return cmd.ExecuteNonQuery();
+    }
+
+    private T Scalar<T>(string sql, params (string Name, object? Value)[] parameters)
+    {
+        using var cmd = Command(sql, parameters);
+        var value = cmd.ExecuteScalar();
+        if (value is null or DBNull) return default!;
+        return (T)Convert.ChangeType(value, Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T));
+    }
+
+    private static string Utc(DateTime value) => value.ToUniversalTime().ToString("O");
+
+    public void Dispose() => _connection.Dispose();
+}
+
+internal static class ReaderExtensions
+{
+    public static int? GetInt32OrNull(this SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt32(i);
+
+    public static long? GetInt64OrNull(this SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt64(i);
+
+    public static double? GetDoubleOrNull(this SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetDouble(i);
+
+    public static string? GetStringOrNull(this SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetString(i);
+}

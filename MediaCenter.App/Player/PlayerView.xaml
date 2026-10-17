@@ -1,0 +1,8 @@
+<UserControl x:Class="MediaCenter.App.Player.PlayerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MediaCenter.App.Player">
+    <Grid Background="Black">
+        <local:MpvHost x:Name="Host"/>
+    </Grid>
+</UserControl>

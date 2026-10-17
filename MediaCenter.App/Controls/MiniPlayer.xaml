@@ -1,0 +1,58 @@
+<UserControl x:Class="MediaCenter.App.Controls.MiniPlayer"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MediaCenter.App.Controls">
+    <c:GlassPanel CornerRadius="30" Padding="14,10">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="120"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Border x:Name="CoverBox" Width="58" Height="58" CornerRadius="14" Background="{DynamicResource CardBgBrush}">
+                <TextBlock x:Name="CoverGlyph" Text="&#xE8D6;" FontFamily="{StaticResource IconFont}" FontSize="22"
+                           Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+
+            <StackPanel Grid.Column="1" Width="230" Margin="14,0,8,0" VerticalAlignment="Center">
+                <TextBlock x:Name="TitleText" FontFamily="{StaticResource BodySemiFont}" FontSize="15" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource InkBrush}"/>
+                <TextBlock x:Name="SubText" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}" Margin="0,2,0,0"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="PrevButton" Style="{StaticResource IconButton}" Content="&#xE892;" ToolTip="Zurück" AutomationProperties.Name="Vorheriger Titel"/>
+                <Button x:Name="BackSkipButton" Style="{StaticResource IconButton}" Content="&#xED3C;" ToolTip="10 s zurück" AutomationProperties.Name="10 Sekunden zurück"/>
+                <Button x:Name="PlayPauseButton" Style="{StaticResource AccentIconButton}" Content="&#xE769;" Margin="4,0" AutomationProperties.Name="Wiedergabe oder Pause"/>
+                <Button x:Name="ForwardSkipButton" Style="{StaticResource IconButton}" Content="&#xED3D;" ToolTip="30 s vor" AutomationProperties.Name="30 Sekunden vor"/>
+                <Button x:Name="NextButton" Style="{StaticResource IconButton}" Content="&#xE893;" ToolTip="Weiter" AutomationProperties.Name="Nächster Titel"/>
+            </StackPanel>
+
+            <Grid x:Name="SeekArea" Grid.Column="3" Margin="16,0" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="PositionText" Text="0:00" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
+                <Slider x:Name="SeekSlider" Grid.Column="1" Style="{StaticResource SeekSlider}" Margin="10,0" Minimum="0" Maximum="1"/>
+                <TextBlock x:Name="DurationText" Grid.Column="2" Text="0:00" FontSize="12" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
+            </Grid>
+            <Border x:Name="LiveBadge" Grid.Column="3" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="16,0"
+                    CornerRadius="12" Background="{DynamicResource Accent2SoftBrush}" Padding="12,4">
+                <TextBlock Text="LIVE" FontFamily="{StaticResource BodySemiFont}" FontSize="12" Foreground="{DynamicResource Accent2Brush}"/>
+            </Border>
+
+            <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Content="&#xE767;" ToolTip="Ton aus" AutomationProperties.Name="Stumm schalten"/>
+                <Slider x:Name="VolumeSlider" Style="{StaticResource SeekSlider}" Width="90" Minimum="0" Maximum="100" Value="80" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Button x:Name="CloseButton" Grid.Column="5" Style="{StaticResource IconButton}" Content="&#xE711;" Margin="8,0,0,0" ToolTip="Wiedergabe beenden" AutomationProperties.Name="Wiedergabe beenden"/>
+        </Grid>
+    </c:GlassPanel>
+</UserControl>
