@@ -8,6 +8,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>MediaCenter</AssemblyName>
     <RootNamespace>MediaCenter.App</RootNamespace>
+    <!-- Die Version der App; bei jeder neuen Version auch einen Eintrag in Services\Changelog.cs anlegen. -->
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

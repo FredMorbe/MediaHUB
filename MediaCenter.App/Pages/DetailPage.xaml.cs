@@ -130,6 +130,16 @@ public partial class DetailPage : UserControl
         }));
         CoverPanel.Children.Add(CoverChip("Hintergrund ersetzen", () => LibraryActions.ReplaceArtworkAsync(_shell, _title.Id, ArtworkKind.Landscape)));
         CoverPanel.Children.Add(CoverChip("Automatische Cover wiederherstellen", ResetCoversAsync));
+        CoverPanel.Children.Add(CoverChip("Umbenennen …", () =>
+        {
+            LibraryActions.RenameTitle(_shell, _title.Id);
+            return Task.CompletedTask;
+        }));
+        CoverPanel.Children.Add(CoverChip("Aus Mediacenter entfernen …", () =>
+        {
+            if (LibraryActions.RemoveTitle(_shell, _title.Id)) _shell.Back(); // den Titel gibt es nicht mehr: zurück zur Liste
+            return Task.CompletedTask;
+        }));
         if (_title.Kind == TitleKind.Movie && _model.VideosOf(_title.Id).FirstOrDefault() is { } movie && MkvEditor.CanEdit(movie.RelPath))
         {
             var edit = CoverChip("MKV bearbeiten …", () =>
@@ -260,14 +270,22 @@ public partial class DetailPage : UserControl
         row.MouseEnter += (_, _) => row.SetResourceReference(Border.BackgroundProperty, "LineBrush");
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += async (_, _) => await _shell.PlayAsync(video, resume: true);
-        if (MkvEditor.CanEdit(video.RelPath))
+        var menu = new List<(string, Action)>();
+        if (MkvEditor.CanEdit(video.RelPath)) menu.Add(("Bearbeiten …", () => LibraryActions.EditVideo(_shell, video)));
+        menu.Add(("Aus Mediacenter entfernen …", () => RemoveEpisode(video)));
+        row.MouseRightButtonUp += (_, e) =>
         {
-            row.MouseRightButtonUp += (_, e) =>
-            {
-                ContextPopup.Show(row, new (string, Action)[] { ("Bearbeiten …", () => LibraryActions.EditVideo(_shell, video)) }, label.Text);
-                e.Handled = true;
-            };
-        }
+            ContextPopup.Show(row, menu, label.Text);
+            e.Handled = true;
+        };
         return row;
+    }
+
+    /// <summary>Nimmt eine Folge aus der Bibliothek; war es die letzte, ist die Serie weg und die Seite wird verlassen.</summary>
+    private void RemoveEpisode(VideoRow video)
+    {
+        if (!LibraryActions.RemoveVideo(_shell, video)) return;
+        if (_model.FindTitle(_title.Id) is null) _shell.Back();
+        else _shell.ReloadView();
     }
 }

@@ -208,4 +208,83 @@ public sealed partial class LibraryDb
             """);
         return removed;
     });
+
+    // --- Aus der Bibliothek entfernen (die Dateien auf der Platte bleiben) --------------------------------------
+
+    /// <summary>
+    /// Nimmt Videos aus der Bibliothek, löscht aber nie eine Datei auf der Platte: der Eintrag samt Fortschritt und Einstellungen verschwindet,
+    /// der Pfad kommt auf die Liste der entfernten Dateien, damit ihn kein Scan wieder aufnimmt. Titel, die dadurch ohne Video bleiben, werden mitgelöscht
+    /// (samt Genres und Schlüsseln). Bilder im Cover-Cache räumt <see cref="ArtworkService.PruneOrphans"/> danach weg.
+    /// </summary>
+    /// <returns>Anzahl der entfernten Videos.</returns>
+    /// <exception cref="InvalidOperationException">Ein Video ist nicht in der Bibliothek; dann wird nichts entfernt.</exception>
+    public int RemoveVideos(IEnumerable<long> videoIds) => InTransaction(() =>
+    {
+        var removed = 0;
+        var titles = new HashSet<long>();
+        foreach (var videoId in videoIds.Distinct())
+        {
+            long fileId, volumeId;
+            string relPath;
+            long? titleId;
+            using (var cmd = Command("SELECT f.id, f.volume_id, f.rel_path, v.title_id FROM videos v JOIN files f ON f.id = v.file_id WHERE v.id = $id", ("$id", videoId)))
+            using (var r = cmd.ExecuteReader())
+            {
+                if (!r.Read()) throw new InvalidOperationException($"Video {videoId} ist nicht in der Bibliothek.");
+                fileId = r.GetInt64(0);
+                volumeId = r.GetInt64(1);
+                relPath = r.GetString(2);
+                titleId = r.GetInt64OrNull(3);
+            }
+
+            Run("INSERT OR IGNORE INTO removed_files (volume_id, rel_path, removed_utc) VALUES ($vol, $rel, $utc)",
+                ("$vol", volumeId), ("$rel", relPath), ("$utc", Utc(DateTime.UtcNow)));
+            // Eine einzeln hinzugefügte Datei ist selbst die Quelle.
+            Run("DELETE FROM sources WHERE volume_id = $vol AND kind = 'file' AND rel_path = $rel COLLATE NOCASE", ("$vol", volumeId), ("$rel", relPath));
+            Run("DELETE FROM files WHERE id = $id", ("$id", fileId)); // Video, Streams, Fortschritt, Untertitel- und Farbeinstellungen folgen
+            if (titleId is { } title) titles.Add(title);
+            removed++;
+        }
+
+        foreach (var title in titles)
+        {
+            Run("DELETE FROM titles WHERE id = $t AND id NOT IN (SELECT title_id FROM videos WHERE title_id IS NOT NULL)", ("$t", title));
+        }
+        return removed;
+    });
+
+    /// <summary>Entfernt einen Film oder eine Serie mit allen Videos aus der Bibliothek (siehe <see cref="RemoveVideos"/>); auch ein Titel ohne Video verschwindet.</summary>
+    /// <returns>Anzahl der entfernten Videos.</returns>
+    public int RemoveTitle(long titleId) => InTransaction(() =>
+    {
+        var videoIds = new List<long>();
+        using (var cmd = Command("SELECT id FROM videos WHERE title_id = $t", ("$t", titleId)))
+        using (var r = cmd.ExecuteReader())
+        {
+            while (r.Read()) videoIds.Add(r.GetInt64(0));
+        }
+        var removed = RemoveVideos(videoIds);
+        Run("DELETE FROM titles WHERE id = $t", ("$t", titleId));
+        return removed;
+    });
+
+    /// <summary>Relative Pfade der entfernten Dateien eines Laufwerks; der Scan überspringt sie.</summary>
+    public HashSet<string> GetRemovedFiles(long volumeId)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = Command("SELECT rel_path FROM removed_files WHERE volume_id = $vol", ("$vol", volumeId));
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) result.Add(r.GetString(0));
+        return result;
+    }
+
+    public int CountRemovedFiles() => Scalar<int>("SELECT COUNT(*) FROM removed_files");
+
+    /// <summary>Nimmt eine Datei von der Liste der entfernten, damit der nächste Scan sie wieder aufnimmt (z. B. wenn der Nutzer sie ausdrücklich hinzufügt).</summary>
+    public void UnremoveFile(long volumeId, string relPath) =>
+        Run("DELETE FROM removed_files WHERE volume_id = $vol AND rel_path = $rel", ("$vol", volumeId), ("$rel", relPath));
+
+    /// <summary>Leert die Liste der entfernten Dateien: der nächste Scan nimmt sie wieder auf.</summary>
+    /// <returns>Anzahl der Dateien, die wieder aufgenommen werden können.</returns>
+    public int ClearRemovedFiles() => Run("DELETE FROM removed_files");
 }

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Windows;
 using Microsoft.Win32;
 using MediaCenter.Core;
 
@@ -85,6 +87,57 @@ public static class LibraryActions
         shell.Open(() => new Pages.PosterBrowserPage(shell, title));
     }
 
+    /// <summary>Öffnet die Seite zum Umbenennen von Hand (Anzeigename, bei Filmen auch der Dateiname).</summary>
+    public static void RenameTitle(IShell shell, long titleId) => shell.Open(() => new Pages.TitleRenamePage(shell, titleId));
+
+    /// <summary>Nimmt einen Film oder eine Serie nach Rückfrage aus der Bibliothek. Die Dateien auf der Festplatte bleiben unberührt.</summary>
+    /// <returns>true, wenn entfernt wurde: der Titel ist dann weg, die Seite muss neu aufgebaut oder verlassen werden.</returns>
+    public static bool RemoveTitle(IShell shell, long titleId)
+    {
+        var model = shell.Services.Model;
+        if (model.FindTitle(titleId) is not { } title)
+        {
+            shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
+            return false;
+        }
+        var count = model.VideosOf(titleId).Count;
+        var what = title.Kind == TitleKind.Series
+            ? $"Die Serie „{title.Name}“ mit {count} Folge{(count == 1 ? "" : "n")}"
+            : $"Den Film „{title.Name}“";
+        return Remove(shell, what, () => shell.Services.Db.RemoveTitle(titleId));
+    }
+
+    /// <summary>Nimmt ein einzelnes Video (Folge, Datei aus der Inbox) nach Rückfrage aus der Bibliothek; die Datei auf der Festplatte bleibt.</summary>
+    /// <returns>true, wenn entfernt wurde; ein Titel ohne weitere Videos ist dann auch weg.</returns>
+    public static bool RemoveVideo(IShell shell, VideoRow video) =>
+        Remove(shell, $"Die Datei „{Path.GetFileName(video.RelPath)}“", () => shell.Services.Db.RemoveVideos(new[] { video.VideoId }));
+
+    private static bool Remove(IShell shell, string what, Func<int> remove)
+    {
+        var question = $"{what} aus dem Mediacenter entfernen?\n\n" +
+                       "• Die Dateien auf der Festplatte bleiben unverändert, es wird nichts gelöscht.\n" +
+                       "• Fortschritt, Poster und Einstellungen dazu gehen verloren.\n" +
+                       "• „Neu scannen“ nimmt sie nicht wieder auf. Zurückholen: Laufwerke → „Entfernte Einträge wieder aufnehmen“.";
+        if (MessageBox.Show(Application.Current.MainWindow, question, "Aus dem Mediacenter entfernen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return false;
+
+        int removed;
+        try
+        {
+            removed = remove();
+        }
+        catch (InvalidOperationException ex)
+        {
+            shell.ShowMessage(ex.Message, isError: true);
+            return false;
+        }
+        shell.Services.Model.Artwork.PruneOrphans();
+        shell.Services.Model.Reload();
+        shell.ShowMessage(removed > 0
+            ? $"{removed} Datei{(removed == 1 ? "" : "en")} aus dem Mediacenter entfernt, auf der Festplatte unverändert."
+            : "Aus dem Mediacenter entfernt.");
+        return true;
+    }
+
     /// <summary>Kontextmenü einer Titelkarte; leer für Karten ohne Titel in der Bibliothek (Alben, Podcasts, Sender).</summary>
     public static IReadOnlyList<(string Text, Action Click)> CardMenu(IShell shell, CardItem item)
     {
@@ -94,8 +147,13 @@ public static class LibraryActions
         {
             ("Poster wählen …", async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
             ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
+            ("Umbenennen …", () => RenameTitle(shell, item.TitleId)),
         };
         if (item.Kind == TitleKind.Movie) menu.Add(("Bearbeiten …", () => EditMovie(shell, item.TitleId)));
+        menu.Add(("Aus Mediacenter entfernen …", () =>
+        {
+            if (RemoveTitle(shell, item.TitleId)) shell.ReloadView();
+        }));
         return menu;
     }
 

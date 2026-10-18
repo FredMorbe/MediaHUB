@@ -56,12 +56,28 @@ public sealed class SettingsPage : UserControl
             },
         }));
         stack.Children.Add(Section("Schriften", PageParts.Muted("Bebas Neue und Figtree, beide unter der SIL Open Font License (Lizenztexte im Ordner Fonts).")));
+        stack.Children.Add(Section("Über Mediacenter", About()));
 
         Content = PageParts.Scrolling(stack);
 
         Build();
         Loaded += (_, _) => _theme.Changed += Build;
         Unloaded += (_, _) => _theme.Changed -= Build;
+    }
+
+    private UIElement About()
+    {
+        var version = PageParts.Button($"Version {AppInfo.Version}", "GhostButton", (_, _) => _shell.Open(() => new ChangelogPage(_shell)), new Thickness(0, 4, 0, 0));
+        version.ToolTip = "Changelog anzeigen";
+        System.Windows.Automation.AutomationProperties.SetName(version, "Version und Changelog");
+        return new StackPanel
+        {
+            Children =
+            {
+                PageParts.Muted("Ein Klick auf die Versionsnummer zeigt, was sich in welcher Version geändert hat."),
+                version,
+            },
+        };
     }
 
     private UIElement OnlineCoverSettings()
@@ -81,6 +97,36 @@ public sealed class SettingsPage : UserControl
             };
             row.Children.Add(chip);
         }
+        var keyStatus = PageParts.Muted("");
+        void ShowKeyStatus() => keyStatus.Text = _shell.Services.Omdb is null
+            ? "Filme: kein OMDb-Schlüssel. Kostenlosen Schlüssel auf omdbapi.com/apikey.aspx anfordern und hier eintragen."
+            : _shell.Services.OmdbKeyFromVariable
+                ? $"Filme: OMDb-Schlüssel aus der Umgebungsvariable {AppServices.OmdbKeyVariable} (hat Vorrang vor einem hier gespeicherten)."
+                : $"Filme: OMDb-Schlüssel gespeichert in {AppServices.OmdbKeyFile}.";
+        ShowKeyStatus();
+
+        var (keyField, keyBox) = PageParts.HintBox("OMDb-Schlüssel", 220);
+        System.Windows.Automation.AutomationProperties.SetName(keyBox, "OMDb-Schlüssel");
+        void SaveKey(string? key)
+        {
+            try
+            {
+                _shell.Services.SetOmdbKey(key);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            keyBox.Clear();
+            ShowKeyStatus();
+        }
+        var save = PageParts.Button("Schlüssel speichern", "GhostButton", (_, _) => SaveKey(keyBox.Text), new Thickness(10, 0, 0, 0));
+        var remove = PageParts.Button("Schlüssel entfernen", "GhostButton", (_, _) => SaveKey(null), new Thickness(10, 0, 0, 0));
+        System.Windows.Automation.AutomationProperties.SetName(save, "OMDb-Schlüssel speichern");
+        System.Windows.Automation.AutomationProperties.SetName(remove, "OMDb-Schlüssel entfernen");
+        var keyRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0), Children = { keyField, save, remove } };
+
         return new StackPanel
         {
             Children =
@@ -90,9 +136,8 @@ public sealed class SettingsPage : UserControl
                 PageParts.Muted("Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com). " +
                     "Gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; deutsche Filmtitel findet OMDb oft nicht. " +
                     "Ein selbst gesetztes Poster bleibt immer. Die Suche läuft beim nächsten Durchlauf (Ordner hinzufügen, Scan, „Fehlende Cover suchen“); ohne Treffer wird erst nach zwei Wochen neu gefragt."),
-                PageParts.Muted(_shell.Services.Omdb is null
-                    ? $"Filme: kein OMDb-Schlüssel. Kostenlosen Schlüssel auf omdbapi.com/apikey.aspx anfordern und in der Umgebungsvariable {AppServices.OmdbKeyVariable} setzen, dann die App neu starten."
-                    : $"Filme: OMDb-Schlüssel aus {AppServices.OmdbKeyVariable} gefunden."),
+                keyStatus,
+                keyRow,
             },
         };
     }
@@ -164,7 +209,10 @@ public sealed class SettingsPage : UserControl
         var reload = PageParts.Button("Modelle von Ollama laden", "GhostButton", async (_, _) => await LoadModelsAsync(), new Thickness(0, 14, 0, 0));
         System.Windows.Automation.AutomationProperties.SetName(reload, "Modelle von Ollama laden");
 
-        _ = LoadModelsAsync();
+        // Ollama wird erst auf den Knopf hin gefragt, nicht beim Öffnen der Seite: ohne Übersetzung braucht die App keine Verbindung.
+        _modelStatus.Text = settings.TranslationModel is null
+            ? "Noch kein Modell gewählt. „Modelle von Ollama laden“ zeigt die installierten Modelle."
+            : $"Gewählt: {settings.TranslationModel}" + (settings.TranslationModelChinese is { } chinese ? $", Chinesisch: {chinese}" : "") + ". „Modelle von Ollama laden“ zum Ändern.";
         return new StackPanel
         {
             Children =
@@ -198,7 +246,6 @@ public sealed class SettingsPage : UserControl
             _modelChips.Children.Clear();
             _chineseModelChips.Children.Clear();
             _modelStatus.Text = ex.Message;
-            _shell.ShowMessage(ex.Message, isError: true);
         }
     }
 

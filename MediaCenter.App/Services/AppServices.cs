@@ -50,11 +50,43 @@ public sealed class AppServices : IDisposable
     /// <summary>Serienposter von TVmaze; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
     public required TvMazeClient TvMaze { get; init; }
 
-    /// <summary>Filmposter von OMDb; null, solange kein Schlüssel in <see cref="OmdbKeyVariable"/> steht.</summary>
-    public OmdbClient? Omdb { get; init; }
+    /// <summary>Filmposter von OMDb; null, solange weder <see cref="OmdbKeyVariable"/> noch <see cref="OmdbKeyFile"/> einen Schlüssel hat.</summary>
+    public OmdbClient? Omdb { get; private set; }
 
-    /// <summary>Name der Umgebungsvariable mit dem OMDb-Schlüssel (der Schlüssel selbst steht nie in einer Datei der App).</summary>
+    /// <summary>Name der Umgebungsvariable mit dem OMDb-Schlüssel; sie hat Vorrang vor der Datei (z. B. für Tests).</summary>
     public const string OmdbKeyVariable = "MEDIACENTER_OMDB_KEY";
+
+    /// <summary>Datei im Datenordner, in die die Einstellungen den eingegebenen OMDb-Schlüssel schreiben.</summary>
+    public static string OmdbKeyFile => Path.Combine(AppSettings.DataDirectory, "omdb.key");
+
+    /// <summary>Der Schlüssel stammt aus <see cref="OmdbKeyVariable"/> und nicht aus der Datei.</summary>
+    public bool OmdbKeyFromVariable { get; private set; }
+
+    /// <summary>Speichert den Schlüssel (null oder leer löscht ihn) und nutzt ihn sofort, ohne Neustart.</summary>
+    public void SetOmdbKey(string? key)
+    {
+        key = key?.Trim();
+        if (string.IsNullOrEmpty(key))
+        {
+            File.Delete(OmdbKeyFile);
+        }
+        else
+        {
+            if (!key.All(char.IsAsciiLetterOrDigit)) throw new ArgumentException("Ein OMDb-Schlüssel besteht nur aus Buchstaben und Ziffern (ohne Leerzeichen).");
+            Directory.CreateDirectory(AppSettings.DataDirectory);
+            File.WriteAllText(OmdbKeyFile, key);
+        }
+        LoadOmdb();
+        ApplyOnlineCovers();
+    }
+
+    private void LoadOmdb()
+    {
+        var fromVariable = Environment.GetEnvironmentVariable(OmdbKeyVariable)?.Trim();
+        OmdbKeyFromVariable = !string.IsNullOrEmpty(fromVariable);
+        var key = OmdbKeyFromVariable ? fromVariable : File.Exists(OmdbKeyFile) ? File.ReadAllText(OmdbKeyFile).Trim() : null;
+        Omdb = string.IsNullOrEmpty(key) ? null : new OmdbClient(Http, key);
+    }
 
     /// <summary>Schaltet die Online-Suche nach Postern nach der Einstellung ein oder aus (gilt ab dem nächsten Cover-Durchlauf).</summary>
     public void ApplyOnlineCovers() =>
@@ -80,7 +112,7 @@ public sealed class AppServices : IDisposable
         var artwork = new ArtworkService(db, ffmpeg, probe, cache);
 
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("MediaCenter/0.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"MediaCenter/{AppInfo.Version}");
         var images = new RemoteImages(http, ffmpeg, cache);
         var mpvPath = Environment.GetEnvironmentVariable("MEDIACENTER_MPV") ?? DefaultMpvPath;
 
@@ -95,9 +127,6 @@ public sealed class AppServices : IDisposable
             Http = http,
             Images = images,
             TvMaze = new TvMazeClient(http),
-            Omdb = Environment.GetEnvironmentVariable(OmdbKeyVariable) is { } omdbKey && !string.IsNullOrWhiteSpace(omdbKey)
-                ? new OmdbClient(http, omdbKey.Trim())
-                : null,
             RadioSearch = new RadioBrowserClient(http),
             RadioStations = new RadioService(db, images),
             PodcastSearch = new PodcastSearchClient(http),
@@ -109,6 +138,7 @@ public sealed class AppServices : IDisposable
             OllamaHttp = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan },
             SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
+        services.LoadOmdb();
         services.ApplyOnlineCovers();
         return services;
     }

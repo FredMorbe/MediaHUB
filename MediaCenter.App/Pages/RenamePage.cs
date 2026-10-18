@@ -15,7 +15,7 @@ namespace MediaCenter.App.Pages;
 /// </summary>
 public sealed class RenamePage : UserControl
 {
-    private static string JournalPath => Path.Combine(AppSettings.DataDirectory, "rename-journal.json");
+    internal static string JournalPath =>Path.Combine(AppSettings.DataDirectory, "rename-journal.json");
 
     private readonly IShell _shell;
     private readonly List<(RenameProposal Proposal, CheckBox Box)> _ready = new();
@@ -39,7 +39,7 @@ public sealed class RenamePage : UserControl
     {
         _shell = shell;
 
-        var back = new Button { Content = "", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
+        var back = new Button { Content = "\uE72B", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
         back.SetResourceReference(StyleProperty, "IconButton");
         AutomationProperties.SetName(back, "Zurück");
         back.Click += (_, _) =>
@@ -56,7 +56,7 @@ public sealed class RenamePage : UserControl
         kicker.SetResourceReference(StyleProperty, "KickerText");
         var title = PageParts.Heading("Filme umbenennen", 52);
         var hint = PageParts.Muted(
-            "Aus „the.matrix.reloaded.2003.1080p.h264.mkv“ wird „The Matrix Reloaded (2003) [1080p].mkv“. Die richtige Schreibweise liefert OMDb, " +
+            "Aus „the.matrix.reloaded.2003.1080p.h264.mkv“ wird „The_Matrix_Reloaded_(2003)_[1080p].mkv“. Die richtige Schreibweise liefert OMDb, " +
             "die Auflösung kommt aus der Datei. Untertitel und andere Dateien mit dem alten Namen werden mitumbenannt, der Ordner bleibt. " +
             "Es werden nur Filme mit sicherem Treffer vorgeschlagen (Titel und Jahr müssen passen); deutsche Titel findet OMDb oft nicht. " +
             "Nichts geschieht ohne deine Bestätigung, und die letzte Umbenennung lässt sich zurücknehmen. " +
@@ -98,7 +98,7 @@ public sealed class RenamePage : UserControl
         stack.Children.Add(hint);
         if (_shell.Services.Omdb is null)
         {
-            var missing = PageParts.Muted($"Dafür braucht es einen OMDb-Schlüssel in der Umgebungsvariable {AppServices.OmdbKeyVariable} (kostenlos auf omdbapi.com/apikey.aspx). Danach die App neu starten.", 13);
+            var missing = PageParts.Muted($"Dafür braucht es einen OMDb-Schlüssel (kostenlos auf omdbapi.com/apikey.aspx), einzutragen in den Einstellungen unter „Poster aus dem Internet“.", 13);
             missing.Margin = new Thickness(0, 6, 0, 0);
             stack.Children.Add(missing);
             _search.IsEnabled = false;

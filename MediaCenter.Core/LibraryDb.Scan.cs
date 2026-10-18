@@ -280,6 +280,14 @@ public sealed partial class LibraryDb
 
     // --- Abfragen ------------------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Gibt dem Titel beim Zurücknehmen einer Umbenennung Name und Jahr von vorher zurück (die Umbenennung kann den Titel mitumbenannt haben),
+    /// aber nur, wenn die Datei wieder zu diesem Titel gehört; ein Titel, in den der Film inzwischen gewandert oder der zusammengeführt ist, bleibt unberührt.
+    /// </summary>
+    public void RestoreTitle(long fileId, long titleId, string name, int? year) => Run(
+        "UPDATE titles SET name = $name, year = $year WHERE id = $title AND EXISTS (SELECT 1 FROM videos WHERE file_id = $file AND title_id = $title)",
+        ("$name", name), ("$year", year), ("$title", titleId), ("$file", fileId));
+
     public List<VideoRow> ListVideos()
     {
         var rows = new List<VideoRow>();

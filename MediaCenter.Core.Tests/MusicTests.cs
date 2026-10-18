@@ -300,7 +300,7 @@ public sealed class MusicLibraryTests : IDisposable
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
                 DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
-                DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE online_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
+                DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();
         }

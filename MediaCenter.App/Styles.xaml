@@ -118,6 +118,32 @@
         </Setter>
     </Style>
 
+    <!-- Kleiner Textknopf (Versionsnummer): gedämpft, beim Überfahren hinterlegt -->
+    <Style x:Key="VersionLink" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource BodySemiFont}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" CornerRadius="10" Background="Transparent" BorderBrush="Transparent" BorderThickness="1.5" Padding="7,2">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource LineBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Runder Hauptknopf (Wiedergabe) in der Akzentfarbe -->
     <Style x:Key="AccentIconButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
         <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>

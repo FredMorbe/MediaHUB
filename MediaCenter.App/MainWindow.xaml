@@ -62,6 +62,7 @@
                 <StackPanel Orientation="Horizontal" Margin="12,0,26,0" VerticalAlignment="Center">
                     <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="28" VerticalAlignment="Center"/>
                     <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="28" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
+                    <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="6,8,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
                 </StackPanel>
                 <StackPanel x:Name="NavItems" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
                 <Button x:Name="SettingsButton" Grid.Column="2" Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="Einstellungen" AutomationProperties.Name="Einstellungen"/>

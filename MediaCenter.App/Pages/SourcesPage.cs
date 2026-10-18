@@ -25,6 +25,12 @@ public sealed class SourcesPage : UserControl
         actions.Children.Add(PageParts.Button("Datei hinzufügen", "GhostButton", async (_, _) => await LibraryActions.AddFileAsync(_shell)));
         actions.Children.Add(PageParts.Button("Neu scannen", "GhostButton", async (_, _) => await LibraryActions.RescanAsync(_shell)));
         actions.Children.Add(PageParts.Button("Fehlende Einträge entfernen", "GhostButton", (_, _) => RemoveMissing()));
+        if (_model.Db.CountRemovedFiles() is > 0 and var removedCount)
+        {
+            var restore = PageParts.Button($"Entfernte Einträge wieder aufnehmen ({removedCount})", "GhostButton", async (_, _) => await RestoreRemovedAsync());
+            System.Windows.Automation.AutomationProperties.SetName(restore, "Entfernte Einträge wieder aufnehmen");
+            actions.Children.Add(restore);
+        }
         stack.Children.Add(actions);
 
         foreach (var unresolved in _model.Volumes.Unresolved) stack.Children.Add(UnresolvedCard(unresolved));
@@ -86,6 +92,19 @@ public sealed class SourcesPage : UserControl
         var card = PageParts.Card(panel);
         card.SetResourceReference(Border.BorderBrushProperty, "Accent2Brush");
         return card;
+    }
+
+    /// <summary>Leert die Liste der aus der Bibliothek entfernten Dateien und scannt neu: die Dateien kommen als neue Einträge zurück (ohne ihren alten Fortschritt).</summary>
+    private async Task RestoreRemovedAsync()
+    {
+        var count = _model.Db.CountRemovedFiles();
+        var answer = MessageBox.Show(
+            $"{count} entfernte Datei{(count == 1 ? "" : "en")} wieder in die Bibliothek aufnehmen?\n\nSie kommen beim Scan als neue Einträge zurück; Fortschritt, Poster und Einstellungen von früher sind weg.",
+            "Entfernte Einträge wieder aufnehmen", MessageBoxButton.OKCancel, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.OK) return;
+
+        _model.Db.ClearRemovedFiles();
+        await LibraryActions.RescanAsync(_shell);
     }
 
     private void RemoveMissing()

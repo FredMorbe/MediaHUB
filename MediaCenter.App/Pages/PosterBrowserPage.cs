@@ -33,7 +33,7 @@ public sealed class PosterBrowserPage : UserControl
         _shell = shell;
         _title = title;
 
-        var back = new Button { Content = "", ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 10, 0) };
+        var back = new Button { Content = "\uE72B", ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 10, 0) };
         back.SetResourceReference(StyleProperty, "IconButton");
         AutomationProperties.SetName(back, "Zurück");
         back.Click += (_, _) => _shell.Back();

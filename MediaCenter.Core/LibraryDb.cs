@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 7;
+    private const int SchemaVersion = 8;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -248,7 +248,7 @@ public sealed partial class LibraryDb : IDisposable
             // Schema 7: Cover aus dem Internet. SQLite kann eine CHECK-Bedingung nicht ändern, deshalb wird artwork neu aufgebaut
             // (gleiche Spalten, source darf jetzt auch 'online' sein). online_lookups merkt sich ergebnislose Suchen, damit nicht
             // bei jedem Durchlauf erneut gefragt wird.
-            Run("""
+            if (version < 7) Run("""
                 CREATE TABLE artwork_new (
                     owner_kind TEXT NOT NULL CHECK (owner_kind IN ('title', 'video')),
                     owner_id INTEGER NOT NULL,
@@ -269,6 +269,16 @@ public sealed partial class LibraryDb : IDisposable
                     found INTEGER NOT NULL,
                     checked_utc TEXT NOT NULL,
                     PRIMARY KEY (title_id, provider)
+                );
+                """);
+
+            // Schema 8: Dateien, die der Nutzer aus der Bibliothek entfernt hat (Nutzerdaten). Sie liegen noch auf der Platte; ein Scan überspringt sie.
+            if (version < 8) Run("""
+                CREATE TABLE removed_files (
+                    volume_id INTEGER NOT NULL REFERENCES volumes(id),
+                    rel_path TEXT NOT NULL COLLATE NOCASE,
+                    removed_utc TEXT NOT NULL,
+                    PRIMARY KEY (volume_id, rel_path)
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

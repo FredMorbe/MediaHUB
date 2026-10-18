@@ -36,6 +36,8 @@ public partial class MainWindow : Window, IShell
         GlassPanel.Backdrop = Backdrop;
         BuildNav();
         SettingsButton.Click += (_, _) => Navigate(Section.Settings);
+        VersionButton.Content = "v" + AppInfo.Version;
+        VersionButton.Click += (_, _) => Open(() => new ChangelogPage(this));
 
         Services.Theme.Changed += () => Services.Theme.StyleTitleBar(this);
         SourceInitialized += (_, _) => Services.Theme.StyleTitleBar(this);

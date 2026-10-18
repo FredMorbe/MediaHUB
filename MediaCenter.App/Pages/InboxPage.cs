@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 
@@ -21,7 +22,8 @@ public sealed class InboxPage : UserControl
         stack.Children.Add(PageParts.Heading("Inbox"));
         stack.Children.Add(PageParts.Muted(_model.Inbox.Count == 0
             ? "Alles zugeordnet. Neue Dateien, deren Name keine sichere Zuordnung ergibt, erscheinen hier."
-            : "Bei diesen Dateien reicht der Name nicht für eine sichere Zuordnung (kein Jahr, keine Folgennummer). Ordne sie zu, dann erscheinen sie in der Bibliothek."));
+            : "Bei diesen Dateien reicht der Name nicht für eine sichere Zuordnung (kein Jahr, keine Folgennummer). Ordne sie zu, dann erscheinen sie in der Bibliothek. " +
+              "Rechtsklick auf eine Datei → „Aus Mediacenter entfernen“ nimmt sie aus der Bibliothek; auf der Festplatte bleibt sie."));
 
         stack.Children.Add(new Border { Height = 18 });
         foreach (var video in _model.Inbox) stack.Children.Add(Row(video));
@@ -67,7 +69,20 @@ public sealed class InboxPage : UserControl
         Grid.SetColumn(controls, 1);
         grid.Children.Add(left);
         grid.Children.Add(controls);
-        return PageParts.Card(grid, new Thickness(0, 0, 0, 10));
+
+        var card = PageParts.Card(grid, new Thickness(0, 0, 0, 10));
+        card.MouseRightButtonUp += (_, e) =>
+        {
+            ContextPopup.Show(card, new (string, Action)[]
+            {
+                ("Aus Mediacenter entfernen …", () =>
+                {
+                    if (LibraryActions.RemoveVideo(_shell, video)) _shell.ReloadView();
+                }),
+            }, name.Text);
+            e.Handled = true;
+        };
+        return card;
     }
 
     private async Task AssignMovieAsync(VideoRow video)

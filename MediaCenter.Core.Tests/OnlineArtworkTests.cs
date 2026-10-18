@@ -769,6 +769,7 @@ public sealed class OnlineArtworkServiceTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
+                DROP TABLE removed_files;
                 DROP TABLE online_lookups;
                 CREATE TABLE artwork_old AS SELECT * FROM artwork;
                 DROP TABLE artwork;

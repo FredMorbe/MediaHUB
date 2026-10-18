@@ -38,7 +38,10 @@ public sealed record RenameProposal(
 }
 
 /// <summary>Was zum Zurücknehmen einer Umbenennung nötig ist.</summary>
-public sealed record RenameRecord(long VolumeId, long FileId, string OldRel, string NewRel, IReadOnlyList<SidecarMove> Sidecars);
+/// <param name="TitleId">Titel, unter dem der Film vor der Umbenennung stand, samt Name und Jahr; die Umbenennung kann den Titel mitumbenennen.</param>
+public sealed record RenameRecord(
+    long VolumeId, long FileId, string OldRel, string NewRel, IReadOnlyList<SidecarMove> Sidecars,
+    long? TitleId = null, string? TitleName = null, int? TitleYear = null);
 
 public sealed record RenameOutcome(RenameProposal Proposal, RenameRecord? Record, string? Error)
 {
@@ -55,14 +58,14 @@ public static class MovieNaming
 {
     private const int MaxTitleLength = 150;
 
-    /// <summary>„The Matrix Reloaded (2003) [1080p]“; ohne bekannte Größe ohne den Teil in Klammern. Null, wenn aus dem Titel kein Name wird.</summary>
+    /// <summary>„The_Matrix_Reloaded_(2003)_[1080p]“ (Leerzeichen als Unterstriche); ohne bekannte Größe ohne den Teil in Klammern. Null, wenn aus dem Titel kein Name wird.</summary>
     public static string? BaseName(string title, int year, int? width, int? height)
     {
         var clean = Sanitize(title);
         if (clean.Length == 0) return null;
 
         var name = $"{clean} ({year})";
-        return ResolutionLabel(width, height) is { } resolution ? $"{name} [{resolution}]" : name;
+        return (ResolutionLabel(width, height) is { } resolution ? $"{name} [{resolution}]" : name).Replace(' ', '_');
     }
 
     /// <summary>Entfernt, was Windows in Dateinamen nicht erlaubt: ein Doppelpunkt wird zu „ -“, andere Zeichen entfallen.</summary>
@@ -160,7 +163,7 @@ public static class MovieSidecars
 }
 
 /// <summary>
-/// Schlägt für Filme die richtige Schreibweise vor („the.matrix.reloaded.2003.1080p.h264.mkv“ → „The Matrix Reloaded (2003) [1080p].mkv“).
+/// Schlägt für Filme die richtige Schreibweise vor („the.matrix.reloaded.2003.1080p.h264.mkv“ → „The_Matrix_Reloaded_(2003)_[1080p].mkv“).
 /// Es wird nichts verändert; <see cref="MovieRenamer"/> setzt ausgewählte Vorschläge um.
 /// </summary>
 public sealed class MovieRenamePlanner(IMovieInfoSource source)
@@ -206,6 +209,47 @@ public sealed class MovieRenamePlanner(IMovieInfoSource source)
                 Detail: $"Als „{Path.GetFileName(newPath)}“ würde der Film nicht wieder als „{info.Title} ({year})“ erkannt.");
         }
 
+        return PlanMoves(video, volume, path, newPath, baseName, info.Title, year, planned);
+    }
+
+    /// <summary>
+    /// Plan für einen vom Nutzer gewählten Dateinamen (ohne Endung, die bleibt); Begleitdateien ziehen mit. Ändert nichts.
+    /// Der Name muss von der Bibliothek als Film mit Jahr gelesen werden („Mayday (2026)“), sonst fiele der Film aus seinem Titel in die Inbox.
+    /// </summary>
+    /// <exception cref="ArgumentException">Der Name ist als Dateiname unbrauchbar.</exception>
+    public static RenameProposal PlanManual(VideoRow video, VolumeStatus status, string newBaseName)
+    {
+        var baseName = newBaseName.Trim();
+        if (baseName.Length == 0) throw new ArgumentException("Der Dateiname ist leer.");
+        if (baseName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("Der Dateiname darf keines der Zeichen \\ / : * ? \" < > | enthalten.");
+        if (baseName.EndsWith('.')) throw new ArgumentException("Der Dateiname darf nicht mit einem Punkt enden.");
+        if (MediaExtensions.Video.Contains(Path.GetExtension(baseName))) throw new ArgumentException("Bitte ohne Dateiendung eingeben; die Endung bleibt erhalten.");
+
+        if (!status.Connected.TryGetValue(video.VolumeId, out var volume)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Laufwerk nicht angeschlossen.");
+        var path = Path.Combine(volume.RootPath, video.RelPath);
+        if (!File.Exists(path)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Datei nicht gefunden.");
+
+        if (Path.GetFileNameWithoutExtension(path) == baseName) return new RenameProposal(video, RenameStatus.AlreadyCorrect);
+
+        var newPath = Path.Combine(Path.GetDirectoryName(path)!, baseName + Path.GetExtension(path));
+        var parsed = FileNameParser.Parse(newPath);
+        if (parsed.Kind != VideoKind.Movie)
+        {
+            return new RenameProposal(video, RenameStatus.Unreadable,
+                Detail: $"Als „{Path.GetFileName(newPath)}“ würde die Bibliothek die Datei als Serienfolge lesen (z. B. wegen „S01E02“ im Namen).");
+        }
+        if (!parsed.Certain)
+        {
+            return new RenameProposal(video, RenameStatus.Unreadable,
+                Detail: $"Der Name braucht ein Jahr, z. B. „{parsed.Title.Replace(' ', '_')}_(2026)“. Sonst erkennt die Bibliothek den Film nicht sicher und er fiele in die Inbox.");
+        }
+
+        return PlanMoves(video, volume, path, newPath, baseName, parsed.Title, parsed.Year, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Film und Begleitdateien auf den neuen Namen; <see cref="RenameStatus.TargetExists"/>, wenn ein Ziel schon da ist oder doppelt vergeben würde.</summary>
+    private static RenameProposal PlanMoves(VideoRow video, VolumeInfo volume, string path, string newPath, string baseName, string title, int? year, HashSet<string> planned)
+    {
         var moves = new List<(string From, string To)> { (path, newPath) };
         foreach (var (sidecar, suffix) in MovieSidecars.Find(path)) moves.Add((sidecar, Path.Combine(Path.GetDirectoryName(sidecar)!, baseName + suffix)));
 
@@ -214,13 +258,13 @@ public sealed class MovieRenamePlanner(IMovieInfoSource source)
             var sameFileOtherCase = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
             if ((!sameFileOtherCase && File.Exists(to)) || !planned.Add(to))
             {
-                return new RenameProposal(video, RenameStatus.TargetExists, Title: info.Title, Year: year,
+                return new RenameProposal(video, RenameStatus.TargetExists, Title: title, Year: year,
                     Detail: $"„{Path.GetFileName(to)}“ gibt es schon oder würde mehrfach vergeben.");
             }
         }
 
         string Rel(string absolute) => Path.GetRelativePath(volume.RootPath, absolute);
-        return new RenameProposal(video, RenameStatus.Ready, Rel(newPath), info.Title, year,
+        return new RenameProposal(video, RenameStatus.Ready, Rel(newPath), title, year,
             Sidecars: moves.Skip(1).Select(m => new SidecarMove(Rel(m.From), Rel(m.To))).ToList());
     }
 }
@@ -243,6 +287,7 @@ public sealed class MovieRenamer(LibraryDb db)
             {
                 if (!status.Connected.TryGetValue(proposal.Video.VolumeId, out var volume)) throw new IOException("Das Laufwerk ist nicht angeschlossen.");
                 var record = Execute(volume, proposal.Video.VolumeId, proposal.Video.FileId, proposal.Video.RelPath, proposal.NewRelPath!, proposal.SidecarMoves);
+                if (proposal.Video is { TitleId: { } titleId, TitleName: { } titleName }) record = record with { TitleId = titleId, TitleName = titleName, TitleYear = proposal.Video.Year };
                 outcomes.Add(new RenameOutcome(proposal, record, null));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -264,6 +309,7 @@ public sealed class MovieRenamer(LibraryDb db)
             {
                 if (!status.Connected.TryGetValue(record.VolumeId, out var volume)) throw new IOException("Das Laufwerk ist nicht angeschlossen.");
                 Execute(volume, record.VolumeId, record.FileId, record.NewRel, record.OldRel, record.Sidecars.Select(s => new SidecarMove(s.NewRel, s.OldRel)).ToList());
+                if (record.TitleId is { } titleId && record.TitleName is { } titleName) db.RestoreTitle(record.FileId, titleId, titleName, record.TitleYear);
                 outcomes.Add(new UndoOutcome(record, null));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)

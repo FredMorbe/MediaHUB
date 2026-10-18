@@ -7,13 +7,15 @@ namespace MediaCenter.Core.Tests;
 public sealed class MovieNamingTests
 {
     [Theory]
-    [InlineData("The Matrix Reloaded", 2003, 1920, 1080, "The Matrix Reloaded (2003) [1080p]")]
-    [InlineData("The Matrix Reloaded", 2003, 1920, 800, "The Matrix Reloaded (2003) [1080p]")] // Breitbild: 1920×800 zählt als 1080p
-    [InlineData("Dune", 2021, 3840, 2160, "Dune (2021) [2160p]")]
-    [InlineData("Dune", 2021, 1280, 720, "Dune (2021) [720p]")]
-    [InlineData("Alt", 1960, 720, 576, "Alt (1960) [576p]")]
-    [InlineData("Alt", 1960, 640, 360, "Alt (1960) [480p]")]
-    [InlineData("Unbekannt", 2000, null, null, "Unbekannt (2000)")]
+    [InlineData("The Matrix Reloaded", 2003, 1920, 1080, "The_Matrix_Reloaded_(2003)_[1080p]")]
+    [InlineData("The Matrix Reloaded", 2003, 1920, 800, "The_Matrix_Reloaded_(2003)_[1080p]")] // Breitbild: 1920×800 zählt als 1080p
+    [InlineData("Dune", 2021, 3840, 2160, "Dune_(2021)_[2160p]")]
+    [InlineData("Dune", 2021, 1280, 720, "Dune_(2021)_[720p]")]
+    [InlineData("Alt", 1960, 720, 576, "Alt_(1960)_[576p]")]
+    [InlineData("Alt", 1960, 640, 360, "Alt_(1960)_[480p]")]
+    [InlineData("Unbekannt", 2000, null, null, "Unbekannt_(2000)")]
+    [InlineData("Mission: Impossible", 1996, 1920, 1080, "Mission_-_Impossible_(1996)_[1080p]")]
+    [InlineData("  Viele   Leerzeichen ", 2000, null, null, "Viele_Leerzeichen_(2000)")]
     public void Base_names_follow_title_year_resolution(string title, int year, int? width, int? height, string expected)
     {
         Assert.Equal(expected, MovieNaming.BaseName(title, year, width, height));
@@ -86,7 +88,7 @@ public sealed class MovieRenamingTests : IDisposable
     }
 
     private const string Scene = "the.matrix.reloaded.2003.1080p.h264.hdr.blabla";
-    private const string Proper = "The Matrix Reloaded (2003) [1080p]";
+    private const string Proper = "The_Matrix_Reloaded_(2003)_[1080p]";
 
     private string Abs(string rel) => Path.Combine(_drive, rel);
 
@@ -308,7 +310,7 @@ public sealed class MovieRenamingTests : IDisposable
 
         Assert.Equal(RenameStatus.Ready, first.Status);
         Assert.Equal(new[] { @"Filme\Film.2003.de.srt" }, first.SidecarMoves.Select(s => s.OldRel));
-        Assert.Equal(@"Filme\Ein Film (2003) [1080p].de.srt", first.SidecarMoves.Single().NewRel);
+        Assert.Equal(@"Filme\Ein_Film_(2003)_[1080p].de.srt", first.SidecarMoves.Single().NewRel);
     }
 
     [Fact]
@@ -388,7 +390,7 @@ public sealed class MovieRenamingTests : IDisposable
     [Fact]
     public async Task A_change_of_letter_case_only_is_possible()
     {
-        Touch(_drive, @"Filme\the matrix reloaded (2003) [1080p].mkv");
+        Touch(_drive, @"Filme\the_matrix_reloaded_(2003)_[1080p].mkv");
         await Scan();
 
         var proposal = Assert.Single(await Plan());
@@ -439,6 +441,120 @@ public sealed class MovieRenamingTests : IDisposable
         var refusing = new RefusingInfo();
 
         await Assert.ThrowsAsync<PosterSourceUnavailableException>(() => new MovieRenamePlanner(refusing).PlanAsync(_db.ListVideos(), Status()));
+    }
+
+    // --- Von Hand gewählter Name ---------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_manual_name_renames_the_file_and_companions_and_keeps_the_video_and_follows_with_the_title()
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        Touch(_drive, $@"Filme\{Scene}.de.srt");
+        await Scan();
+        var video = Video(Scene);
+        _db.SavePlayback(video.VideoId, 600, watched: false);
+
+        var proposal = MovieRenamePlanner.PlanManual(video, Status(), "Der Pate (1972)");
+
+        Assert.Equal(RenameStatus.Ready, proposal.Status);
+        Assert.Equal(@"Filme\Der Pate (1972).mkv", proposal.NewRelPath);
+        Assert.Equal(@"Filme\Der Pate (1972).de.srt", proposal.SidecarMoves.Single().NewRel);
+        Assert.True(Assert.Single(Apply(new[] { proposal })).Success);
+
+        Assert.True(File.Exists(Abs(@"Filme\Der Pate (1972).mkv")));
+        Assert.True(File.Exists(Abs(@"Filme\Der Pate (1972).de.srt")));
+        Assert.False(File.Exists(Abs($@"Filme\{Scene}.mkv")));
+        var after = _db.ListVideos().Single();
+        Assert.Equal(video.VideoId, after.VideoId);
+        Assert.Equal("Der Pate", after.TitleName);
+        Assert.Equal(1972, after.Year);
+        Assert.Equal(600, _db.GetPlayback(video.VideoId)!.PositionSeconds);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Film: Teil 2 (2001)")]
+    [InlineData("Film/Teil (2001)")]
+    [InlineData("Film (2001).")]
+    [InlineData("Film (2001).mkv")]
+    public async Task A_manual_name_that_is_no_usable_file_name_is_refused_loudly(string name)
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        await Scan();
+
+        Assert.Throws<ArgumentException>(() => MovieRenamePlanner.PlanManual(Video(Scene), Status(), name));
+        Assert.True(File.Exists(Abs($@"Filme\{Scene}.mkv")));
+    }
+
+    [Theory]
+    [InlineData("Der Pate", "Jahr")] // ohne Jahr würde der Film in die Inbox fallen
+    [InlineData("Die Serie S01E02 (2001)", "Serienfolge")]
+    public async Task A_manual_name_the_library_would_not_read_as_a_film_with_year_is_not_planned(string name, string expectedInDetail)
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        await Scan();
+
+        var proposal = MovieRenamePlanner.PlanManual(Video(Scene), Status(), name);
+
+        Assert.Equal(RenameStatus.Unreadable, proposal.Status);
+        Assert.Contains(expectedInDetail, proposal.Detail);
+        Assert.Null(proposal.NewRelPath);
+    }
+
+    [Fact]
+    public async Task A_manual_name_that_exists_already_the_same_name_and_a_missing_file_are_reported_not_applied()
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        Touch(_drive, @"Filme\Belegt (2000).mkv");
+        await Scan();
+        var video = Video(Scene);
+
+        Assert.Equal(RenameStatus.TargetExists, MovieRenamePlanner.PlanManual(video, Status(), "Belegt (2000)").Status);
+        Assert.Equal(RenameStatus.AlreadyCorrect, MovieRenamePlanner.PlanManual(video, Status(), Scene).Status);
+
+        File.Delete(Abs($@"Filme\{Scene}.mkv"));
+        Assert.Equal(RenameStatus.Offline, MovieRenamePlanner.PlanManual(video, Status(), "Neu (2000)").Status);
+    }
+
+    [Fact]
+    public async Task Undoing_a_manual_rename_gives_back_the_name_and_year_of_the_title_too()
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        await Scan();
+        var video = Video(Scene);
+        var oldName = video.TitleName;
+        var oldYear = video.Year;
+        var proposal = MovieRenamePlanner.PlanManual(video, Status(), "Der Pate (1972)");
+        var record = Assert.Single(Apply(new[] { proposal })).Record!;
+        Assert.Equal("Der Pate", _db.ListVideos().Single().TitleName); // der Titel ist dem Dateinamen gefolgt
+
+        var undo = Assert.Single(new MovieRenamer(_db).Undo(new[] { record }, Status()));
+
+        Assert.True(undo.Success);
+        Assert.True(File.Exists(Abs($@"Filme\{Scene}.mkv")));
+        var after = _db.ListVideos().Single();
+        Assert.Equal(video.VideoId, after.VideoId);
+        Assert.Equal(oldName, after.TitleName);
+        Assert.Equal(oldYear, after.Year);
+    }
+
+    [Fact]
+    public async Task Undoing_leaves_a_title_alone_that_the_film_no_longer_belongs_to()
+    {
+        Touch(_drive, $@"Filme\{Scene}.mkv");
+        Touch(_drive, @"Filme\Der Pate (1972).mkv");
+        await Scan();
+        var pate = Video("Der Pate");
+        var video = Video(Scene);
+        // Der Film wandert zum vorhandenen Titel „Der Pate“; sein alter Titel bleibt leer zurück und wird zusammengeführt.
+        var record = Assert.Single(Apply(new[] { MovieRenamePlanner.PlanManual(video, Status(), "Der Pate (1972) Teil 2 (1974)") })).Record!;
+        var titleOfPate = _db.ListVideos().Single(v => v.VideoId == pate.VideoId).TitleName;
+
+        var undo = Assert.Single(new MovieRenamer(_db).Undo(new[] { record }, Status()));
+
+        Assert.True(undo.Success);
+        Assert.Equal(titleOfPate, _db.ListVideos().Single(v => v.VideoId == pate.VideoId).TitleName); // der andere Titel bleibt unangetastet
     }
 
     private sealed class RefusingInfo : IMovieInfoSource

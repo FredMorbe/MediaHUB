@@ -91,6 +91,7 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
 
         var rel = Path.GetRelativePath(volume.RootPath, fullPath);
         if (rel == ".") rel = "";
+        if (kind == SourceKind.File) db.UnremoveFile(volumeId, rel); // wer eine entfernte Datei ausdrücklich hinzufügt, will sie wieder
         var sourceId = db.AddSource(volumeId, kind, rel);
 
         var status = RefreshVolumes();
@@ -116,6 +117,7 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
 
         var absolute = Path.Combine(volume.RootPath, source.RelPath);
         var known = db.GetFilesUnder(source.VolumeId, source.RelPath);
+        var removed = db.GetRemovedFiles(source.VolumeId);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var failures = new List<ScanFailure>();
         int added = 0, updated = 0, unchanged = 0;
@@ -125,6 +127,7 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
             ct.ThrowIfCancellationRequested();
 
             var rel = Path.GetRelativePath(volume.RootPath, path);
+            if (removed.Contains(rel)) continue; // vom Nutzer aus der Bibliothek entfernt, liegt aber noch auf der Platte
             seen.Add(rel);
             var info = new FileInfo(path);
 
