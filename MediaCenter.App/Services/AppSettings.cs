@@ -16,6 +16,30 @@ public sealed class AppSettings
     /// <summary>Id eines Farbstils aus <see cref="Theming.Palettes"/>.</summary>
     public string Palette { get; set; } = "signal";
 
+    public const string GpuAuto = "auto";
+
+    public const string GpuOn = "on";
+
+    public const string GpuOff = "off";
+
+    /// <summary>
+    /// Oberfläche über die Grafikkarte zeichnen („on“), per Software („off“) oder automatisch („auto“, Standard): Auf manchen Rechnern (belegt mit
+    /// Intel Arc plus NVIDIA) bleibt jedes WPF-Fenster im Hardware-Modus weiß. Automatisch startet mit der Grafikkarte, prüft einmal das Fensterbild
+    /// (<see cref="Services.RenderSelfTest"/>) und merkt sich das Ergebnis in <see cref="GpuAutoResult"/>. Gilt ab dem nächsten Start;
+    /// das Video zeichnet mpv unabhängig davon auf der GPU.
+    /// </summary>
+    public string GpuMode { get; set; } = GpuAuto;
+
+    /// <summary>Ergebnis des Tests im Modus „auto“: „ok“ (Fenster zeigt etwas), „failed“ (Fenster blieb leer, Software gilt) oder null (noch nicht geprüft).</summary>
+    public string? GpuAutoResult { get; set; }
+
+    /// <summary>Ob die Oberfläche beim nächsten Start per Software gezeichnet wird.</summary>
+    [JsonIgnore]
+    public bool SoftwareRendering => GpuMode == GpuOff || (GpuMode == GpuAuto && GpuAutoResult == "failed");
+
+    /// <summary>Verstärkung in dB je Equalizer-Band (<see cref="Equalizer.Bands"/>); lauter Nullen = kein Eingriff in den Klang.</summary>
+    public List<int> EqualizerGains { get; set; } = new int[Equalizer.Bands.Count].ToList();
+
     /// <summary>Schlüssel der zuletzt gespielten Alben, das neueste zuerst (für „Zuletzt gehört“ auf der Musik-Seite).</summary>
     public List<string> RecentAlbums { get; set; } = new();
 
@@ -37,6 +61,9 @@ public sealed class AppSettings
     /// Fehlende Poster im Internet suchen: Serien bei TVmaze, Filme bei OMDb (nur mit Schlüssel). Gesendet werden Titel und Jahr.
     /// </summary>
     public bool OnlineCovers { get; set; } = true;
+
+    /// <summary>Songtexte im Internet suchen (LRCLIB), wenn weder Datei noch Tag einen haben. Gesendet werden Künstler, Titel, Album und Dauer.</summary>
+    public bool OnlineLyrics { get; set; } = true;
 
     /// <summary>Beim Überfahren eines Films oder einer Serie einen kurzen stummen Ausschnitt zeigen (wird beim ersten Mal per ffmpeg erzeugt).</summary>
     public bool PreviewOnHover { get; set; } = true;
@@ -81,6 +108,11 @@ public sealed class AppSettings
                 ?? throw new InvalidDataException("Datei ist leer.");
             _ = settings.Playback; // prüft die Sprachschlüssel
             _ = settings.OllamaUri;
+            Equalizer.Validated(settings.EqualizerGains);
+            if (settings.GpuMode is not (GpuAuto or GpuOn or GpuOff))
+                throw new ArgumentException($"GpuMode „{settings.GpuMode}“ ist unbekannt (auto, on oder off).");
+            if (settings.GpuAutoResult is not (null or "ok" or "failed"))
+                throw new ArgumentException($"GpuAutoResult „{settings.GpuAutoResult}“ ist unbekannt (ok oder failed).");
             return settings;
         }
         catch (Exception ex) when (ex is JsonException or InvalidDataException or ArgumentException)

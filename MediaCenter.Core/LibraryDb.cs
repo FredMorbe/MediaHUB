@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 9;
+    private const int SchemaVersion = 11;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -302,6 +302,31 @@ public sealed partial class LibraryDb : IDisposable
                     found INTEGER NOT NULL,
                     checked_utc TEXT NOT NULL,
                     PRIMARY KEY (album_key, provider)
+                );
+                """);
+            // Schema 10: Playlists (Nutzerdaten). position ordnet die Titel einer Playlist; ein Titel steht höchstens einmal darin.
+            if (version < 10) Run("""
+                CREATE TABLE playlists (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE playlist_items (
+                    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                    position INTEGER NOT NULL,
+                    added_utc TEXT NOT NULL,
+                    PRIMARY KEY (playlist_id, track_id)
+                );
+                CREATE INDEX playlist_items_position ON playlist_items(playlist_id, position);
+                """);
+
+            // Schema 11: Meine Liste, vorgemerkte Filme und Serien (Nutzerdaten).
+            if (version < 11) Run("""
+                CREATE TABLE watchlist (
+                    title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE,
+                    added_utc TEXT NOT NULL
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

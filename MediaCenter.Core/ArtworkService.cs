@@ -8,7 +8,8 @@ public sealed record ArtworkFailure(string Subject, string Error);
 public sealed record ArtworkResult(int Created, int Skipped, int Unreachable, IReadOnlyList<ArtworkFailure> Failures);
 
 /// <summary>Quellen für Cover aus dem Internet (je Titelart und für Alben, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
-public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IAlbumCoverSource? Albums = null);
+/// <param name="Albums">Anbieter für Album-Cover in der Reihenfolge der Anfrage; der nächste wird nur gefragt, wenn der vorige nichts fand oder ausfiel.</param>
+public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IReadOnlyList<IAlbumCoverSource>? Albums = null);
 
 /// <summary>
 /// Beschafft Cover. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Poster aus dem Internet → Standbild.
@@ -335,15 +336,26 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     }
 
     /// <summary>
-    /// Sucht das Cover eines Albums im Internet. Wie bei den Postern stoppt ein Fehler den Durchlauf nicht: fällt der Anbieter aus,
-    /// steht einmal eine Meldung in den Fehlern und er wird nicht weiter gefragt. Ohne bekannten Künstler wird nicht gesucht
-    /// (ein Albumtitel allein trifft zu oft das falsche Album).
+    /// Sucht das Cover eines Albums im Internet, Anbieter für Anbieter, bis einer es findet. Wie bei den Postern stoppt ein Fehler den Durchlauf
+    /// nicht: fällt ein Anbieter aus, steht einmal eine Meldung in den Fehlern und er wird nicht weiter gefragt (die anderen schon).
+    /// Ohne bekannten Künstler wird nicht gesucht (ein Albumtitel allein trifft zu oft das falsche Album).
     /// </summary>
     private async Task<bool> TryOnlineAlbumCoverAsync(AlbumInfo album, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
     {
-        if (Online is not { Albums: { } finder } online || run.Unavailable.Contains(finder.Provider)) return false;
+        if (Online is not { Albums: { } finders } online) return false;
         if (album.Artist == MusicIndex.UnknownArtist || album.Title == MusicIndex.UnknownAlbum) return false;
 
+        foreach (var finder in finders)
+        {
+            if (run.Unavailable.Contains(finder.Provider)) continue;
+            if (await TryOnlineAlbumCoverAsync(finder, online, album, file, force, run, failures, ct)) return true;
+        }
+        return false;
+    }
+
+    private async Task<bool> TryOnlineAlbumCoverAsync(
+        IAlbumCoverSource finder, OnlineArtwork online, AlbumInfo album, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    {
         var provider = finder.Provider;
         var query = $"{album.Artist}|{album.Title}|v{MatchVersion}";
         if (!force && db.GetAlbumLookup(album.Key, provider) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)

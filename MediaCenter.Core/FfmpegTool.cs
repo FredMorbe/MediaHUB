@@ -101,17 +101,20 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
     {
         var scale = $"scale=w=-2:h='min({height},ih)'";
         var filter = hdr ? $"{HdrToSdr},{scale}" : scale;
+        // Die Vorschau entsteht nebenbei, während der Nutzer die Oberfläche bedient: wenige Threads und niedrige Priorität, damit sie das Scrollen nicht stört.
         return RunAsync(output, PreviewTimeout, new[]
         {
             "-t", lengthSeconds.ToString("F3", CultureInfo.InvariantCulture), "-map", "0:v:0", "-vf", filter,
-            "-an", "-sn", "-dn", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-        }, "keine Vorschau", ct, "-ss", startSeconds.ToString("F3", CultureInfo.InvariantCulture), "-i", video);
+            "-an", "-sn", "-dn", "-c:v", "libx264", "-threads", PreviewThreads, "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        }, "keine Vorschau", ct, lowPriority: true, "-threads", PreviewThreads, "-ss", startSeconds.ToString("F3", CultureInfo.InvariantCulture), "-i", video);
     }
 
-    private Task RunAsync(string output, CancellationToken ct, params string[] inputArgs) =>
-        RunAsync(output, Timeout, new[] { "-q:v", "3" }, "kein Bild", ct, inputArgs);
+    private const string PreviewThreads = "2";
 
-    private async Task RunAsync(string output, TimeSpan timeoutAfter, string[] outputArgs, string noResult, CancellationToken ct, params string[] inputArgs)
+    private Task RunAsync(string output, CancellationToken ct, params string[] inputArgs) =>
+        RunAsync(output, Timeout, new[] { "-q:v", "3" }, "kein Bild", ct, lowPriority: false, inputArgs);
+
+    private async Task RunAsync(string output, TimeSpan timeoutAfter, string[] outputArgs, string noResult, CancellationToken ct, bool lowPriority, params string[] inputArgs)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         // ffmpeg erkennt das Format an der Endung; erst in eine Temp-Datei schreiben, dann atomar ersetzen.
@@ -140,6 +143,7 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
 
         using (process)
         {
+            if (lowPriority) process.PriorityClass = ProcessPriorityClass.BelowNormal;
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(timeoutAfter);
             var stderr = process.StandardError.ReadToEndAsync(timeout.Token);

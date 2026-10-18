@@ -23,6 +23,16 @@ public partial class HomePage : UserControl
 
         BuildHero();
         BuildRows();
+
+        // „Meine Liste“ ändert sich auch von dieser Seite aus (Kartenmenü): die Reihen bauen sich neu auf.
+        Loaded += (_, _) => _model.WatchlistChanged += OnWatchlistChanged;
+        Unloaded += (_, _) => _model.WatchlistChanged -= OnWatchlistChanged;
+    }
+
+    private void OnWatchlistChanged()
+    {
+        Rows.Children.Clear();
+        BuildRows();
     }
 
     private void BuildHero()
@@ -78,6 +88,7 @@ public partial class HomePage : UserControl
         var continueCards = _model.ContinueCards().ToList();
         if (continueCards.Count > 0) AddRow("Weiterschauen", continueCards, async card => await PlayAsync(card.TitleId));
 
+        AddTitleRow("Meine Liste", _model.WatchlistTitles());
         AddTitleRow("Filme", _model.Titles.Where(t => t.Kind == TitleKind.Movie));
         AddTitleRow("Serien", _model.Titles.Where(t => t.Kind == TitleKind.Series));
         foreach (var genre in _model.AllGenres())

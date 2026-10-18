@@ -55,6 +55,12 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     public IReadOnlyList<ContinueItem> Continue { get; private set; } = Array.Empty<ContinueItem>();
 
+    /// <summary>Ids der Titel auf „Meine Liste“, der zuletzt vorgemerkte zuerst.</summary>
+    public IReadOnlyList<long> Watchlist { get; private set; } = Array.Empty<long>();
+
+    /// <summary>Ein Titel kam auf „Meine Liste“ oder wurde heruntergenommen (<see cref="SetOnWatchlist"/>); Seiten mit der Liste bauen sich neu auf.</summary>
+    public event Action? WatchlistChanged;
+
     public IReadOnlyList<VideoRow> Inbox { get; private set; } = Array.Empty<VideoRow>();
 
     public IReadOnlyDictionary<long, List<VideoRow>> VideosByTitle { get; private set; } = new Dictionary<long, List<VideoRow>>();
@@ -64,6 +70,11 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
     public IReadOnlyList<AlbumInfo> Albums { get; private set; } = Array.Empty<AlbumInfo>();
 
     public IReadOnlyList<ArtistInfo> Artists { get; private set; } = Array.Empty<ArtistInfo>();
+
+    public IReadOnlyList<PlaylistInfo> Playlists { get; private set; } = Array.Empty<PlaylistInfo>();
+
+    /// <summary>Eine Playlist wurde angelegt, umbenannt, gelöscht oder ihre Titel haben sich geändert (<see cref="ReloadPlaylists"/>).</summary>
+    public event Action? PlaylistsChanged;
 
     public IReadOnlyList<SavedStation> Stations { get; private set; } = Array.Empty<SavedStation>();
 
@@ -77,6 +88,7 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Titles = db.GetTitles();
         Genres = db.GetAllTitleGenres();
         Continue = db.GetContinueWatching();
+        Watchlist = db.GetWatchlist();
 
         var videos = db.ListVideos();
         Inbox = videos.Where(v => v.IsInbox).ToList();
@@ -88,9 +100,35 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Albums = MusicIndex.BuildAlbums(Tracks);
         Artists = MusicIndex.BuildArtists(Albums);
         _albumArt = db.GetAllAlbumArt().ToDictionary(a => a.Key, a => Path.Combine(artwork.CacheDir, a.Value.File));
+        Playlists = MusicIndex.BuildPlaylists(db.ListPlaylists(), db.ListPlaylistItems(), Tracks);
         Stations = db.ListStations();
         Podcasts = db.ListPodcasts();
     }
+
+    /// <summary>Liest nur die Playlists neu (nach einer Änderung) und meldet es; die übrige Momentaufnahme bleibt, die Seiten behalten ihren Stand.</summary>
+    public void ReloadPlaylists()
+    {
+        Playlists = MusicIndex.BuildPlaylists(db.ListPlaylists(), db.ListPlaylistItems(), Tracks);
+        PlaylistsChanged?.Invoke();
+    }
+
+    /// <summary>Cover der Playlist: das erste Album-Cover ihrer Titel; null, wenn keiner eins hat.</summary>
+    public string? PlaylistCover(PlaylistInfo playlist) => playlist.Tracks
+        .Select(t => AlbumArtPath(MusicIndex.AlbumKey(MusicIndex.ArtistOf(t), t.Album ?? MusicIndex.UnknownAlbum)))
+        .FirstOrDefault(p => p is not null);
+
+    public bool IsOnWatchlist(long titleId) => Watchlist.Contains(titleId);
+
+    /// <summary>Setzt einen Titel auf „Meine Liste“ oder nimmt ihn herunter und meldet es; die übrige Momentaufnahme bleibt.</summary>
+    public void SetOnWatchlist(long titleId, bool on)
+    {
+        db.SetOnWatchlist(titleId, on);
+        Watchlist = db.GetWatchlist();
+        WatchlistChanged?.Invoke();
+    }
+
+    /// <summary>Die Titel auf „Meine Liste“, der zuletzt vorgemerkte zuerst.</summary>
+    public IEnumerable<TitleRow> WatchlistTitles() => Watchlist.Select(FindTitle).OfType<TitleRow>();
 
     public string? AlbumArtPath(string albumKey) => _albumArt.GetValueOrDefault(albumKey);
 

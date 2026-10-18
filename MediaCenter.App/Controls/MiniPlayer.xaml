@@ -51,6 +51,9 @@
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="SoundButton" Style="{StaticResource IconButton}" Width="32" Height="32" Content="&#xE9E9;" ToolTip="Klang (Equalizer)" AutomationProperties.Name="Klang"/>
+                <TextBlock x:Name="SleepText" FontSize="12" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="4,0,0,0" Visibility="Collapsed"/>
+                <Button x:Name="SleepButton" Style="{StaticResource IconButton}" Width="32" Height="32" Content="&#xE708;" ToolTip="Einschlaf-Timer" AutomationProperties.Name="Einschlaf-Timer"/>
                 <Button x:Name="MuteButton" Style="{StaticResource IconButton}" Width="32" Height="32" Content="&#xE767;" ToolTip="Ton aus" AutomationProperties.Name="Stumm schalten"/>
                 <Slider x:Name="VolumeSlider" Style="{StaticResource SeekSlider}" Width="100" Minimum="0" Maximum="100" Value="80" VerticalAlignment="Center"/>
                 <Button x:Name="CloseButton" Style="{StaticResource IconButton}" Width="32" Height="32" Content="&#xE711;" Margin="8,0,0,0" ToolTip="Wiedergabe beenden" AutomationProperties.Name="Wiedergabe beenden"/>

@@ -19,6 +19,7 @@
                         <WrapPanel x:Name="GenrePanel" Margin="0,16,0,0"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <Button x:Name="PlayButton" Style="{StaticResource PrimaryButton}" Content="Abspielen"/>
+                            <Button x:Name="ListButton" Style="{StaticResource GhostButton}" Margin="0,0,10,0" AutomationProperties.Name="Meine Liste"/>
                             <TextBlock x:Name="OfflineText" Style="{StaticResource MutedText}" Margin="16,0,0,0" VerticalAlignment="Center" FontSize="13"/>
                         </StackPanel>
                     </StackPanel>

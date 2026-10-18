@@ -72,8 +72,13 @@ public sealed class AlbumPage : UserControl
         shuffle.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(shuffle, "Album zufällig abspielen");
         shuffle.Click += async (_, _) => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, 0, shuffle: true);
+        var toPlaylist = new Button { Content = "\uE710", Margin = new Thickness(8, 0, 0, 0), ToolTip = "Alle Titel zu einer Playlist hinzufügen" };
+        toPlaylist.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(toPlaylist, "Album zu Playlist hinzufügen");
+        toPlaylist.Click += (_, _) => PlaylistActions.ShowAddMenu(_shell, toPlaylist, _album.Tracks);
         buttons.Children.Add(play);
         buttons.Children.Add(shuffle);
+        buttons.Children.Add(toPlaylist);
 
         var info = new StackPanel { Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta } };
         var header = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -126,7 +131,10 @@ public sealed class AlbumPage : UserControl
             cells.Add(PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)));
 
             var captured = index;
-            _list.Children.Add(PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null));
+            Border? row = null;
+            row = PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
+                menu: () => new (string, Action)[] { ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })) });
+            _list.Children.Add(row);
         }
     }
 }

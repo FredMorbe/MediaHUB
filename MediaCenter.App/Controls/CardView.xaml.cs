@@ -196,6 +196,7 @@ public partial class CardView : UserControl
     private void EndPreview()
     {
         _hover++;
+        Previews?.Release(Item.TitleId);
         CloseVideo();
     }
 

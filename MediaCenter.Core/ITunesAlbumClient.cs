@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace MediaCenter.Core;
 
@@ -23,8 +22,6 @@ public sealed class ITunesAlbumClient(HttpClient http, TimeSpan? minGap = null) 
     /// <summary>Apple nennt etwa 20 Abrufe pro Minute; mit Abstand bleiben wir darunter.</summary>
     private static readonly TimeSpan DefaultGap = TimeSpan.FromSeconds(3.2);
 
-    private static readonly Regex Suffix = new(@"\s*([\(\[][^\)\]]*[\)\]]|-\s*(ep|single)\s*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private DateTime _lastCall = DateTime.MinValue;
 
@@ -36,7 +33,7 @@ public sealed class ITunesAlbumClient(HttpClient http, TimeSpan? minGap = null) 
         if (string.IsNullOrWhiteSpace(album)) throw new ArgumentException("Albumtitel fehlt.", nameof(album));
 
         var wantedArtist = PosterNames.MatchKey(artist);
-        var wantedAlbums = Keys(album);
+        var wantedAlbums = AlbumMatching.TitleKeys(album);
         if (wantedArtist.Length == 0 || wantedAlbums.Count == 0) return null;
 
         using var json = await GetJsonAsync(
@@ -48,24 +45,13 @@ public sealed class ITunesAlbumClient(HttpClient http, TimeSpan? minGap = null) 
             var name = String(item, "collectionName");
             var by = String(item, "artistName");
             if (name is null || by is null || PosterNames.MatchKey(by) != wantedArtist) continue;
-            if (!Keys(name).Overlaps(wantedAlbums)) continue;
+            if (!AlbumMatching.TitleKeys(name).Overlaps(wantedAlbums)) continue;
             if (String(item, "artworkUrl100") is not { } small || !Uri.TryCreate(small, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) continue;
 
             // Die API liefert 100 px; dieselbe Adresse mit größerer Kantenlänge gibt das große Bild.
             return new OnlinePoster(name, small.Replace("100x100bb", "600x600bb", StringComparison.Ordinal));
         }
         return null;
-    }
-
-    /// <summary>Vergleichsschlüssel eines Albumtitels: mit und ohne angehängten Zusatz in Klammern oder „- EP“.</summary>
-    private static HashSet<string> Keys(string title)
-    {
-        var keys = new HashSet<string>(StringComparer.Ordinal);
-        var full = PosterNames.MatchKey(title);
-        if (full.Length > 0) keys.Add(full);
-        var stripped = PosterNames.MatchKey(Suffix.Replace(title.Trim(), ""));
-        if (stripped.Length > 0) keys.Add(stripped);
-        return keys;
     }
 
     private static string? String(JsonElement item, string name) =>

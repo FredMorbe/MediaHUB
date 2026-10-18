@@ -29,10 +29,12 @@ public sealed class MusicPage : UserControl
         Tracks,
         Album,
         Artist,
+        Playlist,
     }
 
-    /// <param name="Key">Albumschlüssel bzw. Künstlername.</param>
-    private sealed record View(Kind Kind, string? Key = null);
+    /// <param name="Key">Albumschlüssel, Künstlername bzw. Id der Playlist.</param>
+    /// <param name="Rename">Eine eben angelegte Playlist öffnet gleich das Namensfeld; gilt nur für das erste Anzeigen.</param>
+    private sealed record View(Kind Kind, string? Key = null, bool Rename = false);
 
     private readonly IShell _shell;
     private readonly LibraryModel _model;
@@ -48,7 +50,8 @@ public sealed class MusicPage : UserControl
         _shell = shell;
         _model = shell.Services.Model;
 
-        _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(new View(Kind.Artist, name)), () => Go(new View(Kind.Tracks)))
+        _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(new View(Kind.Artist, name)), () => Go(new View(Kind.Tracks)),
+            id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist)
         {
             Margin = new Thickness(0, 0, 6, 0),
         };
@@ -130,8 +133,28 @@ public sealed class MusicPage : UserControl
         Render(animate: true);
     }
 
+    /// <summary>Legt eine leere Playlist an und öffnet sie mit dem Namensfeld.</summary>
+    private void NewPlaylist()
+    {
+        var playlist = PlaylistActions.Create(_shell, Array.Empty<TrackRow>());
+        Go(new View(Kind.Playlist, playlist.Id.ToString(), Rename: true));
+    }
+
+    /// <summary>Die Playlist ist gelöscht: Einträge für sie fallen aus dem Zurück-Verlauf, und die Ansicht wechselt zur vorherigen.</summary>
+    private void OnPlaylistDeleted(long id)
+    {
+        bool IsDeleted(View view) => view.Kind == Kind.Playlist && view.Key == id.ToString();
+        var kept = _back.Reverse().Where(v => !IsDeleted(v)).ToList(); // der Stapel liefert die neueste zuerst
+        _back.Clear();
+        foreach (var view in kept) _back.Push(view);
+        _view = _back.Count > 0 ? _back.Pop() : new View(Kind.Home);
+        Render(animate: true);
+    }
+
     private void Render(bool animate)
     {
+        var startRenaming = _view.Rename;
+        _view = _view with { Rename = false }; // beim Zurückkehren soll das Feld nicht wieder aufgehen
         var content = _view.Kind switch
         {
             Kind.Home => BuildHome(),
@@ -140,6 +163,7 @@ public sealed class MusicPage : UserControl
             Kind.Tracks => BuildTracks(),
             Kind.Album => new AlbumPage(_shell, _view.Key!, name => Go(new View(Kind.Artist, name))),
             Kind.Artist => BuildArtist(_view.Key!),
+            Kind.Playlist => new PlaylistPage(_shell, long.Parse(_view.Key!), OnPlaylistDeleted, startRenaming),
             _ => throw new InvalidOperationException($"Unbekannte Ansicht {_view.Kind}."),
         };
         content.Margin = new Thickness(24, 50, 24, 24);
@@ -152,6 +176,7 @@ public sealed class MusicPage : UserControl
         {
             Kind.Album => $"album:{_view.Key}",
             Kind.Artist => $"artist:{_view.Key}",
+            Kind.Playlist => $"playlist:{_view.Key}",
             Kind.Tracks => "tracks",
             _ => null,
         });
@@ -361,7 +386,10 @@ public sealed class MusicPage : UserControl
                     PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)),
                 };
                 var captured = index;
-                list.Children.Add(PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null));
+                Border? row = null;
+                row = PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
+                    menu: () => new (string, Action)[] { ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })) });
+                list.Children.Add(row);
             }
 
             if (tracks.Count > shown)

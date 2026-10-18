@@ -283,9 +283,9 @@ public sealed class MusicLibraryTests : IDisposable
         Assert.Empty(_db.GetAllAlbumArt());
     }
 
-    private sealed class FakeAlbumSource : IAlbumCoverSource
+    private sealed class FakeAlbumSource(string provider = "fakealbums") : IAlbumCoverSource
     {
-        public string Provider => "fakealbums";
+        public string Provider => provider;
 
         public List<string> Asked { get; } = new();
 
@@ -300,11 +300,102 @@ public sealed class MusicLibraryTests : IDisposable
 
     private FakeAlbumSource UseOnlineAlbums()
     {
+        var source = new FakeAlbumSource { Answer = (_, album) => new OnlinePoster(album, "https://is1-ssl.mzstatic.com/cover.jpg") };
+        UseSources(source);
+        return source;
+    }
+
+    /// <summary>Stellt die Anbieter in dieser Reihenfolge ein; die Antworten der Anbieter bestimmen die Tests.</summary>
+    private void UseSources(params FakeAlbumSource[] sources)
+    {
         var http = new FakeHttp();
         http.Bytes("https://is1-ssl.mzstatic.com/cover.jpg", new byte[] { 1, 2, 3 });
-        var source = new FakeAlbumSource { Answer = (_, album) => new OnlinePoster(album, "https://is1-ssl.mzstatic.com/cover.jpg") };
-        _art.Online = new OnlineArtwork(null, null, new RemoteImages(http.Client(), _tool, _cache), source);
-        return source;
+        _art.Online = new OnlineArtwork(null, null, new RemoteImages(http.Client(), _tool, _cache), sources);
+    }
+
+    private static OnlinePoster Cover(string album) => new(album, "https://is1-ssl.mzstatic.com/cover.jpg");
+
+    [Fact]
+    public async Task The_next_provider_is_asked_only_when_the_first_finds_nothing()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var first = new FakeAlbumSource("first");
+        var second = new FakeAlbumSource("second") { Answer = (_, album) => Cover(album) };
+        UseSources(first, second);
+
+        var result = await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Equal(1, result.Created);
+        Assert.Equal(new[] { "Band|Platte" }, first.Asked);
+        Assert.Equal(new[] { "Band|Platte" }, second.Asked);
+        Assert.Equal("online", _db.GetAllAlbumArt().Single().Value.Source);
+    }
+
+    [Fact]
+    public async Task A_cover_from_the_first_provider_means_the_second_is_not_asked()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var first = new FakeAlbumSource("first") { Answer = (_, album) => Cover(album) };
+        var second = new FakeAlbumSource("second") { Answer = (_, album) => Cover(album) };
+        UseSources(first, second);
+
+        await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Single(first.Asked);
+        Assert.Empty(second.Asked);
+    }
+
+    [Fact]
+    public async Task A_provider_that_is_down_is_reported_and_skipped_while_the_next_one_still_works()
+    {
+        Touch(_drive, @"Musik\A\eins.mp3");
+        Touch(_drive, @"Musik\B\eins.mp3");
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["title"] = "x", ["artist"] = "Band", ["album"] = Path.GetFileName(Path.GetDirectoryName(path))!,
+            });
+        await _library.AddFolderAsync(_drive);
+        var first = new FakeAlbumSource("first") { Answer = (_, _) => throw new HttpRequestException("first.example antwortete mit 503.") };
+        var second = new FakeAlbumSource("second") { Answer = (_, album) => Cover(album) };
+        UseSources(first, second);
+
+        var result = await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Single(first.Asked); // beim zweiten Album wird er nicht mehr gefragt
+        Assert.Equal(2, second.Asked.Count);
+        Assert.Equal(2, result.Created);
+        var failure = Assert.Single(result.Failures);
+        Assert.Contains("first", failure.Subject);
+    }
+
+    [Fact]
+    public async Task Misses_are_remembered_for_each_provider_separately()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var first = new FakeAlbumSource("first");
+        var second = new FakeAlbumSource("second");
+        UseSources(first, second);
+        var status = _library.RefreshVolumes();
+
+        await _art.RefreshAlbumsAsync(status);
+        await _art.RefreshAlbumsAsync(status);
+
+        Assert.Single(first.Asked);
+        Assert.Single(second.Asked);
+
+        // Ein neuer Anbieter wird trotz der Absagen der anderen gefragt.
+        var third = new FakeAlbumSource("third") { Answer = (_, album) => Cover(album) };
+        UseSources(first, second, third);
+        var result = await _art.RefreshAlbumsAsync(status);
+
+        Assert.Equal(1, result.Created);
+        Assert.Single(first.Asked);
+        Assert.Single(second.Asked);
+        Assert.Single(third.Asked);
     }
 
     [Fact]
@@ -405,6 +496,7 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
+                DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists;
                 DROP TABLE album_lookups;
                 CREATE TABLE album_art_old (album_key TEXT PRIMARY KEY, source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded')), file TEXT NOT NULL, updated_utc TEXT NOT NULL);
                 INSERT INTO album_art_old SELECT album_key, source, file, updated_utc FROM album_art;
@@ -438,7 +530,7 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
+                DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
                 DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE album_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();

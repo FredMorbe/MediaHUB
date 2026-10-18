@@ -66,6 +66,8 @@ public sealed class MpvPlayer : IDisposable
             "--osd-level=0",
             "--input-default-bindings=no",
             "--input-vo-keyboard=no",
+            // mpv meldet sich sonst selbst bei der Windows-Mediensteuerung an und konkurriert mit der Sitzung der App um die Medientasten.
+            "--input-media-keys=no",
             // Adressen kommen aus Feeds und Senderlisten: mpv soll sie nicht über yt-dlp auflösen.
             "--ytdl=no",
             $@"--input-ipc-server=\\.\pipe\{pipeName}",

@@ -10,6 +10,23 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.6.0", "18.10.2026", new[]
+        {
+            "Einschlaf-Timer für Musik und Video: in 15 bis 90 Minuten oder am Ende des Titels bzw. der Folge anhalten (Mond-Knopf in der Musikleiste, „Timer“ im Videoplayer). Am Ende der Folge startet die nächste dann nicht von selbst.",
+            "Equalizer mit zehn Bändern für Musik, Radio, Podcasts und Video: Voreinstellungen (Bass, Höhen, Stimme, Loudness, Rock) über den Knopf „Klang“ im Player, Regler unter Einstellungen → Wiedergabe. Änderungen sind sofort zu hören.",
+            "Songtexte im Panel „Jetzt läuft“ (Reiter „Songtext“): zeitgesteuerte Texte laufen mit, die gesungene Zeile ist hervorgehoben. Quellen: .lrc-Datei neben dem Titel, Text im Tag der Datei, sonst LRCLIB (abschaltbar unter Einstellungen → Bibliothek).",
+            "Album-Cover aus einer zweiten Quelle: Findet iTunes ein Album nicht (z. B. Pink Floyd – The Dark Side of the Moon), fragt die App MusicBrainz und das Cover Art Archive.",
+            "Ruckeln auf den Filmseiten: Die Vorschau-Erzeugung nimmt nur noch den zuletzt überfahrenen Film in die Warteschlange, läuft mit niedriger Priorität und zwei Threads. Vorher stand für jede kurz überfahrene Karte ein ffmpeg-Lauf an.",
+            "GPU-Beschleunigung automatisch: Die App startet mit der Grafikkarte und prüft einmal, ob das Fenster wirklich etwas zeigt. Bleibt es leer (Intel Arc mit NVIDIA), startet sie sich von selbst neu und zeichnet per Software. Unter Einstellungen → Darstellung wählbar: Automatisch, An, Aus.",
+        }),
+        new ChangelogEntry("0.5.0", "18.10.2026", new[]
+        {
+            "Playlists für Musik: in der Bibliothek links unter „Playlists“ anlegen, umbenennen (Namen anklicken) und löschen. Titel kommen per Rechtsklick „Zu Playlist hinzufügen …“ oder mit dem Plus-Symbol eines Albums hinein; in der Playlist lassen sie sich nach oben und unten schieben oder entfernen.",
+            "„Meine Liste“ für Filme und Serien: Rechtsklick auf eine Karte oder der Knopf auf der Detailseite. Die Liste steht als Reihe auf der Startseite und als Filter bei Filme und Serien.",
+            "Medientasten und Windows-Mediensteuerung: Wiedergabe/Pause, Weiter, Zurück und Stopp gelten für Video, Musik, Radio und Podcasts, auch bei minimiertem Fenster. Windows zeigt Titel, Cover und Fortschritt an. mpv meldet sich nicht mehr selbst bei der Mediensteuerung an.",
+            "Weißes Fenster behoben: Auf manchen Rechnern (Intel Arc mit NVIDIA) bleibt jedes WPF-Fenster im Hardware-Modus weiß. Die Oberfläche rendert deshalb standardmäßig per Software; Videos laufen weiter über die GPU. Unter Einstellungen → Darstellung lässt sich die GPU-Beschleunigung wieder einschalten.",
+            "Filter-Knöpfe (Genres, „Meine Liste“) lassen sich auch per Bedienhilfe umschalten.",
+        }),
         new ChangelogEntry("0.4.1", "18.10.2026", new[]
         {
             "Musik kompakter: schmalere Panels, kleinere Cover und Köpfe, dichtere Zeilen in der Bibliothek, in „Jetzt läuft“ und in der Player-Leiste (72 statt 88 px). Titel stehen als Tabelle (Nummer, Titel, Künstler, Album, Dauer) mit einzeiligen Zeilen; der Schnellzugriff zeigt acht Kacheln.",

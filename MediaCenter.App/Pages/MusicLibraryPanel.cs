@@ -21,6 +21,7 @@ internal sealed class MusicLibraryPanel : Border
     {
         Albums,
         Artists,
+        Playlists,
     }
 
     private readonly IShell _shell;
@@ -28,6 +29,8 @@ internal sealed class MusicLibraryPanel : Border
     private readonly Action<string> _openAlbum;
     private readonly Action<string> _openArtist;
     private readonly Action _openTracks;
+    private readonly Action<long> _openPlaylist;
+    private readonly Action _newPlaylist;
     private readonly StackPanel _list = new();
     private readonly ScrollViewer _scroll;
     private readonly TextBox _search;
@@ -40,13 +43,15 @@ internal sealed class MusicLibraryPanel : Border
     private string? _playingAlbum;
     private long? _playingTrack;
 
-    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks)
+    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks, Action<long> openPlaylist, Action newPlaylist)
     {
         _shell = shell;
         _model = shell.Services.Model;
         _openAlbum = openAlbum;
         _openArtist = openArtist;
         _openTracks = openTracks;
+        _openPlaylist = openPlaylist;
+        _newPlaylist = newPlaylist;
 
         Width = 280;
         CornerRadius = new CornerRadius(12);
@@ -73,7 +78,7 @@ internal sealed class MusicLibraryPanel : Border
         header.Children.Add(add);
 
         var modes = PageParts.Segmented("musiclib",
-            new[] { (Mode.Albums, "Alben"), (Mode.Artists, "Künstler") }.Select(m => (m.Item2, m.Item1 == _mode, (Action)(() =>
+            new[] { (Mode.Albums, "Alben"), (Mode.Artists, "Künstler"), (Mode.Playlists, "Playlists") }.Select(m => (m.Item2, m.Item1 == _mode, (Action)(() =>
             {
                 _mode = m.Item1;
                 Fill();
@@ -114,9 +119,24 @@ internal sealed class MusicLibraryPanel : Border
         Loaded += (_, _) =>
         {
             _shell.Services.Audio.Changed += OnAudioChanged;
+            _model.PlaylistsChanged += OnPlaylistsChanged;
             OnAudioChanged();
         };
-        Unloaded += (_, _) => _shell.Services.Audio.Changed -= OnAudioChanged;
+        Unloaded += (_, _) =>
+        {
+            _shell.Services.Audio.Changed -= OnAudioChanged;
+            _model.PlaylistsChanged -= OnPlaylistsChanged;
+        };
+    }
+
+    /// <summary>Die Liste der Playlists hat sich geändert; ist sie sichtbar, baut sie sich neu auf, ohne dass die Liste nach oben springt.</summary>
+    private void OnPlaylistsChanged()
+    {
+        if (_mode != Mode.Playlists) return;
+        var offset = _scroll.VerticalOffset;
+        Fill();
+        _scroll.UpdateLayout();
+        _scroll.ScrollToVerticalOffset(offset);
     }
 
     /// <summary>Hebt den Eintrag hervor, der im Mittelpanel offen ist ("album:…", "artist:…", "tracks"); null hebt nichts hervor.</summary>
@@ -174,6 +194,16 @@ internal sealed class MusicLibraryPanel : Border
                 _rows.Add(() => Row($"album:{captured.Key}", ImageCache.Load(_model.AlbumArtPath(captured.Key), 96), false, $"Album · {captured.Artist}", captured.Title, () => _openAlbum(captured.Key), captured.Key));
             }
         }
+        else if (_mode == Mode.Playlists)
+        {
+            if (text.Length == 0) _rows.Add(() => Row("new-playlist", null, false, "Leere Playlist anlegen", "Neue Playlist", _newPlaylist, null, accentTile: true, symbol: AddGlyph));
+            foreach (var playlist in _model.Playlists.Where(p => text.Length == 0 || p.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))
+            {
+                var captured = playlist;
+                var count = $"Playlist · {captured.Tracks.Count} Titel";
+                _rows.Add(() => Row($"playlist:{captured.Id}", ImageCache.Load(_model.PlaylistCover(captured), 96), false, count, captured.Name, () => _openPlaylist(captured.Id), null));
+            }
+        }
         else
         {
             foreach (var artist in _model.Artists.Where(a => text.Length == 0 || a.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))
@@ -202,9 +232,9 @@ internal sealed class MusicLibraryPanel : Border
         for (; _shown < end; _shown++) _list.Children.Add(_rows[_shown]());
     }
 
-    private UIElement Row(string selectKey, ImageSource? image, bool round, string sub, string title, Action open, string? albumKey, bool accentTile = false)
+    private UIElement Row(string selectKey, ImageSource? image, bool round, string sub, string title, Action open, string? albumKey, bool accentTile = false, string symbol = NoteGlyph)
     {
-        var thumb = PageParts.Thumb(image, 40, NoteGlyph);
+        var thumb = PageParts.Thumb(image, 40, symbol);
         thumb.CornerRadius = new CornerRadius(round ? 20 : 4);
         if (accentTile)
         {

@@ -138,6 +138,22 @@ public static class LibraryActions
         return true;
     }
 
+    /// <summary>Setzt den Titel auf „Meine Liste“ oder nimmt ihn herunter, je nachdem, wo er gerade steht, und sagt es dem Nutzer.</summary>
+    /// <returns>true, wenn er danach auf der Liste steht.</returns>
+    public static bool ToggleWatchlist(IShell shell, long titleId)
+    {
+        var model = shell.Services.Model;
+        if (model.FindTitle(titleId) is not { } title)
+        {
+            shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
+            return false;
+        }
+        var on = !model.IsOnWatchlist(titleId);
+        model.SetOnWatchlist(titleId, on);
+        shell.ShowMessage(on ? $"„{title.Name}“ steht jetzt auf „Meine Liste“." : $"„{title.Name}“ ist nicht mehr auf „Meine Liste“.");
+        return on;
+    }
+
     /// <summary>Kontextmenü einer Titelkarte; leer für Karten ohne Titel in der Bibliothek (Alben, Podcasts, Sender).</summary>
     public static IReadOnlyList<(string Text, Action Click)> CardMenu(IShell shell, CardItem item)
     {
@@ -145,7 +161,8 @@ public static class LibraryActions
 
         var menu = new List<(string, Action)>
         {
-            ("Poster wählen …", async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
+            (shell.Services.Model.IsOnWatchlist(item.TitleId) ? "Von „Meine Liste“ entfernen" : "Zu „Meine Liste“ hinzufügen", () => ToggleWatchlist(shell, item.TitleId)),
+            ("Poster wählen …",async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
             ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
             ("Umbenennen …", () => RenameTitle(shell, item.TitleId)),
         };

@@ -56,10 +56,15 @@ public partial class MainWindow : Window, IShell
             Services.Model.Reload();
             UpdateInboxBadge();
             Navigate(Section.Home);
+            CheckRendering();
         };
         InitPlayer();
-
-        Mini.Attach(Services.Audio);
+        SourceInitialized += (_, _) => StartMediaSession();
+        Mini.Attach(Services.Audio, Services, () =>
+        {
+            SettingsPage.SelectTab("Wiedergabe");
+            Navigate(Section.Settings);
+        });
         Mini.IsVisibleChanged += (_, _) => UpdateBottomInset();
         Services.Audio.Error += message => ShowMessage(message, isError: true);
     }

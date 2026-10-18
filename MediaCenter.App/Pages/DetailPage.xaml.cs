@@ -33,6 +33,7 @@ public partial class DetailPage : UserControl
         MetaText.Text = BuildMeta();
         BuildGenres();
         BuildPlayButton();
+        BuildListButton();
         BuildCoverPanel();
         if (_title.Kind == TitleKind.Series) BuildEpisodes();
 
@@ -72,6 +73,19 @@ public partial class DetailPage : UserControl
         {
             OfflineText.Text = "Gerade nicht erreichbar (Laufwerk abgesteckt?)";
         }
+    }
+
+    // --- Meine Liste ---------------------------------------------------------------------------------------
+
+    private void BuildListButton()
+    {
+        void Update() => ListButton.Content = _model.IsOnWatchlist(_title.Id) ? "✓ Auf meiner Liste" : "+ Meine Liste";
+        Update();
+        ListButton.Click += (_, _) =>
+        {
+            LibraryActions.ToggleWatchlist(_shell, _title.Id);
+            Update();
+        };
     }
 
     // --- Genres --------------------------------------------------------------------------------------------

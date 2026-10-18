@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using MediaCenter.App.Player;
+using MediaCenter.App.Services;
 using MediaCenter.Core;
 
 namespace MediaCenter.App;
@@ -108,9 +109,71 @@ public partial class MainWindow
 
         _idleTimer.Tick += (_, _) => UpdateControlsVisibility();
         _saveTimer.Tick += (_, _) => SaveProgress();
+
+        // Einschlaf-Timer und Equalizer des Videoplayers: gleicher Stand wie in der Musikleiste.
+        _overlay.SleepChosen += minutes =>
+        {
+            if (minutes == 0) Services.Sleep.Cancel();
+            else if (minutes < 0) Services.Sleep.StartEndOfItem();
+            else Services.Sleep.StartCountdown(TimeSpan.FromMinutes(minutes));
+        };
+        _overlay.SoundPresetChosen += id => Services.Sound.SetPreset(id);
+        Services.Sleep.Changed += () => _overlay.SetSleep(Services.Sleep.Mode, Services.Sleep.Label);
+        Services.Sound.Changed += () => _overlay.SetSoundPreset(Services.Sound.Preset);
+        _overlay.SetSleep(Services.Sleep.Mode, Services.Sleep.Label);
+        _overlay.SetSoundPreset(Services.Sound.Preset);
+
+        // Der Einschlaf-Timer hält die Musik selbst an; das Video pausiert hier.
+        Services.Sleep.Fired += message =>
+        {
+            if (PlayerActive) _ = _mpv?.CommandAsync("set", "pause", "yes");
+            ShowMessage(message);
+        };
     }
 
     private bool PlayerActive => PlayerLayer.Visibility == Visibility.Visible;
+
+    // --- Windows-Mediensteuerung ---------------------------------------------------------------------------
+
+    private MediaSession? _media;
+
+    /// <summary>Folge, Pause oder Ende des Videos haben sich geändert; die Mediensteuerung von Windows zeigt es an.</summary>
+    private event Action? VideoChanged;
+
+    private void NotifyVideo() => VideoChanged?.Invoke();
+
+    /// <summary>Medientasten, Lautstärke-Flyout und Sperrbildschirm: Video hat Vorrang vor Musik, Radio und Podcasts.</summary>
+    private void StartMediaSession()
+    {
+        _media = new MediaSession(new System.Windows.Interop.WindowInteropHelper(this).Handle, new IMediaSource[] { new VideoMediaSource(this), new AudioMediaSource(Services.Audio) });
+        _media.Failed += message => ShowMessage(message, isError: true);
+        Closed += (_, _) => _media.Dispose();
+    }
+
+    private MediaInfo? VideoInfo() => _playing is null || !PlayerActive
+        ? null
+        : new MediaInfo(MediaKind.Video, TitleOf(_playing), null, null, _playing.TitleId is { } titleId ? Services.Model.BestCover(titleId)?.Path : null,
+            Playing: !_paused, CanNext: _nextVideo is not null, CanPrevious: true, Position: _position, Duration: _duration);
+
+    private sealed class VideoMediaSource(MainWindow window) : IMediaSource
+    {
+        public event Action? Changed
+        {
+            add => window.VideoChanged += value;
+            remove => window.VideoChanged -= value;
+        }
+
+        public MediaInfo? Current => window.VideoInfo();
+
+        public Task SetPlayingAsync(bool playing) =>
+            window._mpv is null ? Task.CompletedTask : window._mpv.CommandAsync("set", "pause", playing ? "no" : "yes");
+
+        public Task NextAsync() => window._nextVideo is null ? Task.CompletedTask : window.PlayNextAsync();
+
+        public Task PreviousAsync() => window._mpv is null ? Task.CompletedTask : window._mpv.CommandAsync("seek", 0, "absolute");
+
+        public Task StopAsync() => window.ExitPlayerAsync();
+    }
 
     public async Task PlayAsync(VideoRow video, bool resume)
     {
@@ -182,6 +245,7 @@ public partial class MainWindow
             _lastActivity = DateTime.UtcNow;
             _idleTimer.Start();
             _saveTimer.Start();
+            NotifyVideo();
         }
         catch
         {
@@ -225,7 +289,16 @@ public partial class MainWindow
         {
             await mpv.ObserveAsync(property);
         }
+        await mpv.CommandAsync("set", "af", Services.Sound.Filter ?? "");
+        Services.Sound.Changed -= OnSoundChanged; // mpv kann neu gestartet werden; nur einmal anmelden
+        Services.Sound.Changed += OnSoundChanged;
         _mpv = mpv;
+    }
+
+    /// <summary>Der Equalizer wurde verstellt: ein laufendes Video klingt sofort anders.</summary>
+    private async void OnSoundChanged()
+    {
+        if (_mpv is not null) await _mpv.CommandAsync("set", "af", Services.Sound.Filter ?? "");
     }
 
     /// <summary>Hinweis im Player (die Toasts des Hauptfensters liegen unter dem Video) und zusätzlich als Toast für danach.</summary>
@@ -271,6 +344,7 @@ public partial class MainWindow
         if (_mpv is not null) await _mpv.CommandAsync("stop");
         _overlay.Hide();
         PlayerLayer.Visibility = Visibility.Collapsed;
+        NotifyVideo();
         ReloadView();
     }
 
@@ -309,13 +383,15 @@ public partial class MainWindow
             case "pause" when data is { } v:
                 _paused = v.GetBoolean();
                 _overlay.SetPaused(_paused);
+                NotifyVideo();
                 break;
             case "eof-reached" when data is { } v:
                 _eof = v.ValueKind == JsonValueKind.True;
                 if (_eof)
                 {
                     SaveProgress();
-                    BeginNextCountdown();
+                    // Einschlaf-Timer „am Ende der Folge“: hier anhalten statt die nächste Folge zu starten.
+                    if (!Services.Sleep.ConsumeEndOfItem()) BeginNextCountdown();
                 }
                 else
                 {

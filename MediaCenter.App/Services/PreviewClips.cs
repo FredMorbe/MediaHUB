@@ -16,7 +16,19 @@ public sealed class PreviewClips(LibraryModel model, FfmpegTool ffmpeg, AppSetti
     private readonly Dictionary<string, Task<string?>> _running = new();
     private readonly HashSet<string> _failed = new();
 
+    /// <summary>
+    /// Der Titel, dessen Vorschau zuletzt angefragt wurde und noch gewünscht ist. Wartende Aufträge anderer Titel verfallen: wer beim Scrollen
+    /// über viele Karten fährt, soll nicht für jede einen ffmpeg-Lauf in der Warteschlange hinterlassen (ein laufender wird zu Ende geführt).
+    /// </summary>
+    private long? _wantedTitle;
+
     public bool Enabled => settings.PreviewOnHover;
+
+    /// <summary>Der Zeiger hat die Karte verlassen: ist ihr Auftrag noch nicht gestartet, wird er nicht mehr ausgeführt.</summary>
+    public void Release(long titleId)
+    {
+        if (_wantedTitle == titleId) _wantedTitle = null;
+    }
 
     /// <summary>Ein Ausschnitt konnte nicht erzeugt werden (Fehlertext); pro Datei nur einmal je Sitzung.</summary>
     public event Action<string>? Failed;
@@ -32,15 +44,17 @@ public sealed class PreviewClips(LibraryModel model, FfmpegTool ffmpeg, AppSetti
         var target = Path.Combine(cacheDir, $"{video.VideoId}-{video.FileId}.mp4");
         if (File.Exists(target)) return Task.FromResult<string?>(target);
         if (_failed.Contains(target)) return Task.FromResult<string?>(null);
+        _wantedTitle = titleId;
         if (_running.TryGetValue(target, out var running)) return running;
 
-        var task = CreateAsync(video, model.PathOf(video)!, target);
+        var task = CreateAsync(titleId, video, model.PathOf(video)!, target);
         // Ist der Task schon fertig, hat sich CreateAsync selbst aus der Liste genommen; sonst würde der Eintrag bleiben.
         if (!task.IsCompleted) _running[target] = task;
         return task;
     }
 
-    private async Task<string?> CreateAsync(VideoRow video, string path, string target)
+    /// <returns>null, wenn der Auftrag verfiel (der Titel wird nicht mehr gewünscht) oder fehlschlug.</returns>
+    private async Task<string?> CreateAsync(long titleId, VideoRow video, string path, string target)
     {
         try
         {
@@ -53,6 +67,7 @@ public sealed class PreviewClips(LibraryModel model, FfmpegTool ffmpeg, AppSetti
             try
             {
                 if (File.Exists(target)) return target;
+                if (_wantedTitle != titleId) return null; // inzwischen anderswo hingefahren oder weggegangen
                 await ffmpeg.CreatePreviewAsync(path, start, length, target, Height, video.IsHdr);
             }
             finally

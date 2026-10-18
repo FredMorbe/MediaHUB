@@ -7,6 +7,9 @@ public static class AppInfo
 {
     public static string Version { get; } = ReadVersion();
 
+    /// <summary>Projektadresse; Online-Dienste (MusicBrainz) verlangen im User-Agent einen Kontakt.</summary>
+    public const string ProjectUrl = "https://github.com/MatchaLatte88/MediaHUB";
+
     private static string ReadVersion()
     {
         var attribute = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()

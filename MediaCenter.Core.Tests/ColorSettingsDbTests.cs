@@ -112,7 +112,7 @@ public sealed class ColorSettingsDbTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE removed_files; DROP TABLE album_lookups; DROP TABLE online_lookups; DROP TABLE color_settings; PRAGMA user_version = 5;";
+            cmd.CommandText = "DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE removed_files; DROP TABLE album_lookups; DROP TABLE online_lookups; DROP TABLE color_settings; PRAGMA user_version = 5;";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();

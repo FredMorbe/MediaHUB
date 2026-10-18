@@ -2,14 +2,15 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- 10.0.19041 gibt Zugriff auf die Windows-Mediensteuerung (Medientasten, Lautstärke-Anzeige) -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>MediaCenter</AssemblyName>
     <RootNamespace>MediaCenter.App</RootNamespace>
     <!-- Die Version der App; bei jeder neuen Version auch einen Eintrag in Services\Changelog.cs anlegen. -->
-    <Version>0.4.1</Version>
+    <Version>0.6.0</Version>
     <!-- Erzeugt von Assets\make_icon.py -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>

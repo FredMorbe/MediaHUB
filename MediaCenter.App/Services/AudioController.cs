@@ -24,7 +24,7 @@ public sealed record QueueItem(
 /// Die Warteschlange liegt in mpvs Playlist (lückenlose Übergänge); gestartet wird bei Titel N, davor liegende Titel
 /// lädt <see cref="PreviousAsync"/> bei Bedarf neu. Alle Ereignisse kommen auf dem UI-Thread.
 /// </summary>
-public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings settings) : IDisposable
+public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings settings, SoundService sound) : IDisposable
 {
     /// <summary>Ab dieser Position wird ein Podcast-Fortschritt gemerkt.</summary>
     private const double MinSavedSeconds = 15;
@@ -207,11 +207,20 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
         // Erst die gespeicherte Lautstärke setzen, dann beobachten: das erste volume-Ereignis (mpv-Standard 100)
         // würde sonst Volume überschreiben, bevor der gespeicherte Wert gesendet ist.
         await mpv.CommandAsync("set", "volume", Volume.ToString("0.#", CultureInfo.InvariantCulture));
+        await mpv.CommandAsync("set", "af", sound.Filter ?? "");
+        sound.Changed -= OnSoundChanged; // mpv kann neu gestartet werden; nur einmal anmelden
+        sound.Changed += OnSoundChanged;
         foreach (var property in new[] { "time-pos", "duration", "pause", "volume", "mute", "playlist-pos", "metadata/by-key/icy-title", "idle-active" })
         {
             await mpv.ObserveAsync(property);
         }
         _mpv = mpv;
+    }
+
+    /// <summary>Der Equalizer wurde verstellt: ein laufender Titel klingt sofort anders.</summary>
+    private async void OnSoundChanged()
+    {
+        if (_mpv is not null) await _mpv.CommandAsync("set", "af", sound.Filter ?? "");
     }
 
     private void OnProperty(string name, JsonElement? data)
@@ -274,6 +283,7 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
 
     public void Dispose()
     {
+        sound.Changed -= OnSoundChanged;
         _saveTimer.Stop();
         _volumeTimer.Stop();
         SaveProgress();

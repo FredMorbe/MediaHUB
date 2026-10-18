@@ -278,8 +278,12 @@ internal static class PageParts
         return new StackPanel { Margin = new Thickness(0, 0, 0, 4), Children = { grid, Divider() } };
     }
 
-    /// <summary>Kompakte Tabellenzeile (Titel einer Liste): eine Zelle je Spalte, die letzte rechtsbündig; nicht erreichbare Titel gedimmt.</summary>
-    public static Border TableRow(IReadOnlyList<GridLength> widths, IReadOnlyList<FrameworkElement> cells, Action onClick, string name, bool dimmed = false)
+    /// <summary>
+    /// Kompakte Tabellenzeile (Titel einer Liste): eine Zelle je Spalte, die letzte rechtsbündig; nicht erreichbare Titel gedimmt.
+    /// Mit <paramref name="menu"/> öffnen Rechtsklick und Menütaste ein Kontextmenü (für Automation: „Aufklappen“).
+    /// </summary>
+    public static Border TableRow(IReadOnlyList<GridLength> widths, IReadOnlyList<FrameworkElement> cells, Action onClick, string name, bool dimmed = false,
+        Func<IReadOnlyList<(string Text, Action Click)>>? menu = null)
     {
         var grid = new Grid();
         for (var i = 0; i < widths.Count; i++)
@@ -293,9 +297,19 @@ internal static class PageParts
             grid.Children.Add(cell);
         }
         if (dimmed) grid.Opacity = 0.55;
-        var row = ClickableRow(grid, onClick, new Thickness(0), name);
+        var row = (RowControl)ClickableRow(grid, onClick, new Thickness(0), name);
         row.Padding = new Thickness(8, 5, 8, 5);
         row.CornerRadius = new CornerRadius(6);
+        if (menu is not null)
+        {
+            row.Menu = menu;
+            row.MouseRightButtonUp += (_, e) => e.Handled = row.ShowMenu();
+            row.KeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.Apps || (e.Key == System.Windows.Input.Key.F10 && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Shift))
+                    e.Handled = row.ShowMenu();
+            };
+        }
         return row;
     }
 
@@ -311,22 +325,46 @@ internal static class PageParts
     /// <summary>Anklickbare Zeile; für Screenreader und Automation ein Knopf.</summary>
     private sealed class RowControl(Action onClick) : Border
     {
+        /// <summary>Einträge des Kontextmenüs; null = kein Menü.</summary>
+        public Func<IReadOnlyList<(string Text, Action Click)>>? Menu { get; set; }
+
         public void Activate() => onClick();
+
+        /// <returns>true, wenn ein Menü geöffnet wurde.</returns>
+        public bool ShowMenu()
+        {
+            if (Menu?.Invoke() is not { Count: > 0 } items) return false;
+            Controls.ContextPopup.Show(this, items, System.Windows.Automation.AutomationProperties.GetName(this));
+            return true;
+        }
 
         protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new Peer(this);
 
         private sealed class Peer(RowControl owner) : System.Windows.Automation.Peers.FrameworkElementAutomationPeer(owner),
-            System.Windows.Automation.Provider.IInvokeProvider
+            System.Windows.Automation.Provider.IInvokeProvider, System.Windows.Automation.Provider.IExpandCollapseProvider
         {
             protected override string GetClassNameCore() => "ListRow";
 
             protected override System.Windows.Automation.Peers.AutomationControlType GetAutomationControlTypeCore() =>
                 System.Windows.Automation.Peers.AutomationControlType.Button;
 
-            public override object? GetPattern(System.Windows.Automation.Peers.PatternInterface patternInterface) =>
-                patternInterface == System.Windows.Automation.Peers.PatternInterface.Invoke ? this : base.GetPattern(patternInterface);
+            // „Aufklappen“ öffnet das Kontextmenü (für Bedienhilfen und Automation, die nicht rechtsklicken können).
+            public override object? GetPattern(System.Windows.Automation.Peers.PatternInterface patternInterface) => patternInterface switch
+            {
+                System.Windows.Automation.Peers.PatternInterface.Invoke => this,
+                System.Windows.Automation.Peers.PatternInterface.ExpandCollapse when owner.Menu is not null => this,
+                _ => base.GetPattern(patternInterface),
+            };
 
             public void Invoke() => owner.Dispatcher.BeginInvoke(owner.Activate);
+
+            public System.Windows.Automation.ExpandCollapseState ExpandCollapseState => System.Windows.Automation.ExpandCollapseState.Collapsed;
+
+            public void Expand() => owner.Dispatcher.BeginInvoke(() => owner.ShowMenu());
+
+            public void Collapse()
+            {
+            }
         }
     }
 

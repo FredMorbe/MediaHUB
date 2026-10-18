@@ -22,6 +22,12 @@ public sealed class AppServices : IDisposable
 
     public required AudioController Audio { get; init; }
 
+    /// <summary>Einschlaf-Timer für Musik und Video.</summary>
+    public required SleepTimer Sleep { get; init; }
+
+    /// <summary>Equalizer für Musik und Video.</summary>
+    public required SoundService Sound { get; init; }
+
     public required HttpClient Http { get; init; }
 
     public required RadioBrowserClient RadioSearch { get; init; }
@@ -53,8 +59,17 @@ public sealed class AppServices : IDisposable
     /// <summary>Serienposter von TVmaze; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
     public required TvMazeClient TvMaze { get; init; }
 
+    /// <summary>Songtexte: Dateien, Tags und LRCLIB.</summary>
+    public required LyricsService Lyrics { get; init; }
+
+    /// <summary>Songtexte von LRCLIB; eine Instanz, damit die Suche bei einer Einstellung an- und abgeschaltet werden kann.</summary>
+    public required LrcLibClient LrcLib { get; init; }
+
     /// <summary>Album-Cover von iTunes; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
     public required ITunesAlbumClient ITunes { get; init; }
+
+    /// <summary>Album-Cover von MusicBrainz und dem Cover Art Archive; fragt erst, wenn iTunes nichts fand.</summary>
+    public required MusicBrainzAlbumClient MusicBrainz { get; init; }
 
     /// <summary>Filmposter von OMDb; null, solange weder <see cref="OmdbKeyVariable"/> noch <see cref="OmdbKeyFile"/> einen Schlüssel hat.</summary>
     public OmdbClient? Omdb { get; private set; }
@@ -96,7 +111,10 @@ public sealed class AppServices : IDisposable
 
     /// <summary>Schaltet die Online-Suche nach Postern nach der Einstellung ein oder aus (gilt ab dem nächsten Cover-Durchlauf).</summary>
     public void ApplyOnlineCovers() =>
-        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images, ITunes) : null;
+        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images, new IAlbumCoverSource[] { ITunes, MusicBrainz }) : null;
+
+    /// <summary>Schaltet die Suche nach Songtexten im Internet nach der Einstellung ein oder aus (gilt ab dem nächsten Titel).</summary>
+    public void ApplyOnlineLyrics() => Lyrics.Online = Settings.OnlineLyrics ? LrcLib : null;
 
     /// <summary>Ohne Zeitlimit des Clients: Antworten eines großen Modells brauchen lange, <see cref="OllamaClient"/> setzt sein eigenes.</summary>
     public required HttpClient OllamaHttp { get; init; }
@@ -123,6 +141,9 @@ public sealed class AppServices : IDisposable
         var mpvPath = Environment.GetEnvironmentVariable("MEDIACENTER_MPV") ?? DefaultMpvPath;
 
         var model = new LibraryModel(db, library, artwork);
+        var sound = new SoundService(settings);
+        var lrcLib = new LrcLibClient(http, AppInfo.ProjectUrl);
+        var audio = new AudioController(mpvPath, db, settings, sound);
         var services = new AppServices
         {
             Settings = settings,
@@ -131,11 +152,16 @@ public sealed class AppServices : IDisposable
             Model = model,
             Previews = new PreviewClips(model, ffmpeg, settings, Path.Combine(AppSettings.DataDirectory, "previews")),
             MpvPath = mpvPath,
-            Audio = new AudioController(mpvPath, db, settings),
+            Sound = sound,
+            Audio = audio,
+            Sleep = new SleepTimer(audio),
             Http = http,
             Images = images,
             TvMaze = new TvMazeClient(http),
             ITunes = new ITunesAlbumClient(http),
+            MusicBrainz = new MusicBrainzAlbumClient(http, AppInfo.ProjectUrl),
+            LrcLib = lrcLib,
+            Lyrics = new LyricsService(probe, null, Path.Combine(AppSettings.DataDirectory, "lyrics")),
             RadioSearch = new RadioBrowserClient(http),
             RadioStations = new RadioService(db, images),
             PodcastSearch = new PodcastSearchClient(http),
@@ -149,11 +175,13 @@ public sealed class AppServices : IDisposable
         };
         services.LoadOmdb();
         services.ApplyOnlineCovers();
+        services.ApplyOnlineLyrics();
         return services;
     }
 
     public void Dispose()
     {
+        Sleep.Dispose();
         Audio.Dispose();
         Http.Dispose();
         OllamaHttp.Dispose();

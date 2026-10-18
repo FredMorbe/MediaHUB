@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using MediaCenter.App.Services;
+using MediaCenter.Core;
 
 namespace MediaCenter.App.Controls;
 
@@ -9,6 +10,8 @@ namespace MediaCenter.App.Controls;
 public partial class MiniPlayer : UserControl
 {
     private AudioController? _audio;
+    private AppServices? _services;
+    private Action? _openSoundSettings;
     private bool _seeking;
     private bool _updatingVolume;
 
@@ -24,6 +27,8 @@ public partial class MiniPlayer : UserControl
         PlayPauseButton.Click += async (_, _) => await Audio.TogglePauseAsync();
         MuteButton.Click += async (_, _) => await Audio.ToggleMuteAsync();
         CloseButton.Click += async (_, _) => await Audio.StopAsync();
+        SleepButton.Click += (_, _) => ContextPopup.Show(SleepButton, SleepItems(), "Einschlaf-Timer");
+        SoundButton.Click += (_, _) => ContextPopup.Show(SoundButton, SoundItems(), "Klang");
 
         SeekSlider.PreviewMouseLeftButtonDown += (_, _) => _seeking = true;
         SeekSlider.PreviewMouseLeftButtonUp += (_, _) =>
@@ -41,12 +46,61 @@ public partial class MiniPlayer : UserControl
 
     private AudioController Audio => _audio ?? throw new InvalidOperationException("MiniPlayer ist noch nicht mit dem Audio-Controller verbunden.");
 
-    public void Attach(AudioController audio)
+    /// <param name="openSoundSettings">Öffnet die Einstellungen beim Equalizer („Equalizer einstellen …“ im Klang-Menü).</param>
+    public void Attach(AudioController audio, AppServices services, Action openSoundSettings)
     {
         _audio = audio;
+        _services = services;
+        _openSoundSettings = openSoundSettings;
         audio.Changed += Refresh;
         audio.Tick += UpdatePosition;
+        services.Sleep.Changed += UpdateSleep;
         Refresh();
+        UpdateSleep();
+    }
+
+    private AppServices Services => _services ?? throw new InvalidOperationException("MiniPlayer ist noch nicht mit den Diensten verbunden.");
+
+    // --- Einschlaf-Timer und Klang --------------------------------------------------------------------------
+
+    private void UpdateSleep()
+    {
+        var sleep = Services.Sleep;
+        SleepText.Visibility = sleep.Mode == SleepMode.Off ? Visibility.Collapsed : Visibility.Visible;
+        SleepText.Text = sleep.Label;
+        SleepButton.ToolTip = sleep.Mode == SleepMode.Off ? "Einschlaf-Timer" : $"Einschlaf-Timer: {sleep.Label}";
+    }
+
+    private IReadOnlyList<(string Text, Action Click)> SleepItems()
+    {
+        var sleep = Services.Sleep;
+        var items = new List<(string, Action)>();
+        if (sleep.Mode != SleepMode.Off) items.Add(($"Timer abbrechen ({sleep.Label})", sleep.Cancel));
+        foreach (var minutes in SleepTimer.Minutes)
+        {
+            var span = TimeSpan.FromMinutes(minutes);
+            items.Add(($"In {minutes} Minuten anhalten", () => sleep.StartCountdown(span)));
+        }
+        // Radio hat kein Ende; dort gibt es nur den Countdown.
+        if (Audio.Current is { Kind: not QueueKind.Radio } item)
+        {
+            items.Add((item.Kind == QueueKind.Podcast ? "Am Ende der Folge anhalten" : "Am Ende des Titels anhalten", sleep.StartEndOfItem));
+        }
+        return items;
+    }
+
+    private IReadOnlyList<(string Text, Action Click)> SoundItems()
+    {
+        var sound = Services.Sound;
+        var items = new List<(string, Action)>();
+        foreach (var preset in Equalizer.Presets)
+        {
+            var id = preset.Id;
+            items.Add(((sound.Preset == id ? "✓ " : "") + preset.Name, () => sound.SetPreset(id)));
+        }
+        if (sound.Preset == "custom") items.Add(("✓ Eigene Einstellung", () => { }));
+        items.Add(("Equalizer einstellen …", _openSoundSettings ?? throw new InvalidOperationException("MiniPlayer ist noch nicht mit den Diensten verbunden.")));
+        return items;
     }
 
     private void Refresh()

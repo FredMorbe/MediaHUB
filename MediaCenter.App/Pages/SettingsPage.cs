@@ -107,13 +107,32 @@ public sealed class SettingsPage : UserControl
                 }))),
             "Modus");
         RebuildTiles();
+
+        var settings = _shell.Services.Settings;
+        var gpu = PageParts.Segmented("gpu-rendering",
+            new[] { ("Automatisch", AppSettings.GpuAuto), ("An", AppSettings.GpuOn), ("Aus", AppSettings.GpuOff) }.Select(o => (o.Item1, settings.GpuMode == o.Item2, (Action)(() =>
+            {
+                settings.GpuMode = o.Item2;
+                settings.GpuAutoResult = null; // „Automatisch“ prüft beim nächsten Start neu
+                settings.Save();
+            }))),
+            "GPU-Beschleunigung");
+        var gpuNote = settings.GpuMode == AppSettings.GpuAuto
+            ? settings.GpuAutoResult switch
+            {
+                "ok" => " Letzter Test: das Fenster zeigt Inhalt, die Grafikkarte wird genutzt.",
+                "failed" => " Letzter Test: das Fenster blieb leer, die App zeichnet per Software.",
+                _ => " Der Test läuft beim nächsten Start.",
+            }
+            : "";
         return new StackPanel
         {
             Children =
             {
                 PageParts.Group(
                     PageParts.SettingRow("Modus", "„System“ folgt der Einstellung von Windows.", modes),
-                    PageParts.SettingRow("Farbstil", "Akzentfarbe für Knöpfe, Hervorhebungen und Farbverläufe; je Modus auf Kontrast abgestimmt.", _paletteTiles, stacked: true)),
+                    PageParts.SettingRow("Farbstil", "Akzentfarbe für Knöpfe, Hervorhebungen und Farbverläufe; je Modus auf Kontrast abgestimmt.", _paletteTiles, stacked: true),
+                    PageParts.SettingRow("GPU-Beschleunigung", "Oberfläche über die Grafikkarte zeichnen. Automatisch nutzt sie und prüft einmal, ob das Fenster etwas zeigt: Auf manchen Rechnern (z. B. Intel Arc mit NVIDIA) bleibt es sonst weiß, dann wechselt die App von selbst auf Software. Gilt nach einem Neustart; bei weißem Fenster in settings.json „GpuMode“ auf „off“ setzen. Videos laufen immer über die GPU." + gpuNote, gpu)),
             },
         };
     }
@@ -183,6 +202,15 @@ public sealed class SettingsPage : UserControl
             }))),
             "Poster online");
 
+        var lyrics = PageParts.Segmented("online-lyrics",
+            new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.OnlineLyrics == o.Item2, (Action)(() =>
+            {
+                settings.OnlineLyrics = o.Item2;
+                settings.Save();
+                _shell.Services.ApplyOnlineLyrics();
+            }))),
+            "Songtexte online");
+
         var keyStatus = PageParts.Muted("", 13);
         void ShowKeyStatus() => keyStatus.Text = _shell.Services.Omdb is null
             ? "Kein OMDb-Schlüssel hinterlegt. Einen kostenlosen gibt es auf omdbapi.com/apikey.aspx."
@@ -225,9 +253,13 @@ public sealed class SettingsPage : UserControl
                     PageParts.SettingRow("Cover aus dem Internet",
                         "Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com); " +
                         "gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; " +
-                        "deutsche Filmtitel findet OMDb oft nicht. Album-Cover kommen von iTunes (itunes.apple.com), gesendet werden Künstler und Albumtitel; " +
+                        "deutsche Filmtitel findet OMDb oft nicht. Album-Cover kommen von iTunes (itunes.apple.com), sonst von MusicBrainz und dem Cover Art Archive (musicbrainz.org, coverartarchive.org); gesendet werden Künstler und Albumtitel; " +
                         "Alben ohne Künstler im Tag werden nicht gesucht. Ein selbst gesetztes Poster bleibt immer.", online),
                     PageParts.SettingRow("OMDb-Schlüssel", null, new StackPanel { Children = { keyStatus, keyRow } }, stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Songtexte aus dem Internet",
+                        "Songtexte zeigt das Panel „Jetzt läuft“ der Musik. Zuerst zählt eine .lrc-Datei neben dem Titel (zeitgesteuert), dann ein Text im Tag der Datei; " +
+                        "fehlt beides, fragt die App LRCLIB (lrclib.net) mit Künstler, Titel, Album und Dauer. Gefundene Texte und Absagen werden gemerkt (Ordner „lyrics“ im Datenordner).", lyrics)),
                 PageParts.Group(
                     PageParts.SettingRow("Vorschau beim Überfahren",
                         "Die Karte eines Films oder einer Serie wächst zur Seite und zeigt einen stummen Ausschnitt. Der Ausschnitt (10 s, 480p) wird beim ersten Mal " +
@@ -310,8 +342,112 @@ public sealed class SettingsPage : UserControl
                     PageParts.SettingRow("Untertitelsprache", null, Chips("Untertitelsprache", language), stacked: true),
                     PageParts.SettingRow("Nächste Folge automatisch", "Nach einer Folge startet nach einem Countdown von 8 Sekunden die nächste.", Choice("Nächste Folge", autoplay))),
                 note,
+                PageParts.Group(
+                    PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },
         };
+    }
+
+    // --- Equalizer -----------------------------------------------------------------------------------------
+
+    private UIElement EqualizerPanel()
+    {
+        var sound = _shell.Services.Sound;
+        var presets = new WrapPanel();
+        var sliders = new List<Slider>();
+        var values = new List<TextBlock>();
+        var chips = new List<RadioButton>();
+        var building = false; // Setzen von Reglern und Wahlfeldern beim Aufbau oder Umschalten ist keine Eingabe des Nutzers
+
+        static string Db(int gain) => gain > 0 ? $"+{gain} dB" : $"{gain} dB";
+
+        void ShowGains()
+        {
+            building = true;
+            for (var i = 0; i < sliders.Count; i++)
+            {
+                sliders[i].Value = sound.Gains[i];
+                values[i].Text = Db(sound.Gains[i]);
+            }
+            foreach (var chip in chips) chip.IsChecked = (string)chip.Tag == sound.Preset;
+            building = false;
+        }
+
+        // Gespeichert wird erst, wenn der Regler ruht; der Klang ändert sich schon beim Ziehen.
+        var saveTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        saveTimer.Tick += (_, _) =>
+        {
+            saveTimer.Stop();
+            sound.Save();
+        };
+
+        foreach (var preset in Equalizer.Presets)
+        {
+            var chip = new RadioButton { Content = preset.Name, GroupName = "eq-preset", Tag = preset.Id };
+            chip.SetResourceReference(StyleProperty, "Chip");
+            AutomationProperties.SetName(chip, $"Klang {preset.Name}");
+            chip.Checked += (_, _) =>
+            {
+                if (building) return;
+                sound.SetPreset(preset.Id);
+                ShowGains();
+            };
+            chips.Add(chip);
+            presets.Children.Add(chip);
+        }
+
+        var rows = new StackPanel { Margin = new Thickness(0, 14, 0, 0), Width = 520, HorizontalAlignment = HorizontalAlignment.Left };
+        for (var i = 0; i < Equalizer.Bands.Count; i++)
+        {
+            var band = i;
+            var hz = Equalizer.Bands[i];
+            var label = PageParts.Muted(hz >= 1000 ? $"{hz / 1000} kHz" : $"{hz} Hz", 13);
+            label.VerticalAlignment = VerticalAlignment.Center;
+            var slider = new Slider
+            {
+                Minimum = Equalizer.MinGain, Maximum = Equalizer.MaxGain, TickFrequency = 1, IsSnapToTickEnabled = true,
+                SmallChange = 1, LargeChange = 3, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0),
+            };
+            slider.SetResourceReference(StyleProperty, "SeekSlider");
+            AutomationProperties.SetName(slider, $"Equalizer {hz} Hz");
+            var value = PageParts.Muted("", 13);
+            value.VerticalAlignment = VerticalAlignment.Center;
+            value.TextAlignment = TextAlignment.Right;
+            slider.ValueChanged += (_, e) =>
+            {
+                if (building) return;
+                var gains = sound.Gains.ToArray();
+                gains[band] = (int)Math.Round(e.NewValue);
+                sound.SetGains(gains, save: false);
+                values[band].Text = Db(gains[band]);
+                building = true;
+                foreach (var chip in chips) chip.IsChecked = (string)chip.Tag == sound.Preset;
+                building = false;
+                saveTimer.Stop();
+                saveTimer.Start();
+            };
+            sliders.Add(slider);
+            values.Add(value);
+
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+            Grid.SetColumn(slider, 1);
+            Grid.SetColumn(value, 2);
+            row.Children.Add(label);
+            row.Children.Add(slider);
+            row.Children.Add(value);
+            rows.Children.Add(row);
+        }
+        ShowGains();
+        Unloaded += (_, _) =>
+        {
+            if (!saveTimer.IsEnabled) return;
+            saveTimer.Stop();
+            sound.Save();
+        };
+        return new StackPanel { Children = { presets, rows } };
     }
 
     // --- Übersetzung ---------------------------------------------------------------------------------------
@@ -441,6 +577,19 @@ public sealed class SettingsPage : UserControl
             ("N", "Nächste Folge (nur bei Serien)"),
             ("I", "Statistik (Hardware-Decoding, verworfene Bilder) ein- / ausblenden"),
         }),
+        ("Medientasten (auch bei minimiertem Fenster)", new[]
+        {
+            ("Wiedergabe / Pause", "Video, Musik, Radio und Podcasts anhalten oder fortsetzen"),
+            ("Weiter", "Nächste Folge, nächster Titel"),
+            ("Zurück", "Zum Anfang; bei Musik nach den ersten Sekunden zum vorigen Titel"),
+            ("Stopp", "Wiedergabe beenden"),
+        }),
+        ("Klang und Timer", new[]
+        {
+            ("Knopf „Klang“", "Equalizer-Voreinstellung wählen (Musikleiste und Videoplayer); die Regler stehen unter Einstellungen → Wiedergabe"),
+            ("Knopf „Timer“ · Mond-Symbol", "Einschlaf-Timer: nach 15 bis 90 Minuten oder am Ende des Titels bzw. der Folge anhalten"),
+            ("Jetzt läuft → Songtext", "Songtext zum laufenden Titel anzeigen (mitlaufend bei zeitgesteuerten Texten)"),
+        }),
         ("Bild", new[]
         {
             ("A", "Nächstes Seitenverhältnis (Original, 4:3, 5:4, 16:9, 16:10, 21:9, 2,35:1, 1,85:1, Füllen, Strecken)"),
@@ -465,7 +614,7 @@ public sealed class SettingsPage : UserControl
         {
             ("Esc", "Eine Seite zurück, bei einem offenen Fenster: Fenster schließen"),
             ("Enter · Leertaste", "Karte oder Zeile öffnen"),
-            ("Rechtsklick · Menütaste · Umschalt + F10", "Menü einer Filmkarte („Bearbeiten …“ öffnet den MKV-Editor)"),
+            ("Rechtsklick · Menütaste · Umschalt + F10", "Menü einer Filmkarte („Meine Liste“, „Bearbeiten …“ öffnet den MKV-Editor) oder eines Titels in einer Musikliste (zu einer Playlist hinzufügen; in einer Playlist verschieben oder entfernen)"),
             ("Enter", "In den Suchfeldern von Radio und Podcasts: suchen"),
         }),
     };

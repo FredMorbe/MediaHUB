@@ -26,7 +26,7 @@ public sealed partial class LibraryDb
         "UPDATE videos SET title_id = $title, season = $season, episode = $episode, locked = 1 WHERE id = $id",
         ("$title", titleId), ("$season", season), ("$episode", episode), ("$id", videoId));
 
-    /// <summary>Führt zwei Titel gleicher Art zusammen: Videos, Namensschlüssel und Genres wandern zum Ziel.</summary>
+    /// <summary>Führt zwei Titel gleicher Art zusammen: Videos, Namensschlüssel, Genres und der Platz auf „Meine Liste“ wandern zum Ziel.</summary>
     public void MergeTitles(long fromId, long intoId) => InTransaction(() =>
     {
         if (fromId == intoId) throw new ArgumentException("Ein Titel kann nicht mit sich selbst zusammengeführt werden.");
@@ -40,6 +40,8 @@ public sealed partial class LibraryDb
         Run("UPDATE videos SET title_id = $into WHERE title_id = $from", ("$into", intoId), ("$from", fromId));
         Run("UPDATE title_keys SET title_id = $into WHERE title_id = $from", ("$into", intoId), ("$from", fromId));
         Run("INSERT OR IGNORE INTO title_genres (title_id, genre_id) SELECT $into, genre_id FROM title_genres WHERE title_id = $from",
+            ("$into", intoId), ("$from", fromId));
+        Run("INSERT OR IGNORE INTO watchlist (title_id, added_utc) SELECT $into, added_utc FROM watchlist WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
         Run("DELETE FROM titles WHERE id = $from", ("$from", fromId));
     });

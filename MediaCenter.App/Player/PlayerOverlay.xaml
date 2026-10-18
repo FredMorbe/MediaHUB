@@ -58,6 +58,8 @@
                             <Button x:Name="AdjustButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Anpassen" Padding="18,7" Margin="0,0,8,0" ToolTip="Untertitel: Zeitversatz, Größe, Position (Z / X = 0,1 s früher / später)" AutomationProperties.Name="Untertitel anpassen"/>
                             <Button x:Name="PictureButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Bild" Padding="18,7" Margin="0,0,8,0" ToolTip="Seitenverhältnis, Tempo, Zoom, Drehen" AutomationProperties.Name="Bildoptionen"/>
                             <Button x:Name="ColorButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Farbe" Padding="18,7" Margin="0,0,8,0" ToolTip="Helligkeit, Kontrast, Sättigung, Weißabgleich, Invertieren" AutomationProperties.Name="Farbeinstellungen"/>
+                            <Button x:Name="SleepButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Timer" Padding="18,7" Margin="0,0,8,0" ToolTip="Einschlaf-Timer" AutomationProperties.Name="Einschlaf-Timer"/>
+                            <Button x:Name="SoundButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Klang" Padding="18,7" Margin="0,0,8,0" ToolTip="Equalizer-Voreinstellungen" AutomationProperties.Name="Klang"/>
                             <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE740;" ToolTip="Vollbild (F)" AutomationProperties.Name="Vollbild"/>
                         </StackPanel>
                     </Grid>

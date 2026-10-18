@@ -11,6 +11,9 @@ public sealed record AlbumInfo(string Key, string Title, string Artist, int? Yea
 
 public sealed record ArtistInfo(string Name, IReadOnlyList<AlbumInfo> Albums);
 
+/// <param name="Tracks">In der Reihenfolge der Playlist.</param>
+public sealed record PlaylistInfo(long Id, string Name, IReadOnlyList<TrackRow> Tracks);
+
 /// <summary>Gruppiert Titel zu Alben und Künstlern. Reine Berechnung, keine Datenbank.</summary>
 public static partial class MusicIndex
 {
@@ -46,6 +49,18 @@ public static partial class MusicIndex
             .ThenBy(a => a.Year ?? int.MaxValue)
             .ThenBy(a => a.Title, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+
+    /// <summary>Verbindet die Playlists mit den Titeln der Bibliothek; Titel-Ids ohne Titel (inzwischen entfernt) fallen weg.</summary>
+    public static IReadOnlyList<PlaylistInfo> BuildPlaylists(
+        IEnumerable<PlaylistRow> playlists, IReadOnlyDictionary<long, List<long>> items, IEnumerable<TrackRow> tracks)
+    {
+        var byId = tracks.ToDictionary(t => t.TrackId);
+        return playlists
+            .Select(p => new PlaylistInfo(
+                p.Id, p.Name,
+                (items.TryGetValue(p.Id, out var ids) ? ids : new List<long>()).Where(byId.ContainsKey).Select(id => byId[id]).ToList()))
+            .ToList();
+    }
 
     public static IReadOnlyList<ArtistInfo> BuildArtists(IEnumerable<AlbumInfo> albums) =>
         albums

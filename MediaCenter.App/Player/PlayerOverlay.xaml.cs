@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using MediaCenter.App.Services;
 using MediaCenter.Core;
 
 namespace MediaCenter.App.Player;
@@ -32,6 +33,15 @@ public partial class PlayerOverlay : Window
     private string? _menuType;
     private IReadOnlyList<TrackInfo> _tracks = Array.Empty<TrackInfo>();
     private readonly System.Windows.Threading.DispatcherTimer _noticeTimer = new();
+    private string _soundPreset = Equalizer.Flat;
+    private SleepMode _sleepMode;
+    private string _sleepLabel = "";
+
+    /// <summary>Einschlaf-Timer gewählt: Minuten (&gt; 0), 0 = aus, -1 = am Ende der Folge.</summary>
+    public event Action<int>? SleepChosen;
+
+    /// <summary>Equalizer-Voreinstellung gewählt (Id aus <see cref="Equalizer.Presets"/>).</summary>
+    public event Action<string>? SoundPresetChosen;
 
     public event Action? BackClicked;
     public event Action? PlayPauseClicked;
@@ -97,6 +107,8 @@ public partial class PlayerOverlay : Window
         NextCancelButton.Click += (_, _) => NextCancelled?.Invoke();
         AudioButton.Click += (_, _) => ToggleMenu("audio");
         SubButton.Click += (_, _) => ToggleMenu("sub");
+        SleepButton.Click += (_, _) => ToggleMenu("sleep");
+        SoundButton.Click += (_, _) => ToggleMenu("sound");
 
         // handledEventsToo: Ein Klick auf die Linie wird vom Slider selbst behandelt (IsMoveToPointEnabled) und als erledigt
         // markiert; ohne diese Anmeldung bliebe _seeking aus, und die nächste Positionsmeldung setzte den Regler zurück.
@@ -418,9 +430,72 @@ public partial class PlayerOverlay : Window
         TrackMenu.Visibility = Visibility.Collapsed;
     }
 
+    /// <summary>Stand des Equalizers; das Klang-Menü markiert die gewählte Voreinstellung.</summary>
+    public void SetSoundPreset(string presetId)
+    {
+        _soundPreset = presetId;
+        SoundButton.Content = presetId == Equalizer.Flat ? "Klang" : "Klang ●";
+        if (_menuType == "sound") BuildMenu("sound");
+    }
+
+    /// <summary>Stand des Einschlaf-Timers; der Knopf zeigt die Restzeit.</summary>
+    public void SetSleep(SleepMode mode, string label)
+    {
+        _sleepMode = mode;
+        _sleepLabel = label;
+        SleepButton.Content = mode == SleepMode.Off ? "Timer" : $"Timer {label}";
+        if (_menuType == "sleep") BuildMenu("sleep");
+    }
+
+    /// <summary>Menü „Timer“ und „Klang“: eine Liste zum Anklicken statt der Spurauswahl.</summary>
+    private void BuildChoiceMenu(string type)
+    {
+        void Add(string text, Action click, bool selected = false)
+        {
+            var button = new RadioButton { Content = text, GroupName = $"choice-{type}", IsChecked = selected, Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Left };
+            button.SetResourceReference(StyleProperty, "Chip");
+            button.Margin = new Thickness(0, 0, 0, 4);
+            System.Windows.Automation.AutomationProperties.SetName(button, $"{(type == "sleep" ? "Einschlaf-Timer" : "Klang")} {text}");
+            button.Checked += (_, _) =>
+            {
+                if (_building) return;
+                CloseMenu();
+                click();
+            };
+            TrackList.Children.Add(button);
+        }
+
+        _building = true; // das Setzen von IsChecked beim Aufbau ist keine Wahl des Nutzers
+        if (type == "sound")
+        {
+            foreach (var preset in Equalizer.Presets)
+            {
+                var id = preset.Id;
+                Add(preset.Name, () => SoundPresetChosen?.Invoke(id), selected: _soundPreset == id);
+            }
+            if (_soundPreset == "custom") Add("Eigene Einstellung", () => { }, selected: true);
+        }
+        else
+        {
+            if (_sleepMode != SleepMode.Off) Add($"Timer abbrechen ({_sleepLabel})", () => SleepChosen?.Invoke(0));
+            foreach (var minutes in SleepTimer.Minutes)
+            {
+                var chosen = minutes;
+                Add($"In {minutes} Minuten", () => SleepChosen?.Invoke(chosen));
+            }
+            Add("Am Ende der Folge", () => SleepChosen?.Invoke(-1), selected: _sleepMode == SleepMode.EndOfItem);
+        }
+        _building = false;
+    }
+
     private void BuildMenu(string type)
     {
         TrackList.Children.Clear();
+        if (type is "sleep" or "sound")
+        {
+            BuildChoiceMenu(type);
+            return;
+        }
         var items = _tracks.Where(t => t.Type == type).ToList();
         if (type == "sub") items.Insert(0, new TrackInfo(-1, "sub", "Aus", !items.Any(t => t.Selected)));
         _building = true; // das Setzen von IsChecked beim Aufbau ist keine Wahl des Nutzers
