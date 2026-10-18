@@ -10,7 +10,7 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Button x:Name="BackButton" Style="{StaticResource IconButton}" Content="&#xE72B;" HorizontalAlignment="Left"
-                        VerticalAlignment="Top" Margin="0,92,0,24" ToolTip="Zurück (Esc)"/>
+                        VerticalAlignment="Top" Margin="0,86,0,24" ToolTip="Zurück (Esc)"/>
                 <c:GlassPanel Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,26" Width="720" CornerRadius="28" Padding="32,26,32,26">
                     <StackPanel>
                         <TextBlock x:Name="Kicker" Style="{StaticResource KickerText}" Margin="0,0,0,8"/>

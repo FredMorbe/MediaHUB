@@ -23,11 +23,9 @@ public sealed class LibraryPage : UserControl
         _model = shell.Services.Model;
         _kind = kind;
 
-        var heading = new TextBlock { Text = kind == TitleKind.Movie ? "Filme" : "Serien", FontSize = 64 };
-        heading.SetResourceReference(StyleProperty, "DisplayText");
         _count.SetResourceReference(StyleProperty, "MutedText");
 
-        var chips = new WrapPanel { Margin = new Thickness(0, 6, 0, 10) };
+        var chips = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         var genres = _model.Titles.Where(t => t.Kind == kind).SelectMany(t => _model.GenresOf(t.Id))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(g => g, StringComparer.OrdinalIgnoreCase).ToList();
         if (genres.Count > 0)
@@ -36,17 +34,23 @@ public sealed class LibraryPage : UserControl
             foreach (var genre in genres) chips.Children.Add(Chip(genre, genre, false, chips));
         }
 
-        var stack = new StackPanel { Margin = new Thickness(48, 92, 48, 60) };
-        stack.Children.Add(heading);
-        stack.Children.Add(_count);
+        var stack = new StackPanel { Margin = new Thickness(48, PageParts.NavInset + 28, 48, 60) };
+        stack.Children.Add(PageParts.Header("Bibliothek", kind == TitleKind.Movie ? "Filme" : "Serien", _count));
+
+        // Werkzeugleiste: Genre-Filter links, Aktionen rechts
+        var toolbar = new Grid { Margin = new Thickness(0, 0, 0, 12) };
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toolbar.Children.Add(chips);
         if (kind == TitleKind.Movie)
         {
-            var rename = PageParts.Button("Dateien umbenennen …", "GhostButton", (_, _) => _shell.Open(() => new RenamePage(_shell)), new Thickness(0, 0, 0, 12));
-            rename.Padding = new Thickness(16, 7, 16, 7);
+            var rename = PageParts.Compact(PageParts.Button("Dateien umbenennen …", "GhostButton", (_, _) => RenamePage.Show(_shell), new Thickness(16, 0, 0, 8)));
+            rename.VerticalAlignment = VerticalAlignment.Top;
             System.Windows.Automation.AutomationProperties.SetName(rename, "Filme umbenennen");
-            stack.Children.Add(rename);
+            Grid.SetColumn(rename, 1);
+            toolbar.Children.Add(rename);
         }
-        stack.Children.Add(chips);
+        stack.Children.Add(toolbar);
         stack.Children.Add(_grid);
 
         Content = new ScrollViewer
@@ -87,8 +91,15 @@ public sealed class LibraryPage : UserControl
         }
 
         var noun = _kind == TitleKind.Movie ? (titles.Count == 1 ? "Film" : "Filme") : (titles.Count == 1 ? "Serie" : "Serien");
-        _count.Text = titles.Count == 0
-            ? $"Keine {(_kind == TitleKind.Movie ? "Filme" : "Serien")}. Füge unter „Laufwerke“ einen Ordner hinzu oder ordne Dateien aus der Inbox zu."
-            : $"{titles.Count} {noun}";
+        _count.Visibility = titles.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _count.Text = $"{titles.Count} {noun}";
+        if (titles.Count == 0)
+        {
+            var what = _kind == TitleKind.Movie ? "Filme" : "Serien";
+            _grid.Children.Add(PageParts.EmptyState(_kind == TitleKind.Movie ? "\uE714" : "\uE7F4",
+                _genre is null ? $"Noch keine {what}" : $"Keine {what} in diesem Genre",
+                _genre is null ? "Füge unter „Laufwerke“ einen Ordner hinzu oder ordne Dateien aus der Inbox zu." : "Wähle oben „Alle“, um wieder alles zu sehen.",
+                PageParts.Button("Zu den Laufwerken", "PrimaryButton", (_, _) => _shell.Navigate(Section.Sources), new Thickness(0))));
+        }
     }
 }

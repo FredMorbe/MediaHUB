@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using MediaCenter.App.Controls;
 using MediaCenter.App.Pages;
@@ -34,10 +35,11 @@ public partial class MainWindow : Window, IShell
         Height = Math.Min(Height, area.Height * 0.92);
 
         GlassPanel.Backdrop = Backdrop;
+        Modal.Blocked = reason => ShowMessage(reason, isError: true);
         BuildNav();
         SettingsButton.Click += (_, _) => Navigate(Section.Settings);
         VersionButton.Content = "v" + AppInfo.Version;
-        VersionButton.Click += (_, _) => Open(() => new ChangelogPage(this));
+        VersionButton.Click += (_, _) => ChangelogPage.Show(this);
 
         Services.Theme.Changed += () => Services.Theme.StyleTitleBar(this);
         SourceInitialized += (_, _) => Services.Theme.StyleTitleBar(this);
@@ -70,33 +72,51 @@ public partial class MainWindow : Window, IShell
 
     private void BuildNav()
     {
-        foreach (var (section, label) in new[]
+        var items = new (Section Section, string Label, Panel Host)[]
         {
-            (Section.Home, "Start"), (Section.Movies, "Filme"), (Section.Series, "Serien"),
-            (Section.Music, "Musik"), (Section.Radio, "Radio"), (Section.Podcasts, "Podcasts"),
-            (Section.Inbox, "Inbox"), (Section.Sources, "Laufwerke"),
-        })
+            (Section.Home, "Start", NavItems), (Section.Movies, "Filme", NavItems), (Section.Series, "Serien", NavItems),
+            (Section.Music, "Musik", NavItems), (Section.Radio, "Radio", NavItems), (Section.Podcasts, "Podcasts", NavItems),
+            (Section.Inbox, "Inbox", UtilItems), (Section.Sources, "Laufwerke", UtilItems),
+        };
+        foreach (var (section, label, host) in items)
         {
-            var button = new RadioButton { Content = label, GroupName = "nav", Margin = new Thickness(0, 0, 4, 0) };
+            var button = new RadioButton { Content = label, GroupName = "nav", Height = 58 };
             button.SetResourceReference(StyleProperty, "NavToggle");
+            System.Windows.Automation.AutomationProperties.SetName(button, label);
             // Checked statt Click: auch die Pfeiltasten in der Gruppe wählen eine Seite.
             button.Checked += (_, _) =>
             {
                 if (!_syncingNav) Navigate(section);
             };
             _navButtons[section] = button;
-            NavItems.Children.Add(button);
+            host.Children.Add(button);
         }
     }
 
+    /// <summary>Die Inbox zeigt ihre Anzahl als kleine Marke neben dem Namen, nicht als Klammer im Text.</summary>
     private void UpdateInboxBadge()
     {
         var count = Services.Model.Inbox.Count;
-        _navButtons[Section.Inbox].Content = count > 0 ? $"Inbox ({count})" : "Inbox";
+        if (count == 0)
+        {
+            _navButtons[Section.Inbox].Content = "Inbox";
+            return;
+        }
+        var number = new TextBlock { Text = count > 99 ? "99+" : count.ToString(), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        number.SetResourceReference(TextBlock.FontFamilyProperty, "BodySemiFont");
+        number.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
+        var badge = new Border { CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(7, 1, 0, 0), Child = number };
+        badge.SetResourceReference(Border.BackgroundProperty, "AccentSoftBrush");
+        _navButtons[Section.Inbox].Content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children = { new TextBlock { Text = "Inbox", VerticalAlignment = VerticalAlignment.Center }, badge },
+        };
     }
 
     public void Navigate(Section section)
     {
+        if (Modal.IsOpen) Modal.Close();
         _history.Clear();
         Show(new PageEntry(() => section switch
         {
@@ -125,8 +145,42 @@ public partial class MainWindow : Window, IShell
         Show(new PageEntry(page, null));
     }
 
+    public void OpenModal(string kicker, string title, UserControl content, ModalSize size = ModalSize.Medium, bool scroll = true, bool dismissOnScrim = false) =>
+        Modal.Show(kicker, title, content, size, scroll, dismissOnScrim);
+
+    public void CloseModal() => Modal.Close();
+
+    /// <summary>Rückfrage in der App statt eines Windows-Meldungsfensters. Läuft wie ShowDialog in einer eigenen Nachrichtenschleife und kehrt erst nach der Antwort zurück.</summary>
+    public bool Confirm(string title, string message, string confirmText = "OK", bool danger = false)
+    {
+        var result = false;
+        var frame = new DispatcherFrame();
+        void OnClosed() => frame.Continue = false;
+
+        var text = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap, FontSize = 14, LineHeight = 21 };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+        var cancel = PageParts.Button("Abbrechen", "GhostButton", (_, _) => Dialog.Close(), new Thickness(0, 0, 10, 0));
+        var accept = PageParts.Button(confirmText, danger ? "DangerButton" : "PrimaryButton", (_, _) =>
+        {
+            result = true;
+            Dialog.Close();
+        }, new Thickness(0));
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 26, 0, 0), Children = { cancel, accept } };
+
+        Dialog.Closed += OnClosed;
+        Dialog.Show("Rückfrage", title, new StackPanel { Children = { text, buttons } }, ModalSize.Small);
+        Dispatcher.PushFrame(frame);
+        Dialog.Closed -= OnClosed;
+        return result;
+    }
+
     public void Back()
     {
+        if (Modal.IsOpen)
+        {
+            Modal.TryClose();
+            return;
+        }
         if (_history.Count == 0)
         {
             Navigate(Section.Home);
@@ -159,6 +213,15 @@ public partial class MainWindow : Window, IShell
         if (PlayerActive)
         {
             OnPlayerKey(e);
+            return;
+        }
+        if (e.Key == Key.Escape && (Dialog.IsOpen || Modal.IsOpen))
+        {
+            var layer = Dialog.IsOpen ? Dialog : Modal;
+            // Aus einem Eingabefeld führt das erste Esc nur heraus, erst das zweite schließt (sonst gehen Eingaben ungewollt verloren).
+            if (Keyboard.FocusedElement is TextBox box && layer.IsAncestorOf(box)) layer.FocusPanel();
+            else layer.TryClose();
+            e.Handled = true;
             return;
         }
         if (e.Key == Key.Escape && PlayerLayer.Visibility != Visibility.Visible && _history.Count > 0 && Keyboard.FocusedElement is not TextBox)
@@ -225,6 +288,8 @@ public partial class MainWindow : Window, IShell
 
     private Border CreateToast(string text, bool isError)
     {
+        var dot = new Ellipse { Width = 8, Height = 8, Margin = new Thickness(0, 6, 12, 0), VerticalAlignment = VerticalAlignment.Top };
+        dot.SetResourceReference(Shape.FillProperty, isError ? "Accent2Brush" : "AccentBrush");
         var label = new TextBlock
         {
             Text = text,
@@ -234,18 +299,22 @@ public partial class MainWindow : Window, IShell
             FontFamily = (FontFamily)FindResource("BodySemiFont"),
         };
         label.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+        var lift = new TranslateTransform();
         var toast = new Border
         {
-            CornerRadius = new CornerRadius(16),
-            Padding = new Thickness(18, 12, 18, 12),
+            CornerRadius = new CornerRadius(14),
+            Padding = new Thickness(16, 12, 20, 12),
             Margin = new Thickness(0, 8, 0, 0),
-            BorderThickness = new Thickness(1.5),
-            Child = label,
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel { Orientation = Orientation.Horizontal, Children = { dot, label } },
             Cursor = Cursors.Hand,
-            Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 4, Opacity = 0.3, Color = Colors.Black },
+            RenderTransform = lift,
+            Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 6, Direction = 270, Opacity = 0.32, Color = Colors.Black },
         };
-        toast.SetResourceReference(Border.BackgroundProperty, "BgSoftBrush");
+        toast.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
         toast.SetResourceReference(Border.BorderBrushProperty, isError ? "Accent2Brush" : "GlassEdgeBrush");
+        toast.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+        lift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(220)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         return toast;
     }
 

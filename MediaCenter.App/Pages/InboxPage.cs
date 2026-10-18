@@ -19,13 +19,15 @@ public sealed class InboxPage : UserControl
         _model = shell.Services.Model;
 
         var stack = new StackPanel();
-        stack.Children.Add(PageParts.Heading("Inbox"));
-        stack.Children.Add(PageParts.Muted(_model.Inbox.Count == 0
-            ? "Alles zugeordnet. Neue Dateien, deren Name keine sichere Zuordnung ergibt, erscheinen hier."
+        stack.Children.Add(PageParts.Header("Zuordnen", "Inbox", _model.Inbox.Count == 0
+            ? "Neue Dateien, deren Name keine sichere Zuordnung ergibt, erscheinen hier."
             : "Bei diesen Dateien reicht der Name nicht für eine sichere Zuordnung (kein Jahr, keine Folgennummer). Ordne sie zu, dann erscheinen sie in der Bibliothek. " +
               "Rechtsklick auf eine Datei → „Aus Mediacenter entfernen“ nimmt sie aus der Bibliothek; auf der Festplatte bleibt sie."));
 
-        stack.Children.Add(new Border { Height = 18 });
+        if (_model.Inbox.Count == 0)
+        {
+            stack.Children.Add(PageParts.EmptyState("\uE73E", "Alles zugeordnet", "Es liegt nichts in der Inbox. Dateien mit unklarem Namen landen beim nächsten Scan wieder hier."));
+        }
         foreach (var video in _model.Inbox) stack.Children.Add(Row(video));
 
         Content = PageParts.Scrolling(stack);
@@ -37,40 +39,38 @@ public sealed class InboxPage : UserControl
         name.SetResourceReference(TextBlock.FontFamilyProperty, "BodySemiFont");
         var guess = PageParts.Muted($"Erkannt als: {video.ParsedTitle}" + (video.Missing ? " · Datei fehlt" : ""), 13);
         guess.TextTrimming = TextTrimming.CharacterEllipsis;
-        var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, guess } };
+        guess.Margin = new Thickness(0, 2, 0, 0);
 
-        var movieButton = PageParts.Button("Als Film", "PrimaryButton", async (_, _) => await AssignMovieAsync(video));
-        movieButton.Padding = new Thickness(18, 8, 18, 8);
+        var movieButton = PageParts.Compact(PageParts.Button("Als Film", "PrimaryButton", async (_, _) => await AssignMovieAsync(video), new Thickness(0, 0, 18, 0)));
 
-        var series = new TextBox { Text = video.ParsedTitle, Width = 190, ToolTip = "Name der Serie", Margin = new Thickness(0, 0, 8, 0) };
-        var season = new TextBox { Width = 52, ToolTip = "Staffel", Text = video.Season?.ToString() ?? "", Margin = new Thickness(0, 0, 8, 0), HorizontalContentAlignment = HorizontalAlignment.Center };
-        var episode = new TextBox { Width = 52, ToolTip = "Folge", Text = video.Episode?.ToString() ?? "", Margin = new Thickness(0, 0, 8, 0), HorizontalContentAlignment = HorizontalAlignment.Center };
-        var episodeButton = PageParts.Button("Als Folge", "GhostButton", async (_, _) => await AssignEpisodeAsync(video, series.Text, season.Text, episode.Text), new Thickness(0));
-        episodeButton.Padding = new Thickness(18, 8, 18, 8);
+        // Eingabefelder mit Beschriftung im Feld und genug Breite für Namen und Zahlen
+        var (seriesField, series) = PageParts.HintBox("Serie", 250);
+        series.Text = video.ParsedTitle;
+        series.ToolTip = "Name der Serie";
+        System.Windows.Automation.AutomationProperties.SetName(series, "Serie");
+        var (seasonField, season) = PageParts.HintBox("Staffel", 100);
+        season.Text = video.Season?.ToString() ?? "";
+        season.ToolTip = "Staffel";
+        System.Windows.Automation.AutomationProperties.SetName(season, "Staffel");
+        var (episodeField, episode) = PageParts.HintBox("Folge", 100);
+        episode.Text = video.Episode?.ToString() ?? "";
+        episode.ToolTip = "Folge";
+        System.Windows.Automation.AutomationProperties.SetName(episode, "Folge");
+        foreach (var field in new FrameworkElement[] { seriesField, seasonField, episodeField }) field.Margin = new Thickness(0, 0, 8, 0);
 
-        var labelS = PageParts.Muted("S", 13);
-        labelS.Margin = new Thickness(0, 0, 4, 0);
-        labelS.VerticalAlignment = VerticalAlignment.Center;
-        var labelE = PageParts.Muted("E", 13);
-        labelE.Margin = new Thickness(0, 0, 4, 0);
-        labelE.VerticalAlignment = VerticalAlignment.Center;
-        var controls = new StackPanel
+        var episodeButton = PageParts.Compact(PageParts.Button("Als Folge", "GhostButton", async (_, _) => await AssignEpisodeAsync(video, series.Text, season.Text, episode.Text), new Thickness(4, 0, 0, 0)));
+
+        var or = PageParts.Muted("oder als Folge einer Serie:", 13);
+        or.Margin = new Thickness(0, 0, 14, 0);
+
+        var assign = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) };
+        foreach (var element in new FrameworkElement[] { movieButton, or, seriesField, seasonField, episodeField, episodeButton })
         {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { movieButton, new Border { Width = 26 }, series, labelS, season, labelE, episode, episodeButton },
-        };
-        movieButton.Margin = new Thickness(0);
+            element.VerticalAlignment = VerticalAlignment.Center;
+            assign.Children.Add(element);
+        }
 
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        left.Margin = new Thickness(0, 0, 20, 0);
-        Grid.SetColumn(controls, 1);
-        grid.Children.Add(left);
-        grid.Children.Add(controls);
-
-        var card = PageParts.Card(grid, new Thickness(0, 0, 0, 10));
+        var card = PageParts.Card(new StackPanel { Children = { name, guess, assign } }, new Thickness(0, 0, 0, 10));
         card.MouseRightButtonUp += (_, e) =>
         {
             ContextPopup.Show(card, new (string, Action)[]

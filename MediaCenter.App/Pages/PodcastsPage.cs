@@ -22,8 +22,7 @@ public sealed class PodcastsPage : UserControl
         _model = shell.Services.Model;
 
         var stack = new StackPanel();
-        stack.Children.Add(PageParts.Heading("Podcasts"));
-        stack.Children.Add(PageParts.Muted("Suche im Verzeichnis oder füge direkt die Feed-Adresse (RSS) eines Podcasts ein."));
+        stack.Children.Add(PageParts.Header("Hören", "Podcasts", "Suche im Verzeichnis oder füge direkt die Feed-Adresse (RSS) eines Podcasts ein."));
 
         var (field, box) = PageParts.HintBox("Podcast suchen oder Feed-Adresse einfügen …", 420);
         _query = box;
@@ -33,15 +32,11 @@ public sealed class PodcastsPage : UserControl
         };
         field.Margin = new Thickness(0, 0, 10, 8);
         var go = PageParts.Button("Suchen", "PrimaryButton", async (_, _) => await SearchOrSubscribeAsync(), new Thickness(0, 0, 10, 8));
-        go.Padding = new Thickness(22, 8, 22, 8);
         var refresh = PageParts.Button("Alle aktualisieren", "GhostButton", async (_, _) => await RefreshAllAsync(), new Thickness(0, 0, 0, 8));
-        refresh.Padding = new Thickness(18, 8, 18, 8);
-        stack.Children.Add(new WrapPanel { Margin = new Thickness(0, 18, 0, 6), Children = { field, go, refresh } });
+        stack.Children.Add(new WrapPanel { Margin = new Thickness(0, 0, 0, 6), Children = { field, go, refresh } });
         stack.Children.Add(_results);
 
-        var heading = new TextBlock { Text = "Abonniert", FontSize = 34, Margin = new Thickness(0, 22, 0, 10) };
-        heading.SetResourceReference(StyleProperty, "DisplayText");
-        stack.Children.Add(heading);
+        stack.Children.Add(PageParts.SectionTitle("Abonniert", new Thickness(0, 26, 0, 12)));
         stack.Children.Add(_subscriptions);
 
         Content = PageParts.Scrolling(stack);
@@ -53,7 +48,7 @@ public sealed class PodcastsPage : UserControl
         _subscriptions.Children.Clear();
         if (_model.Podcasts.Count == 0)
         {
-            _subscriptions.Children.Add(PageParts.Muted("Noch keine Abos."));
+            _subscriptions.Children.Add(PageParts.EmptyState("\uE720", "Noch keine Abos", "Suche oben nach einem Podcast und abonniere ihn, oder füge die Feed-Adresse ein."));
             return;
         }
         foreach (var podcast in _model.Podcasts)
@@ -114,9 +109,7 @@ public sealed class PodcastsPage : UserControl
         }
         else
         {
-            var subscribe = PageParts.Button("Abonnieren", "GhostButton", async (_, _) => await SubscribeAsync(result.FeedUrl), new Thickness(0));
-            subscribe.Padding = new Thickness(18, 7, 18, 7);
-            button = subscribe;
+            button = PageParts.Compact(PageParts.Button("Abonnieren", "GhostButton", async (_, _) => await SubscribeAsync(result.FeedUrl), new Thickness(0)));
         }
         button.VerticalAlignment = VerticalAlignment.Center;
 

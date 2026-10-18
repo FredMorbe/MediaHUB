@@ -51,28 +51,36 @@
 
         <ContentPresenter x:Name="PageHost"/>
 
-        <!-- Navigation oben -->
-        <c:GlassPanel x:Name="Nav" VerticalAlignment="Top" Margin="24,14,24,0" CornerRadius="999" Padding="10,6">
+        <!-- Navigation oben: Leiste über die ganze Breite, Reiter nur als Text; Inbox, Laufwerke und Einstellungen rechts -->
+        <c:GlassPanel x:Name="Nav" Style="{StaticResource BarGlass}" VerticalAlignment="Top" Height="58" Padding="30,0,18,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Margin="12,0,26,0" VerticalAlignment="Center">
-                    <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="28" VerticalAlignment="Center"/>
-                    <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="28" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
-                    <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="6,8,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="25" VerticalAlignment="Center"/>
+                    <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="25" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
+                    <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="8,7,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
                 </StackPanel>
-                <StackPanel x:Name="NavItems" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
-                <Button x:Name="SettingsButton" Grid.Column="2" Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="Einstellungen" AutomationProperties.Name="Einstellungen"/>
+                <StackPanel x:Name="NavItems" Grid.Column="1" Orientation="Horizontal" Margin="30,0,0,0"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <StackPanel x:Name="UtilItems" Orientation="Horizontal"/>
+                    <Border Width="1" Height="18" Margin="10,0,8,0" Background="{DynamicResource GlassEdgeBrush}"/>
+                    <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Width="36" Height="36" FontSize="15" VerticalAlignment="Center" Content="&#xE713;" ToolTip="Einstellungen" AutomationProperties.Name="Einstellungen"/>
+                </StackPanel>
             </Grid>
         </c:GlassPanel>
 
+        <c:MiniPlayer x:Name="Mini" VerticalAlignment="Bottom" Margin="24,0,24,18"/>
+
+        <!-- Fenster über der Seite (Browser, Umbenennen, Editor …) und Rückfragen darüber -->
+        <c:ModalHost x:Name="Modal"/>
+        <c:ModalHost x:Name="Dialog"/>
+
         <!-- Meldungen und Fortschritt unten -->
         <StackPanel x:Name="Toasts" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,26"/>
-
-        <c:MiniPlayer x:Name="Mini" VerticalAlignment="Bottom" Margin="24,0,24,18"/>
 
         <p:PlayerView x:Name="PlayerLayer" Visibility="Collapsed"/>
     </Grid>

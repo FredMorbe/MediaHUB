@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 
@@ -12,8 +13,9 @@ namespace MediaCenter.App.Pages;
 /// „Filme umbenennen“: sucht für die Filme der Bibliothek die richtige Schreibweise bei OMDb und benennt die Dateien (samt Untertiteln und
 /// anderen Begleitdateien) nach dem Muster „Titel (Jahr) [Auflösung]“ um. Nichts geschieht ohne Vorschau und Bestätigung; die letzte
 /// Umbenennung lässt sich zurücknehmen. Die Bibliothek behält dabei jeden Film (Fortschritt, Untertitel- und Farbeinstellungen bleiben).
+/// Erscheint als Fenster über der Seite.
 /// </summary>
-public sealed class RenamePage : UserControl
+public sealed class RenamePage : UserControl, IModalContent
 {
     internal static string JournalPath =>Path.Combine(AppSettings.DataDirectory, "rename-journal.json");
 
@@ -32,36 +34,25 @@ public sealed class RenamePage : UserControl
     private readonly Button _none;
     private readonly Button _undo;
     private readonly Button _toggleDetails;
+    private readonly WrapPanel _selection = new() { Margin = new Thickness(0, 16, 0, 0), Visibility = Visibility.Collapsed };
     private CancellationTokenSource? _cts;
     private bool _running;
+
+    public string? BlockClose => _running ? "Es läuft gerade eine Arbeit. Mit „Abbrechen“ lässt sie sich beenden." : null;
+
+    public static void Show(IShell shell) => shell.OpenModal("Dateien umbenennen", "Filme umbenennen", new RenamePage(shell), ModalSize.Large);
 
     public RenamePage(IShell shell)
     {
         _shell = shell;
 
-        var back = new Button { Content = "\uE72B", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
-        back.SetResourceReference(StyleProperty, "IconButton");
-        AutomationProperties.SetName(back, "Zurück");
-        back.Click += (_, _) =>
-        {
-            if (_running)
-            {
-                _shell.ShowMessage("Es läuft gerade eine Arbeit. Mit „Abbrechen“ lässt sie sich beenden.", isError: true);
-                return;
-            }
-            _shell.Back();
-        };
-
-        var kicker = new TextBlock { Text = "DATEIEN UMBENENNEN", Margin = new Thickness(0, 0, 0, 6) };
-        kicker.SetResourceReference(StyleProperty, "KickerText");
-        var title = PageParts.Heading("Filme umbenennen", 52);
         var hint = PageParts.Muted(
             "Aus „the.matrix.reloaded.2003.1080p.h264.mkv“ wird „The_Matrix_Reloaded_(2003)_[1080p].mkv“. Die richtige Schreibweise liefert OMDb, " +
             "die Auflösung kommt aus der Datei. Untertitel und andere Dateien mit dem alten Namen werden mitumbenannt, der Ordner bleibt. " +
             "Es werden nur Filme mit sicherem Treffer vorgeschlagen (Titel und Jahr müssen passen); deutsche Titel findet OMDb oft nicht. " +
             "Nichts geschieht ohne deine Bestätigung, und die letzte Umbenennung lässt sich zurücknehmen. " +
             "Fortschritt, Untertitel- und Farbeinstellungen bleiben erhalten.", 13);
-        hint.Margin = new Thickness(0, 10, 0, 6);
+        hint.Margin = new Thickness(0, 0, 0, 6);
 
         _search = PageParts.Button("Vorschläge suchen", "PrimaryButton", async (_, _) => await SearchAsync(), new Thickness(0, 0, 10, 0));
         _cancel = PageParts.Button("Abbrechen", "GhostButton", (_, _) => _cts?.Cancel(), new Thickness(0, 0, 10, 0));
@@ -78,8 +69,7 @@ public sealed class RenamePage : UserControl
         AutomationProperties.SetName(_none, "Keine auswählen");
         AutomationProperties.SetName(_undo, "Letzte Umbenennung zurücknehmen");
         AutomationProperties.SetName(_toggleDetails, "Nicht umbenannte anzeigen");
-        foreach (var button in new[] { _search, _cancel, _apply, _all, _none, _undo }) button.Padding = new Thickness(18, 8, 18, 8);
-        _toggleDetails.Padding = new Thickness(14, 6, 14, 6);
+        foreach (var button in new[] { _search, _cancel, _apply, _all, _none, _undo, _toggleDetails }) PageParts.Compact(button);
         _apply.IsEnabled = _all.IsEnabled = _none.IsEnabled = false;
         _toggleDetails.Visibility = Visibility.Collapsed;
 
@@ -89,29 +79,43 @@ public sealed class RenamePage : UserControl
         _bar.SetResourceReference(Control.BackgroundProperty, "TrackBrush");
 
         var top = new WrapPanel { Margin = new Thickness(0, 12, 0, 0), Children = { _search, _cancel, _undo } };
-        var selection = new WrapPanel { Margin = new Thickness(0, 16, 0, 0), Children = { _apply, _all, _none } };
+        _selection.Children.Add(_apply);
+        _selection.Children.Add(_all);
+        _selection.Children.Add(_none);
 
         var stack = new StackPanel();
-        stack.Children.Add(back);
-        stack.Children.Add(kicker);
-        stack.Children.Add(title);
         stack.Children.Add(hint);
         if (_shell.Services.Omdb is null)
         {
-            var missing = PageParts.Muted($"Dafür braucht es einen OMDb-Schlüssel (kostenlos auf omdbapi.com/apikey.aspx), einzutragen in den Einstellungen unter „Poster aus dem Internet“.", 13);
-            missing.Margin = new Thickness(0, 6, 0, 0);
-            stack.Children.Add(missing);
+            // Ohne Schlüssel gibt es keine Vorschläge: der Hinweis führt direkt zur Einstellung.
+            var missing = PageParts.Muted("Dafür braucht es einen OMDb-Schlüssel (kostenlos auf omdbapi.com/apikey.aspx), einzutragen in den Einstellungen unter „Bibliothek“.", 13);
+            missing.VerticalAlignment = VerticalAlignment.Center;
+            var open = PageParts.Compact(PageParts.Button("Einstellungen öffnen", "GhostButton", (_, _) =>
+            {
+                SettingsPage.SelectTab("Bibliothek");
+                _shell.Navigate(Section.Settings);
+            }, new Thickness(18, 0, 0, 0)));
+            var noticeRow = new Grid();
+            noticeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            noticeRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(open, 1);
+            noticeRow.Children.Add(missing);
+            noticeRow.Children.Add(open);
+            var notice = PageParts.Card(noticeRow, new Thickness(0, 8, 0, 0));
+            notice.Padding = new Thickness(18, 12, 18, 12);
+            notice.SetResourceReference(Border.BorderBrushProperty, "Accent2Brush");
+            stack.Children.Add(notice);
             _search.IsEnabled = false;
         }
         stack.Children.Add(top);
         stack.Children.Add(_bar);
         stack.Children.Add(_summary);
-        stack.Children.Add(selection);
+        stack.Children.Add(_selection);
         stack.Children.Add(_list);
         stack.Children.Add(_toggleDetails);
         stack.Children.Add(_details);
         stack.Children.Add(_status);
-        Content = PageParts.Scrolling(stack);
+        Content = stack;
 
         RefreshUndo();
     }
@@ -241,6 +245,8 @@ public sealed class RenamePage : UserControl
         _apply.Content = selected == 0 ? "Umbenennen" : $"{selected} umbenennen";
         _apply.IsEnabled = selected > 0 && !_running;
         _all.IsEnabled = _none.IsEnabled = _ready.Count > 0 && !_running;
+        // Die Auswahlzeile gehört zur Liste: ohne Vorschläge bleibt sie weg.
+        _selection.Visibility = _ready.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SetRunning(bool running)
@@ -267,7 +273,7 @@ public sealed class RenamePage : UserControl
                        "• Die Dateien werden wirklich umbenannt, nicht kopiert. Die Bibliothek führt jeden Film mit (Fortschritt und Einstellungen bleiben).\n" +
                        "• Ein Film, der gerade im Player läuft, lässt sich nicht umbenennen; dann bleibt er unverändert.\n" +
                        "• Mit „Letzte Umbenennung zurücknehmen“ geht alles wieder zurück.";
-        if (MessageBox.Show(Window.GetWindow(this), question, "Filme umbenennen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Filme umbenennen?", question, "Umbenennen")) return;
 
         var db = _shell.Services.Db;
         var status = _shell.Services.Model.Library.RefreshVolumes();
@@ -370,7 +376,7 @@ public sealed class RenamePage : UserControl
         if (records.Count == 0) return;
 
         var question = $"Die letzte Umbenennung ({records.Count} Film{(records.Count == 1 ? "" : "e")}) zurücknehmen? Die Dateien bekommen ihre alten Namen wieder.";
-        if (MessageBox.Show(Window.GetWindow(this), question, "Umbenennung zurücknehmen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Umbenennung zurücknehmen?", question, "Zurücknehmen")) return;
 
         var db = _shell.Services.Db;
         var status = _shell.Services.Model.Library.RefreshVolumes();

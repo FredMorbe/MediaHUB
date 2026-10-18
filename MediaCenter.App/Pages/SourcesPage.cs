@@ -17,10 +17,10 @@ public sealed class SourcesPage : UserControl
         _model = shell.Services.Model;
 
         var stack = new StackPanel();
-        stack.Children.Add(PageParts.Heading("Laufwerke"));
-        stack.Children.Add(PageParts.Muted("Laufwerke werden an ihrer Seriennummer erkannt, nicht am Laufwerksbuchstaben. Ein Stick darf nach dem Abstecken woanders wieder auftauchen, die Bibliothek bleibt erhalten."));
+        stack.Children.Add(PageParts.Header("Bibliothek", "Laufwerke",
+            "Laufwerke werden an ihrer Seriennummer erkannt, nicht am Laufwerksbuchstaben. Ein Stick darf nach dem Abstecken woanders wieder auftauchen, die Bibliothek bleibt erhalten."));
 
-        var actions = new WrapPanel { Margin = new Thickness(0, 20, 0, 22) };
+        var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 22) };
         actions.Children.Add(PageParts.Button("Ordner hinzufügen", "PrimaryButton", async (_, _) => await LibraryActions.AddFolderAsync(_shell)));
         actions.Children.Add(PageParts.Button("Datei hinzufügen", "GhostButton", async (_, _) => await LibraryActions.AddFileAsync(_shell)));
         actions.Children.Add(PageParts.Button("Neu scannen", "GhostButton", async (_, _) => await LibraryActions.RescanAsync(_shell)));
@@ -38,7 +38,7 @@ public sealed class SourcesPage : UserControl
         var volumes = _model.Db.GetVolumes();
         if (volumes.Count == 0)
         {
-            stack.Children.Add(PageParts.Muted("Noch keine Laufwerke. Füge einen Ordner oder eine Datei hinzu."));
+            stack.Children.Add(PageParts.EmptyState("\uE838", "Noch keine Laufwerke", "Füge oben einen Ordner oder eine Datei hinzu, dann erscheint hier das Laufwerk, auf dem sie liegen."));
         }
         var sources = _model.Db.GetSources();
         var filesPerVolume = _model.VideosByTitle.Values.SelectMany(v => v).Concat(_model.Inbox).GroupBy(v => v.VolumeId).ToDictionary(g => g.Key, g => g.Count());
@@ -98,10 +98,9 @@ public sealed class SourcesPage : UserControl
     private async Task RestoreRemovedAsync()
     {
         var count = _model.Db.CountRemovedFiles();
-        var answer = MessageBox.Show(
-            $"{count} entfernte Datei{(count == 1 ? "" : "en")} wieder in die Bibliothek aufnehmen?\n\nSie kommen beim Scan als neue Einträge zurück; Fortschritt, Poster und Einstellungen von früher sind weg.",
-            "Entfernte Einträge wieder aufnehmen", MessageBoxButton.OKCancel, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Entfernte Einträge wieder aufnehmen?",
+                $"{count} entfernte Datei{(count == 1 ? "" : "en")} wieder in die Bibliothek aufnehmen?\n\nSie kommen beim Scan als neue Einträge zurück; Fortschritt, Poster und Einstellungen von früher sind weg.",
+                "Wieder aufnehmen")) return;
 
         _model.Db.ClearRemovedFiles();
         await LibraryActions.RescanAsync(_shell);
@@ -109,11 +108,10 @@ public sealed class SourcesPage : UserControl
 
     private void RemoveMissing()
     {
-        var answer = MessageBox.Show(
-            "Alle als fehlend markierten Dateien werden aus der Bibliothek entfernt, samt Fortschritt. Titel mit eigenen Genres bleiben erhalten.\n\n" +
-            "Abgesteckte Laufwerke sind nicht betroffen, nur Dateien, die auf einem angeschlossenen Laufwerk fehlen.",
-            "Fehlende Einträge entfernen", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
-        if (answer != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Fehlende Einträge entfernen?",
+                "Alle als fehlend markierten Dateien werden aus der Bibliothek entfernt, samt Fortschritt. Titel mit eigenen Genres bleiben erhalten.\n\n" +
+                "Abgesteckte Laufwerke sind nicht betroffen, nur Dateien, die auf einem angeschlossenen Laufwerk fehlen.",
+                "Entfernen", danger: true)) return;
 
         var removed = _model.Db.RemoveMissingFiles();
         var pruned = _model.Artwork.PruneOrphans();

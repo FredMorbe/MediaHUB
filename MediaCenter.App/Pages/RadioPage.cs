@@ -24,24 +24,23 @@ public sealed class RadioPage : UserControl
         _model = shell.Services.Model;
 
         var stack = new StackPanel();
-        stack.Children.Add(PageParts.Heading("Radio"));
-        stack.Children.Add(PageParts.Muted("Sender stammen aus dem offenen Verzeichnis radio-browser.info. Gespeicherte Sender bleiben hier, auch wenn du sie nicht neu suchst."));
+        stack.Children.Add(PageParts.Header("Live", "Radio",
+            "Sender stammen aus dem offenen Verzeichnis radio-browser.info. Gespeicherte Sender bleiben hier, auch wenn du sie nicht neu suchst."));
 
-        stack.Children.Add(Section("Gespeichert"));
+        stack.Children.Add(PageParts.SectionTitle("Gespeichert", new Thickness(0, 4, 0, 10)));
         stack.Children.Add(_saved);
 
-        stack.Children.Add(Section("Sender suchen"));
+        stack.Children.Add(PageParts.SectionTitle("Sender suchen", new Thickness(0, 34, 0, 12)));
         var (field, box) = PageParts.HintBox("Name des Senders …", 300);
         _query = box;
         _query.KeyDown += async (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Enter) await SearchAsync(_query.Text, null);
         };
-        var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 10) };
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
         field.Margin = new Thickness(0, 0, 10, 8);
         bar.Children.Add(field);
         var search = PageParts.Button("Suchen", "PrimaryButton", async (_, _) => await SearchAsync(_query.Text, null), new Thickness(0, 0, 10, 8));
-        search.Padding = new Thickness(22, 8, 22, 8);
         bar.Children.Add(search);
         stack.Children.Add(bar);
 
@@ -50,9 +49,8 @@ public sealed class RadioPage : UserControl
         {
             var chip = new Button { Content = genre };
             chip.SetResourceReference(StyleProperty, "GhostButton");
-            chip.Padding = new Thickness(14, 5, 14, 5);
+            PageParts.Compact(chip);
             chip.Margin = new Thickness(0, 0, 8, 8);
-            chip.FontSize = 13;
             chip.Click += async (_, _) => await SearchAsync(null, genre);
             genres.Children.Add(chip);
         }
@@ -63,19 +61,12 @@ public sealed class RadioPage : UserControl
         BuildSaved();
     }
 
-    private static TextBlock Section(string text)
-    {
-        var header = new TextBlock { Text = text, FontSize = 34, Margin = new Thickness(0, 26, 0, 8) };
-        header.SetResourceReference(StyleProperty, "DisplayText");
-        return header;
-    }
-
     private void BuildSaved()
     {
         _saved.Children.Clear();
         if (_model.Stations.Count == 0)
         {
-            _saved.Children.Add(PageParts.Muted("Noch keine Sender gespeichert. Suche unten einen Sender und speichere ihn mit „Speichern“."));
+            _saved.Children.Add(PageParts.EmptyState("\uE774", "Noch keine Sender gespeichert", "Suche unten einen Sender und speichere ihn mit „Speichern“, dann bleibt er hier."));
             return;
         }
         foreach (var saved in _model.Stations) _saved.Children.Add(Row(saved.Station, saved));
@@ -118,8 +109,7 @@ public sealed class RadioPage : UserControl
         meta.TextTrimming = TextTrimming.CharacterEllipsis;
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 14, 0), Children = { name, meta } };
 
-        var play = PageParts.Button("Abspielen", "PrimaryButton", async (_, _) => await PlayAsync(station, saved), new Thickness(0, 0, 8, 0));
-        play.Padding = new Thickness(18, 7, 18, 7);
+        var play = PageParts.Compact(PageParts.Button("Abspielen", "PrimaryButton", async (_, _) => await PlayAsync(station, saved), new Thickness(0, 0, 8, 0)));
         var keep = saved is null
             ? PageParts.Button("Speichern", "GhostButton", async (_, _) => await SaveAsync(station), new Thickness(0))
             : PageParts.Button("Entfernen", "GhostButton", (_, _) =>
@@ -128,7 +118,7 @@ public sealed class RadioPage : UserControl
                 _model.Reload();
                 BuildSaved();
             }, new Thickness(0));
-        keep.Padding = new Thickness(18, 7, 18, 7);
+        PageParts.Compact(keep);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Children = { play, keep } };
 
         var grid = new Grid();

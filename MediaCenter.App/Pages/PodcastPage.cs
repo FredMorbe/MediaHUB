@@ -165,10 +165,7 @@ public sealed class PodcastPage : UserControl
 
     private void Unsubscribe()
     {
-        var answer = MessageBox.Show(
-            $"„{_podcast.Title}“ abbestellen? Folgen und Hörfortschritt dieses Podcasts werden aus der Bibliothek entfernt.",
-            "Podcast abbestellen", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
-        if (answer != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Podcast abbestellen?", $"„{_podcast.Title}“ abbestellen? Folgen und Hörfortschritt dieses Podcasts werden aus der Bibliothek entfernt.", "Abbestellen", danger: true)) return;
 
         _model.Db.DeletePodcast(_podcast.Id);
         _model.Reload();

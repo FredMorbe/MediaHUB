@@ -15,8 +15,9 @@ namespace MediaCenter.App.Pages;
 /// <summary>
 /// MKV-Editor: Spuren entfernen, hinzufügen, umbenennen, Sprache und Markierungen ändern, Ton und Untertitel dauerhaft verschieben.
 /// Gespeichert wird als Kopie oder in die Originaldatei; die Arbeit macht <see cref="MkvEditor"/> ohne Neukodierung.
+/// Erscheint als Fenster über der Seite.
 /// </summary>
-public sealed class MkvEditorPage : UserControl
+public sealed class MkvEditorPage : UserControl, IModalContent
 {
     private const string UnknownLanguage = "und";
 
@@ -62,43 +63,34 @@ public sealed class MkvEditorPage : UserControl
     private CancellationTokenSource? _cts;
     private bool _running;
 
+    /// <summary>Die Spaltenbreiten der Spurliste brauchen Platz; in schmaleren Fenstern scrollt das Fenster waagerecht.</summary>
+    public double MinContentWidth => 980;
+
+    public string? BlockClose => _running ? "Die Datei wird gerade bearbeitet. Mit „Abbrechen“ lässt sich das beenden." : null;
+
+    public static void Show(IShell shell, VideoRow video, string path) =>
+        shell.OpenModal("MKV bearbeiten", Path.GetFileNameWithoutExtension(path), new MkvEditorPage(shell, video, path), ModalSize.Large);
+
     public MkvEditorPage(IShell shell, VideoRow video, string path)
     {
         _shell = shell;
         _video = video;
         _path = path;
 
-        var back = new Button { Content = "", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
-        back.SetResourceReference(StyleProperty, "IconButton");
-        AutomationProperties.SetName(back, "Zurück");
-        back.Click += (_, _) =>
-        {
-            if (_running)
-            {
-                _shell.ShowMessage("Die Datei wird gerade bearbeitet. Mit „Abbrechen“ lässt sich das beenden.", isError: true);
-                return;
-            }
-            _shell.Back();
-        };
-
-        var kicker = new TextBlock { Text = "MKV BEARBEITEN", Margin = new Thickness(0, 0, 0, 6) };
-        kicker.SetResourceReference(StyleProperty, "KickerText");
-        var title = PageParts.Heading(Path.GetFileNameWithoutExtension(path), 52);
-        title.TextWrapping = TextWrapping.Wrap;
         var info = PageParts.Muted($"{path}  ·  {FormatSize(new FileInfo(path).Length)}", 13);
-        info.Margin = new Thickness(0, 6, 0, 0);
+        info.Margin = new Thickness(0, 0, 0, 0);
         var hint = PageParts.Muted("Änderungen werden ohne Neukodierung in die Datei geschrieben (Bild und Ton bleiben unverändert). Anhänge wie Schriften, Cover und Kapitel bleiben erhalten. Ein im Player eingestellter Versatz bleibt davon unberührt.", 13);
-        hint.Margin = new Thickness(0, 10, 0, 18);
+        hint.Margin = new Thickness(0, 8, 0, 20);
 
         _addSubtitle = PageParts.Button("Untertitel hinzufügen …", "GhostButton", async (_, _) => await AddSubtitleFileAsync(), new Thickness(0, 0, 10, 0));
         _addAudio = PageParts.Button("Ton hinzufügen …", "GhostButton", async (_, _) => await AddAudioFileAsync(), new Thickness(0, 0, 10, 0));
         AutomationProperties.SetName(_addSubtitle, "Untertitel hinzufügen");
         AutomationProperties.SetName(_addAudio, "Ton hinzufügen");
-        foreach (var button in new[] { _addSubtitle, _addAudio }) button.Padding = new Thickness(18, 8, 18, 8);
+        foreach (var button in new[] { _addSubtitle, _addAudio }) PageParts.Compact(button);
         var addButtons = new WrapPanel { Margin = new Thickness(0, 14, 0, 0), Children = { _addSubtitle, _addAudio } };
 
         _chooseCopy = PageParts.Button("Wählen …", "GhostButton", (_, _) => ChooseCopyPath(), new Thickness(10, 0, 0, 0));
-        _chooseCopy.Padding = new Thickness(16, 6, 16, 6);
+        PageParts.Compact(_chooseCopy);
         AutomationProperties.SetName(_chooseCopy, "Ziel der Kopie wählen");
         foreach (var choice in new[] { _copyChoice, _replaceChoice })
         {
@@ -141,9 +133,6 @@ public sealed class MkvEditorPage : UserControl
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0), Children = { _save, _cancel, _summary } };
 
         var stack = new StackPanel();
-        stack.Children.Add(back);
-        stack.Children.Add(kicker);
-        stack.Children.Add(title);
         stack.Children.Add(info);
         stack.Children.Add(hint);
         stack.Children.Add(Section("Spuren"));
@@ -155,7 +144,7 @@ public sealed class MkvEditorPage : UserControl
         stack.Children.Add(actions);
         stack.Children.Add(_bar);
         stack.Children.Add(_status);
-        Content = PageParts.Scrolling(stack);
+        Content = stack;
 
         UpdateTargetNote();
         Loaded += async (_, _) =>
@@ -733,7 +722,7 @@ public sealed class MkvEditorPage : UserControl
             question.AppendLine()
                 .AppendLine("Die MKV wird neu geschrieben (ohne Neukodierung). Das kann je nach Laufwerk einige Minuten dauern und braucht kurz so viel freien Platz wie die Datei. " +
                             "Die neue Datei wird geprüft und ersetzt dann das Original. Das Original kommt in den Papierkorb, auf Laufwerken ohne Papierkorb (z. B. USB) wird es gelöscht.");
-            if (MessageBox.Show(Window.GetWindow(this), question.ToString(), "Datei ersetzen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+            if (!_shell.Confirm("Datei ersetzen?", question.ToString(), "Ersetzen", danger: true)) return;
         }
 
         var plan = BuildPlan(copyTo);

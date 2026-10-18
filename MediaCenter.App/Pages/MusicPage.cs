@@ -22,7 +22,7 @@ public sealed class MusicPage : UserControl
     private readonly LibraryModel _model;
     private readonly string? _artist;
     private readonly StackPanel _content = new();
-    private readonly TextBlock _count = new() { FontSize = 14, Margin = new Thickness(0, 0, 0, 14) };
+    private readonly TextBlock _count = new() { FontSize = 14 };
     private readonly TextBox _search;
     private Tab _tab = Tab.Albums;
     private int _shownTracks = TracksPerPage;
@@ -42,8 +42,7 @@ public sealed class MusicPage : UserControl
             back.Click += (_, _) => _shell.Back();
             stack.Children.Add(back);
         }
-        stack.Children.Add(PageParts.Heading(artist ?? "Musik"));
-        stack.Children.Add(_count);
+        stack.Children.Add(PageParts.Header(artist is null ? "Bibliothek" : "Künstler", artist ?? "Musik", _count));
 
         var (field, box) = PageParts.HintBox("Suchen …", 260);
         _search = box;
@@ -53,24 +52,24 @@ public sealed class MusicPage : UserControl
             Fill();
         };
 
-        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
+        // Werkzeugleiste: Ansicht links (Alben, Künstler, Titel), Suche rechts
+        var bar = new Grid { Margin = new Thickness(0, 0, 0, 22) };
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         if (artist is null)
         {
-            foreach (var (tab, label) in new[] { (Tab.Albums, "Alben"), (Tab.Artists, "Künstler"), (Tab.Tracks, "Titel") })
-            {
-                var chip = new RadioButton { Content = label, GroupName = "musictab", IsChecked = tab == _tab, Margin = new Thickness(0, 0, 8, 8) };
-                chip.SetResourceReference(StyleProperty, "Chip");
-                chip.Margin = new Thickness(0, 0, 8, 8);
-                chip.Checked += (_, _) =>
-                {
-                    _tab = tab;
-                    _shownTracks = TracksPerPage;
-                    Fill();
-                };
-                bar.Children.Add(chip);
-            }
+            bar.Children.Add(PageParts.Segmented("musictab",
+                new[] { (Tab.Albums, "Alben"), (Tab.Artists, "Künstler"), (Tab.Tracks, "Titel") }
+                    .Select(t => (t.Item2, t.Item1 == _tab, (Action)(() =>
+                    {
+                        _tab = t.Item1;
+                        _shownTracks = TracksPerPage;
+                        Fill();
+                    }))),
+                "Ansicht"));
         }
-        field.Margin = new Thickness(8, 0, 0, 8);
+        field.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetColumn(field, 1);
         bar.Children.Add(field);
         stack.Children.Add(bar);
         stack.Children.Add(_content);
@@ -92,9 +91,10 @@ public sealed class MusicPage : UserControl
         _content.Children.Clear();
         if (_model.Tracks.Count == 0)
         {
-            _count.Text = "Noch keine Musik in der Bibliothek.";
-            _content.Children.Add(PageParts.Muted("Füge einen Ordner mit Musik hinzu. Titel werden an ihren Tags (Titel, Künstler, Album) erkannt; ohne Tags dient der Ordnername als Album."));
-            _content.Children.Add(PageParts.Button("Ordner hinzufügen", "PrimaryButton", async (_, _) => await LibraryActions.AddFolderAsync(_shell), new Thickness(0, 16, 0, 0)));
+            _count.Visibility = Visibility.Collapsed;
+            _content.Children.Add(PageParts.EmptyState("\uE8D6", "Noch keine Musik",
+                "Füge einen Ordner mit Musik hinzu. Titel werden an ihren Tags (Titel, Künstler, Album) erkannt; ohne Tags dient der Ordnername als Album.",
+                PageParts.Button("Ordner hinzufügen", "PrimaryButton", async (_, _) => await LibraryActions.AddFolderAsync(_shell), new Thickness(0))));
             return;
         }
 

@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 using Microsoft.Web.WebView2.Core;
@@ -15,7 +16,7 @@ namespace MediaCenter.App.Pages;
 /// <summary>
 /// Eingebetteter Browser (WebView2, die Edge-Laufzeit von Windows) auf der IMDb-Suche zum Titel. Rechtsklick auf ein Bild bietet
 /// „Als Poster verwenden“: die App lädt das Bild selbst, speichert es als eigenes Poster des Titels und geht zurück.
-/// Meldungen stehen in der Leiste der Seite, denn ein Browserfenster liegt immer über den Meldungen der App.
+/// Meldungen stehen in der Leiste der Seite, denn der Browser liegt immer über den Meldungen der App. Erscheint als Fenster über der Seite.
 /// </summary>
 public sealed class PosterBrowserPage : UserControl
 {
@@ -23,7 +24,7 @@ public sealed class PosterBrowserPage : UserControl
     private readonly TitleRow _title;
     private readonly WebView2 _web = new();
     private readonly TextBlock _status = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _address = new() { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+    private readonly TextBlock _address = new() { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _backward;
     private readonly Button _forward;
     private bool _saving;
@@ -33,39 +34,33 @@ public sealed class PosterBrowserPage : UserControl
         _shell = shell;
         _title = title;
 
-        var back = new Button { Content = "\uE72B", ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 10, 0) };
-        back.SetResourceReference(StyleProperty, "IconButton");
-        AutomationProperties.SetName(back, "Zurück");
-        back.Click += (_, _) => _shell.Back();
-
-        _backward = PageParts.Button("◀ Seite", "GhostButton", (_, _) => _web.GoBack(), new Thickness(0, 0, 8, 0));
-        _forward = PageParts.Button("Seite ▶", "GhostButton", (_, _) => _web.GoForward(), new Thickness(0, 0, 8, 0));
-        var search = PageParts.Button("IMDb-Suche", "GhostButton", (_, _) => GoToSearch(), new Thickness(0, 0, 8, 0));
-        AutomationProperties.SetName(_backward, "Browser zurück");
-        AutomationProperties.SetName(_forward, "Browser vor");
+        _backward = ToolButton("\uE72B", "Eine Seite zurück", "Browser zurück", (_, _) => _web.GoBack());
+        _forward = ToolButton("\uE72A", "Eine Seite vor", "Browser vor", (_, _) => _web.GoForward());
+        var search = PageParts.Compact(PageParts.Button("IMDb-Suche", "GhostButton", (_, _) => GoToSearch(), new Thickness(10, 0, 0, 0)));
         AutomationProperties.SetName(search, "IMDb-Suche");
-        foreach (var button in new[] { _backward, _forward, search }) button.Padding = new Thickness(14, 6, 14, 6);
         _backward.IsEnabled = _forward.IsEnabled = false;
 
         _status.SetResourceReference(StyleProperty, "MutedText");
         _address.SetResourceReference(StyleProperty, "MutedText");
         _status.Text = $"Rechtsklick auf das Poster von „{_title.Name}“ → „Als Poster verwenden“.";
 
-        var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 10), LastChildFill = true };
-        foreach (var element in new UIElement[] { back, _backward, _forward, search }) DockPanel.SetDock(element, Dock.Left);
-        bar.Children.Add(back);
+        // Adresszeile als abgesetzte Pille, damit klar ist, wo man gerade ist.
+        var addressBar = new Border { BorderThickness = new Thickness(1), Padding = new Thickness(16, 0, 16, 0), Height = 36, Margin = new Thickness(10, 0, 0, 0), Child = _address };
+        PageParts.Pill(addressBar);
+        addressBar.SetResourceReference(Border.BackgroundProperty, "LineBrush");
+        addressBar.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
+
+        var bar = new DockPanel { LastChildFill = true };
+        foreach (var element in new UIElement[] { _backward, _forward, search }) DockPanel.SetDock(element, Dock.Left);
         bar.Children.Add(_backward);
         bar.Children.Add(_forward);
         bar.Children.Add(search);
-        bar.Children.Add(_address);
+        bar.Children.Add(addressBar);
 
-        var note = new Border { Margin = new Thickness(0, 0, 0, 10), Child = _status };
+        var top = new StackPanel { Margin = new Thickness(0, 0, 0, 12), Children = { bar, new Border { Margin = new Thickness(2, 10, 0, 0), Child = _status } } };
 
-        var top = new StackPanel();
-        top.Children.Add(bar);
-        top.Children.Add(note);
-
-        var layout = new DockPanel();
+        // Der Browser ist ein eigenes Fenster-Element und lässt sich nicht abrunden: er sitzt mit Abstand zum Rand im Fenster.
+        var layout = new DockPanel { Margin = new Thickness(22, 16, 22, 22) };
         DockPanel.SetDock(top, Dock.Top);
         layout.Children.Add(top);
         layout.Children.Add(_web);
@@ -73,6 +68,18 @@ public sealed class PosterBrowserPage : UserControl
 
         Loaded += async (_, _) => await StartAsync();
         Unloaded += (_, _) => _web.Dispose();
+    }
+
+    public static void Show(IShell shell, TitleRow title) =>
+        shell.OpenModal("Poster wählen", title.Name, new PosterBrowserPage(shell, title), ModalSize.Browser, scroll: false);
+
+    private static Button ToolButton(string glyph, string tooltip, string automationName, RoutedEventHandler click)
+    {
+        var button = new Button { Content = glyph, ToolTip = tooltip, Width = 36, Height = 36, FontSize = 14 };
+        button.SetResourceReference(StyleProperty, "IconButton");
+        AutomationProperties.SetName(button, automationName);
+        button.Click += click;
+        return button;
     }
 
     private async Task StartAsync()
@@ -173,8 +180,9 @@ public sealed class PosterBrowserPage : UserControl
             return;
         }
 
-        _shell.Services.Model.Reload();
-        _shell.Back();
+        // Fenster schließen und die Seite darunter neu aufbauen, damit sie das neue Poster zeigt.
+        _shell.CloseModal();
+        _shell.ReloadView();
         _shell.ShowMessage($"Poster für „{_title.Name}“ übernommen.");
     }
 }

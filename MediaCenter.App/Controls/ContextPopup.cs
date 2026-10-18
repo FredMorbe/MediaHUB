@@ -18,12 +18,15 @@ internal static class ContextPopup
             StaysOpen = false,
             AllowsTransparency = true,
             PopupAnimation = PopupAnimation.Fade,
+            // Der Rahmen hat 14 Einheiten Rand für den Schatten; der Versatz hält die sichtbare Kante an der Maus.
+            HorizontalOffset = -14,
+            VerticalOffset = -14,
         };
 
         var list = new StackPanel();
         foreach (var (text, click) in items)
         {
-            var label = new TextBlock { Text = text, FontSize = 14, Margin = new Thickness(6, 0, 12, 0) };
+            var label = new TextBlock { Text = text, FontSize = 13.5, Margin = new Thickness(6, 1, 12, 1) };
             label.SetResourceReference(TextBlock.FontFamilyProperty, "BodySemiFont");
             label.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
             var row = PageParts.ClickableRow(label, () =>
@@ -35,8 +38,12 @@ internal static class ContextPopup
         }
 
         var scroll = new ScrollViewer { Content = list, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var frame = new Border { MinWidth = 190, CornerRadius = new CornerRadius(16), BorderThickness = new Thickness(1), Padding = new Thickness(6), Child = scroll };
-        frame.SetResourceReference(Border.BackgroundProperty, "BgSoftBrush");
+        var frame = new Border
+        {
+            MinWidth = 200, CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1), Padding = new Thickness(6), Margin = new Thickness(14), Child = scroll,
+            Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 28, ShadowDepth = 8, Direction = 270, Opacity = 0.38, Color = System.Windows.Media.Colors.Black },
+        };
+        frame.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
         frame.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
         popup.Child = frame;
         popup.Closed += (_, _) => popup.Child = null;

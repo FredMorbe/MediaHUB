@@ -98,6 +98,8 @@ public sealed class ThemeService
             Set("GlassEdge", Hex("#26e2e8f0"));
             Set("Scrim", Hex("#e6070d16"));
             Set("Track", Hex("#33e2e8f0"));
+            Set("Surface", Hex("#0b1423"));
+            Set("ModalScrim", Hex("#b3050a12"));
         }
         else
         {
@@ -112,6 +114,8 @@ public sealed class ThemeService
             Set("GlassEdge", Hex("#2a0f172a"));
             Set("Scrim", Hex("#e6f8fafc"));
             Set("Track", Hex("#330f172a"));
+            Set("Surface", Hex("#f5f7fa"));
+            Set("ModalScrim", Hex("#8c0f172a"));
         }
         Set("Accent", accent);
         Set("Accent2", accent2);
@@ -123,6 +127,7 @@ public sealed class ThemeService
         Set("Accent2Clear", Color.FromArgb(0, accent2.R, accent2.G, accent2.B));
         Set("BgClear", Color.FromArgb(0, ((Color)res["BgColor"]).R, ((Color)res["BgColor"]).G, ((Color)res["BgColor"]).B));
         Set("OnAccent", Luminance(accent) > 0.5 ? Hex("#07131f") : Colors.White);
+        Set("OnAccent2", Luminance(accent2) > 0.5 ? Hex("#07131f") : Colors.White);
 
         Changed?.Invoke();
     }

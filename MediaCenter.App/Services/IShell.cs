@@ -1,3 +1,4 @@
+using MediaCenter.App.Controls;
 using MediaCenter.Core;
 
 namespace MediaCenter.App.Services;
@@ -27,7 +28,19 @@ public interface IShell
     /// <summary>Öffnet eine Unterseite (Album, Podcast …); "Zurück" führt zur aktuellen Seite.</summary>
     void Open(Func<System.Windows.Controls.UserControl> page);
 
-    /// <summary>Zurück zur vorherigen Seite (z. B. aus der Detailseite).</summary>
+    /// <summary>
+    /// Zeigt ein Fenster über der Seite (Browser, Umbenennen, Editor …). Ein offenes Fenster wird ersetzt. Der Inhalt bringt keine eigene
+    /// Überschrift und keinen Zurück-Knopf mit; Titel und Schließen-Knopf liefert das Fenster.
+    /// </summary>
+    void OpenModal(string kicker, string title, System.Windows.Controls.UserControl content, ModalSize size = ModalSize.Medium, bool scroll = true, bool dismissOnScrim = false);
+
+    /// <summary>Schließt das offene Fenster ohne Rückfrage.</summary>
+    void CloseModal();
+
+    /// <summary>Rückfrage in der App; kehrt erst nach der Antwort zurück. true = bestätigt.</summary>
+    bool Confirm(string title, string message, string confirmText = "OK", bool danger = false);
+
+    /// <summary>Zurück zur vorherigen Seite (z. B. aus der Detailseite); ist ein Fenster offen, schließt das stattdessen das Fenster.</summary>
     void Back();
 
     Task PlayAsync(VideoRow video, bool resume);

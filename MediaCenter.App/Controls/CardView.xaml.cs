@@ -120,8 +120,10 @@ public partial class CardView : UserControl
 
     private void Highlight(bool on)
     {
-        Poster.BorderBrush = on ? (Brush)FindResource("AccentBrush") : Brushes.Transparent;
-        var scale = on ? 1.04 : 1.0;
+        Poster.BorderBrush = (Brush)FindResource(on ? "AccentBrush" : "GlassEdgeBrush");
+        // Der Schatten kostet Zeit und gehört darum nur zur Karte unter dem Zeiger.
+        Poster.Effect = on ? new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 26, ShadowDepth = 8, Direction = 270, Opacity = 0.45, Color = Colors.Black } : null;
+        var scale = on ? 1.035 : 1.0;
         var animation = new DoubleAnimation(scale, TimeSpan.FromMilliseconds(120)) { EasingFunction = new QuadraticEase() };
         Scale.BeginAnimation(ScaleTransform.ScaleXProperty, animation);
         Scale.BeginAnimation(ScaleTransform.ScaleYProperty, animation);

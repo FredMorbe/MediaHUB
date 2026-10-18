@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 
@@ -12,63 +13,77 @@ namespace MediaCenter.App.Pages;
 /// „Umbenennen“ für einen Film oder eine Serie von Hand. Der Anzeigename ändert nur den Namen in der Bibliothek (die Dateien bleiben);
 /// er ist auch der Name, nach dem die Online-Suche Poster sucht. Der Dateiname eines Films benennt die Datei samt Begleitdateien wirklich
 /// um, für Filme, bei denen die automatische Umbenennung (<see cref="RenamePage"/>) keinen sicheren Treffer hatte.
+/// Erscheint als Fenster über der Seite.
 /// </summary>
-public sealed class TitleRenamePage : UserControl
+public sealed class TitleRenamePage : UserControl, IModalContent
 {
     private readonly IShell _shell;
     private readonly TitleRow _title;
     private bool _busy;
+
+    public string? BlockClose => _busy ? "Es wird gerade umbenannt. Bitte einen Moment warten." : null;
+
+    /// <summary>Öffnet das Fenster zum Umbenennen von Hand.</summary>
+    public static void Show(IShell shell, long titleId)
+    {
+        var title = shell.Services.Model.FindTitle(titleId) ?? throw new InvalidOperationException($"Titel {titleId} existiert nicht (mehr).");
+        shell.OpenModal(title.Kind == TitleKind.Movie ? "Film umbenennen" : "Serie umbenennen", title.Name, new TitleRenamePage(shell, titleId), ModalSize.Medium);
+    }
 
     public TitleRenamePage(IShell shell, long titleId)
     {
         _shell = shell;
         _title = shell.Services.Model.FindTitle(titleId) ?? throw new InvalidOperationException($"Titel {titleId} existiert nicht (mehr).");
 
-        var back = new Button { Content = "\uE72B", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
-        back.SetResourceReference(StyleProperty, "IconButton");
-        AutomationProperties.SetName(back, "Zurück");
-        back.Click += (_, _) =>
-        {
-            if (_busy) return;
-            _shell.Back();
-        };
-
-        var kicker = new TextBlock { Text = _title.Kind == TitleKind.Movie ? "FILM UMBENENNEN" : "SERIE UMBENENNEN", Margin = new Thickness(0, 0, 0, 6) };
-        kicker.SetResourceReference(StyleProperty, "KickerText");
-        var heading = PageParts.Heading(_title.Name, 52);
-        heading.TextWrapping = TextWrapping.Wrap;
-
-        var stack = new StackPanel { MaxWidth = 900, HorizontalAlignment = HorizontalAlignment.Left };
-        stack.Children.Add(back);
-        stack.Children.Add(kicker);
-        stack.Children.Add(heading);
-        stack.Children.Add(NameCard());
+        var sections = new List<UIElement> { NameSection() };
         if (_title.Kind == TitleKind.Movie)
         {
-            foreach (var video in shell.Services.Model.VideosOf(_title.Id)) stack.Children.Add(FileCard(video));
+            foreach (var video in shell.Services.Model.VideosOf(_title.Id)) sections.Add(FileSection(video));
         }
-        if (UndoCard() is { } undo) stack.Children.Add(undo);
-        Content = PageParts.Scrolling(stack);
+        if (UndoSection() is { } undo) sections.Add(undo);
+
+        var stack = new StackPanel();
+        for (var i = 0; i < sections.Count; i++)
+        {
+            if (i > 0) stack.Children.Add(PageParts.Divider(new Thickness(0, 24, 0, 24)));
+            stack.Children.Add(sections[i]);
+        }
+        Content = stack;
     }
 
-    private static UIElement Card(string title, params UIElement[] content)
+    private static UIElement Block(string title, params UIElement[] content)
     {
-        var header = new TextBlock { Text = title, FontSize = 32, Margin = new Thickness(0, 0, 0, 8) };
+        var header = new TextBlock { Text = title, FontSize = 26, Margin = new Thickness(0, 0, 0, 8) };
         header.SetResourceReference(StyleProperty, "DisplayText");
         var panel = new StackPanel { Children = { header } };
         foreach (var element in content) panel.Children.Add(element);
-        return PageParts.Card(panel, new Thickness(0, 22, 0, 0));
+        return panel;
+    }
+
+    /// <summary>Eingabefeld, das die Zeile füllt, mit angehängten Elementen (Endung, Knopf) rechts.</summary>
+    private static Grid FieldRow(UIElement field, params UIElement[] trailing)
+    {
+        var row = new Grid { Margin = new Thickness(0, 14, 0, 0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.Children.Add(field);
+        for (var i = 0; i < trailing.Length; i++)
+        {
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(trailing[i], i + 1);
+            row.Children.Add(trailing[i]);
+        }
+        return row;
     }
 
     // --- Anzeigename -----------------------------------------------------------------------------------------
 
-    private UIElement NameCard()
+    private UIElement NameSection()
     {
         var hint = PageParts.Muted(
             "Ändert nur den Namen in der Bibliothek, die Dateien auf dem Laufwerk bleiben. Nach diesem Namen suchen auch die Online-Suche nach Postern " +
             "und die Vorschläge zum Umbenennen: bei einem deutschen Titel, den OMDb nicht kennt, hilft der englische Originaltitel.");
 
-        var (field, box) = PageParts.HintBox("Anzeigename", 420);
+        var (field, box) = PageParts.HintBox("Anzeigename", double.NaN);
         box.Text = _title.Name;
         AutomationProperties.SetName(box, "Anzeigename");
         var save = PageParts.Button("Anzeigenamen speichern", "PrimaryButton", async (_, _) => await SaveNameAsync(box.Text), new Thickness(10, 0, 0, 0));
@@ -80,8 +95,8 @@ public sealed class TitleRenamePage : UserControl
             await SaveNameAsync(box.Text);
         };
 
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { field, save } };
-        return Card("Anzeigename", hint, row);
+        save.VerticalAlignment = VerticalAlignment.Center;
+        return Block("Anzeigename", hint, FieldRow(field, save));
     }
 
     private async Task SaveNameAsync(string text)
@@ -104,8 +119,9 @@ public sealed class TitleRenamePage : UserControl
         {
             _shell.Services.Db.RenameTitle(_title.Id, name);
             _shell.ShowMessage($"Anzeigename geändert: {name}.");
-            // Die Online-Suche merkt sich einen Titelwechsel: mit dem neuen Namen wird nach dem fehlenden Poster neu gesucht. Lädt die Seite neu.
+            // Die Online-Suche merkt sich einen Titelwechsel: mit dem neuen Namen wird nach dem fehlenden Poster neu gesucht. Lädt die Seite dahinter neu.
             await _shell.RefreshArtworkAsync();
+            Show(_shell, _title.Id); // das Fenster zeigt sonst weiter den alten Namen
         }
         finally
         {
@@ -115,7 +131,7 @@ public sealed class TitleRenamePage : UserControl
 
     // --- Dateiname -------------------------------------------------------------------------------------------
 
-    private UIElement FileCard(VideoRow video)
+    private UIElement FileSection(VideoRow video)
     {
         var extension = Path.GetExtension(video.RelPath);
         var online = _shell.Services.Model.PathOf(video) is not null;
@@ -128,11 +144,11 @@ public sealed class TitleRenamePage : UserControl
         var current = PageParts.Muted($"Jetzt: {Path.GetFileName(video.RelPath)}", 13);
         current.Margin = new Thickness(0, 10, 0, 0);
 
-        var (field, box) = PageParts.HintBox("Dateiname", 520);
+        var (field, box) = PageParts.HintBox("Dateiname", double.NaN);
         box.Text = Path.GetFileNameWithoutExtension(video.RelPath);
         AutomationProperties.SetName(box, "Dateiname");
         var ending = PageParts.Muted(extension, 14);
-        ending.Margin = new Thickness(8, 0, 0, 0);
+        ending.Margin = new Thickness(10, 0, 0, 0);
         ending.VerticalAlignment = VerticalAlignment.Center;
         var rename = PageParts.Button("Datei umbenennen", "PrimaryButton", async (_, _) => await RenameFileAsync(video, box.Text), new Thickness(10, 0, 0, 0));
         AutomationProperties.SetName(rename, "Datei umbenennen");
@@ -143,20 +159,20 @@ public sealed class TitleRenamePage : UserControl
             await RenameFileAsync(video, box.Text);
         };
 
-        var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0), Children = { field, ending, rename } };
-        var parts = new List<UIElement> { hint, current, row };
+        rename.VerticalAlignment = VerticalAlignment.Center;
+        var parts = new List<UIElement> { hint, current, FieldRow(field, ending, rename) };
         if (!online)
         {
             box.IsEnabled = rename.IsEnabled = false;
             parts.Add(PageParts.Muted("Die Datei ist gerade nicht erreichbar (Laufwerk abgesteckt oder Datei fehlt).", 13));
         }
-        return Card("Dateiname", parts.ToArray());
+        return Block("Dateiname", parts.ToArray());
     }
 
     // --- Zurücknehmen ----------------------------------------------------------------------------------------
 
     /// <summary>Die letzte Umbenennung aus dem gemeinsamen Protokoll (auch die von „Filme umbenennen“); null, wenn es keine gibt.</summary>
-    private UIElement? UndoCard()
+    private UIElement? UndoSection()
     {
         IReadOnlyList<RenameRecord> records;
         try
@@ -165,7 +181,7 @@ public sealed class TitleRenamePage : UserControl
         }
         catch (InvalidDataException ex)
         {
-            return Card("Zurücknehmen", PageParts.Muted(ex.Message));
+            return Block("Zurücknehmen", PageParts.Muted(ex.Message));
         }
         if (records.Count == 0) return null;
 
@@ -173,14 +189,14 @@ public sealed class TitleRenamePage : UserControl
         var hint = PageParts.Muted($"Zuletzt umbenannt: {last}. Die Dateien bekommen ihre alten Namen wieder; war der Titel mitumbenannt, bekommt er seinen alten Namen zurück.");
         var undo = PageParts.Button("Letzte Umbenennung zurücknehmen", "GhostButton", async (_, _) => await UndoAsync(records), new Thickness(0, 12, 0, 0));
         AutomationProperties.SetName(undo, "Letzte Umbenennung zurücknehmen");
-        return Card("Zurücknehmen", hint, undo);
+        return Block("Zurücknehmen", hint, undo);
     }
 
     private async Task UndoAsync(IReadOnlyList<RenameRecord> records)
     {
         if (_busy) return;
         var question = $"Die letzte Umbenennung ({records.Count} Film{(records.Count == 1 ? "" : "e")}) zurücknehmen? Die Dateien bekommen ihre alten Namen wieder.";
-        if (MessageBox.Show(Window.GetWindow(this), question, "Umbenennung zurücknehmen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Umbenennung zurücknehmen?", question, "Zurücknehmen")) return;
 
         _busy = true;
         try
@@ -237,7 +253,7 @@ public sealed class TitleRenamePage : UserControl
         var question = $"Datei auf dem Laufwerk umbenennen?\n\n{Path.GetFileName(video.RelPath)}\n→ {Path.GetFileName(proposal.NewRelPath!)}" +
                        (companions > 0 ? $"\n\nMitumbenannt werden {companions} Begleitdatei{(companions == 1 ? "" : "en")}: {string.Join(", ", proposal.SidecarMoves.Select(s => Path.GetFileName(s.OldRel)))}" : "") +
                        "\n\nEin Film, der gerade im Player läuft, lässt sich nicht umbenennen.";
-        if (MessageBox.Show(Window.GetWindow(this), question, "Datei umbenennen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        if (!_shell.Confirm("Datei umbenennen?", question, "Umbenennen")) return;
 
         _busy = true;
         try
@@ -267,7 +283,7 @@ public sealed class TitleRenamePage : UserControl
             _shell.Navigate(Section.Movies);
             if (_shell.Services.Db.ListVideos().FirstOrDefault(v => v.VideoId == video.VideoId)?.TitleId is { } titleId)
             {
-                _shell.Open(() => new TitleRenamePage(_shell, titleId));
+                Show(_shell, titleId);
             }
             _shell.ShowMessage(message);
             await _shell.RefreshArtworkAsync();

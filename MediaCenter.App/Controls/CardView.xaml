@@ -12,7 +12,7 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border x:Name="Poster" Height="264" CornerRadius="18" BorderThickness="2" BorderBrush="Transparent"
+        <Border x:Name="Poster" Height="264" CornerRadius="14" BorderThickness="1.5" BorderBrush="{DynamicResource GlassEdgeBrush}"
                 Background="{DynamicResource CardBgBrush}" SnapsToDevicePixels="True">
             <Grid>
                 <TextBlock x:Name="PlaceholderTitle" Style="{StaticResource DisplayText}" Foreground="White" FontSize="32"
@@ -28,7 +28,7 @@
             </Grid>
         </Border>
 
-        <TextBlock x:Name="TitleText" Grid.Row="1" Margin="2,10,2,0" FontFamily="{StaticResource BodySemiFont}" FontSize="15"
+        <TextBlock x:Name="TitleText" Grid.Row="1" Margin="2,10,2,0" FontFamily="{StaticResource BodySemiFont}" FontSize="14"
                    Foreground="{DynamicResource InkBrush}" TextTrimming="CharacterEllipsis"/>
         <TextBlock x:Name="MetaText" Grid.Row="2" Margin="2,2,2,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"
                    TextTrimming="CharacterEllipsis"/>

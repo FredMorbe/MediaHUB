@@ -61,7 +61,7 @@ public static class LibraryActions
             shell.ShowMessage("Bearbeiten ist nur bei MKV-Dateien möglich.", isError: true);
             return;
         }
-        shell.Open(() => new Pages.MkvEditorPage(shell, video, path));
+        Pages.MkvEditorPage.Show(shell, video, path);
     }
 
     /// <summary>Der Nutzer wählt eine Bilddatei als Poster oder Hintergrund des Titels; sie ersetzt das automatische Bild.</summary>
@@ -84,11 +84,11 @@ public static class LibraryActions
             shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
             return;
         }
-        shell.Open(() => new Pages.PosterBrowserPage(shell, title));
+        Pages.PosterBrowserPage.Show(shell, title);
     }
 
-    /// <summary>Öffnet die Seite zum Umbenennen von Hand (Anzeigename, bei Filmen auch der Dateiname).</summary>
-    public static void RenameTitle(IShell shell, long titleId) => shell.Open(() => new Pages.TitleRenamePage(shell, titleId));
+    /// <summary>Öffnet das Fenster zum Umbenennen von Hand (Anzeigename, bei Filmen auch der Dateiname).</summary>
+    public static void RenameTitle(IShell shell, long titleId) => Pages.TitleRenamePage.Show(shell, titleId);
 
     /// <summary>Nimmt einen Film oder eine Serie nach Rückfrage aus der Bibliothek. Die Dateien auf der Festplatte bleiben unberührt.</summary>
     /// <returns>true, wenn entfernt wurde: der Titel ist dann weg, die Seite muss neu aufgebaut oder verlassen werden.</returns>
@@ -118,7 +118,7 @@ public static class LibraryActions
                        "• Die Dateien auf der Festplatte bleiben unverändert, es wird nichts gelöscht.\n" +
                        "• Fortschritt, Poster und Einstellungen dazu gehen verloren.\n" +
                        "• „Neu scannen“ nimmt sie nicht wieder auf. Zurückholen: Laufwerke → „Entfernte Einträge wieder aufnehmen“.";
-        if (MessageBox.Show(Application.Current.MainWindow, question, "Aus dem Mediacenter entfernen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return false;
+        if (!shell.Confirm("Aus dem Mediacenter entfernen?", question, "Entfernen", danger: true)) return false;
 
         int removed;
         try

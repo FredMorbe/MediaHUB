@@ -152,16 +152,13 @@ public partial class DetailPage : UserControl
         }
     }
 
-    private static ToggleButton CoverChip(string text, Func<Task> action)
+    /// <summary>Aktion unter dem Kopf der Seite (Poster ersetzen, Umbenennen …): ein Knopf, kein Schalter.</summary>
+    private static Button CoverChip(string text, Func<Task> action)
     {
-        var chip = new ToggleButton { Content = text };
-        chip.SetResourceReference(StyleProperty, "Chip");
-        chip.Click += async (_, _) =>
-        {
-            chip.IsChecked = false;
-            await action();
-        };
-        return chip;
+        var button = PageParts.Compact(new Button { Content = text, Margin = new Thickness(0, 0, 8, 8) });
+        button.SetResourceReference(StyleProperty, "GhostButton");
+        button.Click += async (_, _) => await action();
+        return button;
     }
 
     private async Task ResetCoversAsync()
