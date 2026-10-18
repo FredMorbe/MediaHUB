@@ -50,6 +50,22 @@ public static class AudioQueues
         }
         if (shuffle) items = items.OrderBy(_ => Random.Shared.Next()).ToList();
 
-        await shell.RunBusyAsync("Wiedergabe startet …", () => shell.Services.Audio.PlayAsync(items, start));
+        await shell.RunBusyAsync("Wiedergabe startet …", async () =>
+        {
+            await shell.Services.Audio.PlayAsync(items, start);
+            RememberAlbum(shell.Services.Settings, tracks[shuffle ? 0 : Math.Clamp(startIndex, 0, tracks.Count - 1)]);
+        });
+    }
+
+    private const int MaxRecentAlbums = 24;
+
+    /// <summary>Merkt das Album des gespielten Titels als zuletzt gehört (ohne Dopplung, die Liste bleibt kurz).</summary>
+    private static void RememberAlbum(AppSettings settings, TrackRow track)
+    {
+        var key = MusicIndex.AlbumKey(MusicIndex.ArtistOf(track), track.Album ?? MusicIndex.UnknownAlbum);
+        settings.RecentAlbums.RemoveAll(k => k == key);
+        settings.RecentAlbums.Insert(0, key);
+        if (settings.RecentAlbums.Count > MaxRecentAlbums) settings.RecentAlbums.RemoveRange(MaxRecentAlbums, settings.RecentAlbums.Count - MaxRecentAlbums);
+        settings.Save();
     }
 }

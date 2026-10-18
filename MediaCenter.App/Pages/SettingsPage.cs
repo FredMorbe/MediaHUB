@@ -166,6 +166,14 @@ public sealed class SettingsPage : UserControl
     {
         var settings = _shell.Services.Settings;
 
+        var preview = PageParts.Segmented("preview-on-hover",
+            new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.PreviewOnHover == o.Item2, (Action)(() =>
+            {
+                settings.PreviewOnHover = o.Item2;
+                settings.Save();
+            }))),
+            "Vorschau beim Überfahren");
+
         var online = PageParts.Segmented("online-covers",
             new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.OnlineCovers == o.Item2, (Action)(() =>
             {
@@ -214,11 +222,16 @@ public sealed class SettingsPage : UserControl
             Children =
             {
                 PageParts.Group(
-                    PageParts.SettingRow("Poster aus dem Internet",
+                    PageParts.SettingRow("Cover aus dem Internet",
                         "Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com); " +
                         "gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; " +
-                        "deutsche Filmtitel findet OMDb oft nicht. Ein selbst gesetztes Poster bleibt immer.", online),
+                        "deutsche Filmtitel findet OMDb oft nicht. Album-Cover kommen von iTunes (itunes.apple.com), gesendet werden Künstler und Albumtitel; " +
+                        "Alben ohne Künstler im Tag werden nicht gesucht. Ein selbst gesetztes Poster bleibt immer.", online),
                     PageParts.SettingRow("OMDb-Schlüssel", null, new StackPanel { Children = { keyStatus, keyRow } }, stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Vorschau beim Überfahren",
+                        "Die Karte eines Films oder einer Serie wächst zur Seite und zeigt einen stummen Ausschnitt. Der Ausschnitt (10 s, 480p) wird beim ersten Mal " +
+                        "mit ffmpeg erzeugt und liegt danach im Ordner „previews“ im Datenordner.", preview)),
                 PageParts.Group(
                     PageParts.SettingRow("Fehlende Cover suchen",
                         "Erzeugt und holt Cover für Titel, die noch keins haben. Ohne Treffer wird erst nach zwei Wochen neu gefragt.", refresh),

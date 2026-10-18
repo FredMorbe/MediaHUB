@@ -88,7 +88,30 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
     private static string ScaleFilter(int width, int height) =>
         $"scale=w='min({width},iw)':h='min({height},ih)':force_original_aspect_ratio=decrease";
 
-    private async Task RunAsync(string output, CancellationToken ct, params string[] inputArgs)
+    private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(120);
+
+    // Umwandlung von HDR (PQ/HLG, BT.2020) nach SDR (BT.709); ohne sie wirkt das Bild blass.
+    private const string HdrToSdr = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
+
+    /// <summary>
+    /// Schneidet einen kurzen Ausschnitt ohne Ton als MP4 (H.264) heraus, den WPF ohne weitere Codecs abspielt. Die Höhe wird
+    /// nie hochskaliert; HDR-Quellen werden nach SDR umgerechnet.
+    /// </summary>
+    public Task CreatePreviewAsync(string video, double startSeconds, double lengthSeconds, string output, int height, bool hdr, CancellationToken ct = default)
+    {
+        var scale = $"scale=w=-2:h='min({height},ih)'";
+        var filter = hdr ? $"{HdrToSdr},{scale}" : scale;
+        return RunAsync(output, PreviewTimeout, new[]
+        {
+            "-t", lengthSeconds.ToString("F3", CultureInfo.InvariantCulture), "-map", "0:v:0", "-vf", filter,
+            "-an", "-sn", "-dn", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        }, "keine Vorschau", ct, "-ss", startSeconds.ToString("F3", CultureInfo.InvariantCulture), "-i", video);
+    }
+
+    private Task RunAsync(string output, CancellationToken ct, params string[] inputArgs) =>
+        RunAsync(output, Timeout, new[] { "-q:v", "3" }, "kein Bild", ct, inputArgs);
+
+    private async Task RunAsync(string output, TimeSpan timeoutAfter, string[] outputArgs, string noResult, CancellationToken ct, params string[] inputArgs)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
         // ffmpeg erkennt das Format an der Endung; erst in eine Temp-Datei schreiben, dann atomar ersetzen.
@@ -102,7 +125,7 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
             StandardErrorEncoding = System.Text.Encoding.UTF8, // Fehlermeldungen nennen Dateinamen mit Umlauten
             CreateNoWindow = true,
         };
-        foreach (var arg in new[] { "-v", "error", "-y" }.Concat(inputArgs).Concat(new[] { "-q:v", "3", temp })) psi.ArgumentList.Add(arg);
+        foreach (var arg in new[] { "-v", "error", "-y" }.Concat(inputArgs).Concat(outputArgs).Concat(new[] { temp })) psi.ArgumentList.Add(arg);
 
         Process process;
         try
@@ -118,7 +141,7 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
         using (process)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(Timeout);
+            timeout.CancelAfter(timeoutAfter);
             var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
             _ = process.StandardOutput.ReadToEndAsync(timeout.Token);
             try
@@ -127,14 +150,14 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
                 var error = (await stderr).Trim();
                 if (process.ExitCode != 0 || !File.Exists(temp) || new FileInfo(temp).Length == 0)
                 {
-                    throw new InvalidOperationException($"ffmpeg lieferte kein Bild (Exit-Code {process.ExitCode}): {error}");
+                    throw new InvalidOperationException($"ffmpeg lieferte {noResult} (Exit-Code {process.ExitCode}): {error}");
                 }
                 File.Move(temp, output, overwrite: true);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 process.Kill(entireProcessTree: true);
-                throw new TimeoutException($"ffmpeg brauchte für '{output}' länger als {Timeout.TotalSeconds:0} s.");
+                throw new TimeoutException($"ffmpeg brauchte für '{output}' länger als {timeoutAfter.TotalSeconds:0} s.");
             }
             finally
             {

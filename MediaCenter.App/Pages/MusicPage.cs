@@ -1,192 +1,385 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 
 namespace MediaCenter.App.Pages;
 
-/// <summary>Musikbibliothek: Alben, Künstler und Titel, mit Suche. Mit Künstlernamen nur dessen Alben.</summary>
+/// <summary>
+/// Musik nach dem Vorbild der Spotify-Desktop-App: links die Bibliothek, in der Mitte Start, Album, Künstler oder eine Gesamtliste, rechts
+/// (solange ein Titel läuft) „Jetzt läuft“. Das Mittelpanel hat eine eigene Navigation mit Zurück; die Bibliothek bleibt dabei stehen.
+/// </summary>
 public sealed class MusicPage : UserControl
 {
-    private const int TracksPerPage = 200;
+    private const int TracksPerPage = 300;
+    private const int QuickTiles = 8;
+    private const int RowItems = 12;
+    private const double NowPlayingMinWidth = 1180;
 
-    private enum Tab
+    private enum Kind
     {
+        Home,
         Albums,
         Artists,
         Tracks,
+        Album,
+        Artist,
     }
+
+    /// <param name="Key">Albumschlüssel bzw. Künstlername.</param>
+    private sealed record View(Kind Kind, string? Key = null);
 
     private readonly IShell _shell;
     private readonly LibraryModel _model;
-    private readonly string? _artist;
-    private readonly StackPanel _content = new();
-    private readonly TextBlock _count = new() { FontSize = 14 };
-    private readonly TextBox _search;
-    private Tab _tab = Tab.Albums;
-    private int _shownTracks = TracksPerPage;
+    private readonly Stack<View> _back = new();
+    private readonly ScrollViewer _scroll;
+    private readonly Border _backHolder;
+    private readonly MusicLibraryPanel _library;
+    private readonly NowPlayingPanel _nowPlaying;
+    private View _view = new(Kind.Home);
 
-    public MusicPage(IShell shell, string? artist = null)
+    public MusicPage(IShell shell)
     {
         _shell = shell;
         _model = shell.Services.Model;
-        _artist = artist;
-        _count.SetResourceReference(StyleProperty, "MutedText");
 
-        var stack = new StackPanel();
-        if (artist is not null)
+        _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(new View(Kind.Artist, name)), () => Go(new View(Kind.Tracks)))
         {
-            var back = new Button { Content = "", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 6) };
-            back.SetResourceReference(StyleProperty, "IconButton");
-            back.Click += (_, _) => _shell.Back();
-            stack.Children.Add(back);
-        }
-        stack.Children.Add(PageParts.Header(artist is null ? "Bibliothek" : "Künstler", artist ?? "Musik", _count));
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        _nowPlaying = new NowPlayingPanel(shell) { Margin = new Thickness(6, 0, 0, 0) };
 
-        var (field, box) = PageParts.HintBox("Suchen …", 260);
-        _search = box;
-        _search.TextChanged += (_, _) =>
+        _scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Focusable = false };
+
+        // Farbschein oben im Panel wie bei Spotify, hier in der Akzentfarbe; die Maske blendet ihn nach unten aus
+        var tint = new System.Windows.Shapes.Rectangle
         {
-            _shownTracks = TracksPerPage;
-            Fill();
+            Height = 320,
+            VerticalAlignment = VerticalAlignment.Top,
+            IsHitTestVisible = false,
+            OpacityMask = new LinearGradientBrush(Colors.Black, Colors.Transparent, 90),
+        };
+        tint.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentSoftBrush");
+
+        var backButton = new Button { Content = "\uE72B", Width = 30, Height = 30, FontSize = 13, ToolTip = "Zurück (Esc)" };
+        backButton.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(backButton, "Zurück");
+        backButton.Click += (_, _) => GoBack();
+        _backHolder = new Border
+        {
+            CornerRadius = new CornerRadius(15),
+            Background = new SolidColorBrush(Color.FromArgb(0x99, 0, 0, 0)),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(14, 10, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = backButton,
         };
 
-        // Werkzeugleiste: Ansicht links (Alben, Künstler, Titel), Suche rechts
-        var bar = new Grid { Margin = new Thickness(0, 0, 0, 22) };
-        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        bar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        if (artist is null)
+        var center = new Border { CornerRadius = new CornerRadius(12), ClipToBounds = true };
+        center.SetResourceReference(Border.BackgroundProperty, "BgSoftBrush");
+        center.Child = new Grid
         {
-            bar.Children.Add(PageParts.Segmented("musictab",
-                new[] { (Tab.Albums, "Alben"), (Tab.Artists, "Künstler"), (Tab.Tracks, "Titel") }
-                    .Select(t => (t.Item2, t.Item1 == _tab, (Action)(() =>
-                    {
-                        _tab = t.Item1;
-                        _shownTracks = TracksPerPage;
-                        Fill();
-                    }))),
-                "Ansicht"));
-        }
-        field.HorizontalAlignment = HorizontalAlignment.Right;
-        Grid.SetColumn(field, 1);
-        bar.Children.Add(field);
-        stack.Children.Add(bar);
-        stack.Children.Add(_content);
+            Children =
+            {
+                tint,
+                _scroll,
+                _backHolder,
+            },
+        };
 
-        Content = PageParts.Scrolling(stack);
-        Fill();
+        // Wie bei Spotify liegen die Panels mit kleinem Abstand auf dem dunklen Grund; oben bleibt die Navigationsleiste frei.
+        var root = new Grid { Margin = new Thickness(6, PageParts.NavInset + 2, 6, 6) };
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 320 });
+        root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(center, 1);
+        Grid.SetColumn(_nowPlaying, 2);
+        root.Children.Add(_library);
+        root.Children.Add(center);
+        root.Children.Add(_nowPlaying);
+        Content = root;
+
+        SizeChanged += (_, e) => _nowPlaying.Suppressed = e.NewSize.Width < NowPlayingMinWidth;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Escape || _back.Count == 0 || Keyboard.FocusedElement is TextBox) return;
+            GoBack();
+            e.Handled = true;
+        };
+        Render(animate: false);
     }
 
-    private IEnumerable<AlbumInfo> FilteredAlbums()
+    private void Go(View next)
     {
-        var text = _search.Text.Trim();
-        return _model.Albums
-            .Where(a => _artist is null || string.Equals(a.Artist, _artist, StringComparison.CurrentCultureIgnoreCase))
-            .Where(a => text.Length == 0 || a.Title.Contains(text, StringComparison.CurrentCultureIgnoreCase) || a.Artist.Contains(text, StringComparison.CurrentCultureIgnoreCase));
+        if (next == _view) return;
+        _back.Push(_view);
+        _view = next;
+        Render(animate: true);
     }
 
-    private void Fill()
+    private void GoBack()
     {
-        _content.Children.Clear();
+        if (_back.Count == 0) return;
+        _view = _back.Pop();
+        Render(animate: true);
+    }
+
+    private void Render(bool animate)
+    {
+        var content = _view.Kind switch
+        {
+            Kind.Home => BuildHome(),
+            Kind.Albums => BuildAlbums(),
+            Kind.Artists => BuildArtists(),
+            Kind.Tracks => BuildTracks(),
+            Kind.Album => new AlbumPage(_shell, _view.Key!, name => Go(new View(Kind.Artist, name))),
+            Kind.Artist => BuildArtist(_view.Key!),
+            _ => throw new InvalidOperationException($"Unbekannte Ansicht {_view.Kind}."),
+        };
+        content.Margin = new Thickness(24, 50, 24, 24);
+        _scroll.Content = content;
+        _scroll.ScrollToTop();
+        if (animate) content.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+
+        _backHolder.Visibility = _back.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _library.Select(_view.Kind switch
+        {
+            Kind.Album => $"album:{_view.Key}",
+            Kind.Artist => $"artist:{_view.Key}",
+            Kind.Tracks => "tracks",
+            _ => null,
+        });
+    }
+
+    // --- Start ---------------------------------------------------------------------------------------------
+
+    private FrameworkElement BuildHome()
+    {
+        var stack = new StackPanel();
         if (_model.Tracks.Count == 0)
         {
-            _count.Visibility = Visibility.Collapsed;
-            _content.Children.Add(PageParts.EmptyState("\uE8D6", "Noch keine Musik",
+            stack.Children.Add(PageParts.Header("Bibliothek", "Musik", (TextBlock?)null, 36));
+            stack.Children.Add(PageParts.EmptyState("\uE8D6", "Noch keine Musik",
                 "Füge einen Ordner mit Musik hinzu. Titel werden an ihren Tags (Titel, Künstler, Album) erkannt; ohne Tags dient der Ordnername als Album.",
                 PageParts.Button("Ordner hinzufügen", "PrimaryButton", async (_, _) => await LibraryActions.AddFolderAsync(_shell), new Thickness(0))));
-            return;
+            return stack;
         }
 
-        switch (_tab)
+        var hour = DateTime.Now.Hour;
+        var greeting = PageParts.Heading(hour < 11 ? "Guten Morgen" : hour < 18 ? "Guten Tag" : "Guten Abend", 34);
+        greeting.Margin = new Thickness(0, 0, 0, 12);
+        stack.Children.Add(greeting);
+
+        var recent = RecentAlbums().ToList();
+        var newest = _model.Albums.OrderByDescending(a => a.Tracks.Max(t => t.TrackId)).ToList();
+
+        // Schnellzugriff: zuletzt gehörte Alben, mit den neuesten aufgefüllt
+        var quick = recent.Concat(newest.Where(a => recent.All(r => r.Key != a.Key))).Take(QuickTiles).ToList();
+        var grid = new UniformGrid { Columns = 2 };
+        foreach (var album in quick) grid.Children.Add(QuickTile(album));
+        stack.Children.Add(grid);
+        stack.SizeChanged += (_, e) => grid.Columns = e.NewSize.Width >= 1000 ? 4 : 2;
+
+        if (recent.Count > 0) AddRow(stack, "Zuletzt gehört", recent.Take(RowItems), null);
+        AddRow(stack, "Neu hinzugefügt", newest.Take(RowItems), () => Go(new View(Kind.Albums)));
+        if (_model.Artists.Count > 0)
         {
-            case Tab.Albums: FillAlbums(); break;
-            case Tab.Artists: FillArtists(); break;
-            case Tab.Tracks: FillTracks(); break;
+            var artists = _model.Artists.Take(RowItems).Select(ArtistCard).ToList();
+            stack.Children.Add(new CardRow("Künstler", artists, card => Go(new View(Kind.Artist, card.Title)), null, () => Go(new View(Kind.Artists)), compact: true)
+            {
+                Margin = new Thickness(0, 12, 0, 0),
+            });
         }
+        return stack;
     }
 
-    private void FillAlbums()
-    {
-        var albums = FilteredAlbums().ToList();
-        _count.Text = $"{albums.Count} {(albums.Count == 1 ? "Album" : "Alben")}";
+    private IEnumerable<AlbumInfo> RecentAlbums() =>
+        _shell.Services.Settings.RecentAlbums.Select(key => _model.Albums.FirstOrDefault(a => a.Key == key)).OfType<AlbumInfo>();
 
+    private void AddRow(StackPanel stack, string heading, IEnumerable<AlbumInfo> albums, Action? showAll)
+    {
+        var cards = albums.Select(a => _model.ToCard(a)).ToList();
+        if (cards.Count == 0) return;
+        stack.Children.Add(new CardRow(heading, cards, card => Go(new View(Kind.Album, ((AlbumInfo)card.Tag!).Key)), null, showAll, compact: true) { Margin = new Thickness(0, 12, 0, 0) });
+    }
+
+    /// <summary>Kachel des Schnellzugriffs: Cover links, Titel rechts, beim Überfahren erscheint ein Abspielknopf.</summary>
+    private UIElement QuickTile(AlbumInfo album)
+    {
+        var thumb = PageParts.Thumb(ImageCache.Load(_model.AlbumArtPath(album.Key), 120), 52, "\uE8D6");
+        thumb.CornerRadius = new CornerRadius(6, 0, 0, 6);
+        thumb.VerticalAlignment = VerticalAlignment.Stretch;
+        thumb.Height = double.NaN;
+
+        var name = PageParts.Semi(album.Title, 13);
+        name.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+        name.TextWrapping = TextWrapping.Wrap;
+        name.MaxHeight = 36;
+        name.VerticalAlignment = VerticalAlignment.Center;
+        name.Margin = new Thickness(12, 0, 6, 0);
+
+        var play = new Button { Content = "\uE768", Width = 34, Height = 34, FontSize = 14, Margin = new Thickness(0, 0, 8, 0), Visibility = Visibility.Collapsed, ToolTip = "Abspielen" };
+        play.SetResourceReference(StyleProperty, "AccentIconButton");
+        play.Width = 34;
+        play.Height = 34;
+        System.Windows.Automation.AutomationProperties.SetName(play, $"{album.Title} abspielen");
+        play.Click += async (_, _) => await AudioQueues.PlayTracksAsync(_shell, album.Tracks, 0);
+
+        var layout = new Grid { Height = 52 };
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(name, 1);
+        Grid.SetColumn(play, 2);
+        layout.Children.Add(thumb);
+        layout.Children.Add(name);
+        layout.Children.Add(play);
+
+        var row = PageParts.ClickableRow(layout, () => Go(new View(Kind.Album, album.Key)), new Thickness(0), album.Title);
+        row.Padding = new Thickness(0);
+        row.CornerRadius = new CornerRadius(6);
+        row.MouseEnter += (_, _) => play.Visibility = Visibility.Visible;
+        row.MouseLeave += (_, _) => play.Visibility = Visibility.Collapsed;
+
+        var rest = new Border { CornerRadius = new CornerRadius(6) };
+        rest.SetResourceReference(Border.BackgroundProperty, "LineBrush");
+        return new Grid { Margin = new Thickness(0, 0, 10, 10), Children = { rest, row } };
+    }
+
+    private CardItem ArtistCard(ArtistInfo artist)
+    {
+        var cover = artist.Albums.Select(a => _model.AlbumArtPath(a.Key)).FirstOrDefault(p => p is not null);
+        return new CardItem
+        {
+            TitleId = 0,
+            Title = artist.Name,
+            Meta = $"{artist.Albums.Count} {(artist.Albums.Count == 1 ? "Album" : "Alben")}",
+            Kind = TitleKind.Movie,
+            Image = ImageCache.Load(cover, 360),
+            Square = true,
+            SquareSize = 140,
+            Tag = artist,
+        };
+    }
+
+    // --- Gesamtlisten, Künstler ----------------------------------------------------------------------------
+
+    private FrameworkElement BuildAlbums()
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(PageParts.Header("Bibliothek", "Alben", $"{_model.Albums.Count} {(_model.Albums.Count == 1 ? "Album" : "Alben")}", 36));
+        stack.Children.Add(AlbumGrid(_model.Albums));
+        return stack;
+    }
+
+    private FrameworkElement BuildArtists()
+    {
+        var stack = new StackPanel();
+        stack.Children.Add(PageParts.Header("Bibliothek", "Künstler", $"{_model.Artists.Count} Künstler", 36));
+        var grid = new WrapPanel();
+        foreach (var artist in _model.Artists)
+        {
+            var card = new CardView(ArtistCard(artist)) { Margin = new Thickness(0, 0, 14, 14) };
+            var name = artist.Name;
+            card.Activated += _ => Go(new View(Kind.Artist, name));
+            grid.Children.Add(card);
+        }
+        stack.Children.Add(grid);
+        return stack;
+    }
+
+    private FrameworkElement BuildArtist(string name)
+    {
+        var albums = _model.Albums.Where(a => string.Equals(a.Artist, name, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        var stack = new StackPanel();
+        stack.Children.Add(PageParts.Header("Künstler", name, $"{albums.Count} {(albums.Count == 1 ? "Album" : "Alben")}", 36));
+        stack.Children.Add(AlbumGrid(albums));
+        return stack;
+    }
+
+    private WrapPanel AlbumGrid(IEnumerable<AlbumInfo> albums)
+    {
         var grid = new WrapPanel();
         foreach (var album in albums)
         {
-            var card = new CardView(_model.ToCard(album)) { Margin = new Thickness(0, 0, 22, 28) };
-            card.Activated += _ => _shell.Open(() => new AlbumPage(_shell, album.Key));
+            var card = new CardView(_model.ToCard(album)) { Margin = new Thickness(0, 0, 14, 14) };
+            var key = album.Key;
+            card.Activated += _ => Go(new View(Kind.Album, key));
             grid.Children.Add(card);
         }
-        _content.Children.Add(grid);
+        return grid;
     }
 
-    private void FillArtists()
+    private FrameworkElement BuildTracks()
     {
-        var text = _search.Text.Trim();
-        var artists = _model.Artists.Where(a => text.Length == 0 || a.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        _count.Text = $"{artists.Count} {(artists.Count == 1 ? "Künstler" : "Künstler")}";
+        var count = new TextBlock { FontSize = 13 };
+        count.SetResourceReference(StyleProperty, "MutedText");
+        var stack = new StackPanel();
+        stack.Children.Add(PageParts.Header("", "Titel", count, 30));
 
-        var grid = new WrapPanel();
-        foreach (var artist in artists)
+        var (field, box) = PageParts.HintBox("Titel suchen …", 280, 13);
+        box.Height = 32;
+        field.HorizontalAlignment = HorizontalAlignment.Left;
+        field.Margin = new Thickness(0, 0, 0, 8);
+        stack.Children.Add(field);
+
+        var columns = new[] { new GridLength(40), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) };
+        stack.Children.Add(PageParts.TableHeader(columns, "#", "Titel", "Künstler", "Album", "Dauer"));
+        var list = new StackPanel();
+        stack.Children.Add(list);
+        var shown = TracksPerPage;
+
+        void Fill()
         {
-            var cover = artist.Albums.Select(a => _model.AlbumArtPath(a.Key)).FirstOrDefault(p => p is not null);
-            var card = new CardView(new CardItem
+            list.Children.Clear();
+            var text = box.Text.Trim();
+            var tracks = _model.Tracks
+                .Where(t => text.Length == 0
+                    || t.Title.Contains(text, StringComparison.CurrentCultureIgnoreCase)
+                    || (t.Artist?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false)
+                    || (t.Album?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false))
+                .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+            count.Text = $"{tracks.Count} Titel";
+
+            foreach (var (track, index) in tracks.Take(shown).Select((t, i) => (t, i)))
             {
-                TitleId = 0,
-                Title = artist.Name,
-                Meta = $"{artist.Albums.Count} {(artist.Albums.Count == 1 ? "Album" : "Alben")}",
-                Kind = TitleKind.Movie,
-                Image = ImageCache.Load(cover, 360),
-                Square = true,
-            }) { Margin = new Thickness(0, 0, 22, 28) };
-            card.Activated += _ => _shell.Open(() => new MusicPage(_shell, artist.Name));
-            grid.Children.Add(card);
-        }
-        _content.Children.Add(grid);
-    }
+                var title = PageParts.Semi(track.Title, 14);
+                title.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+                var cells = new List<FrameworkElement>
+                {
+                    PageParts.Cell((index + 1).ToString()),
+                    title,
+                    PageParts.Cell(string.IsNullOrWhiteSpace(track.Artist) ? MusicIndex.ArtistOf(track) : track.Artist),
+                    PageParts.Cell(track.Album ?? MusicIndex.UnknownAlbum),
+                    PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)),
+                };
+                var captured = index;
+                list.Children.Add(PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null));
+            }
 
-    private void FillTracks()
-    {
-        var text = _search.Text.Trim();
-        var tracks = _model.Tracks
-            .Where(t => text.Length == 0
-                || t.Title.Contains(text, StringComparison.CurrentCultureIgnoreCase)
-                || (t.Artist?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false)
-                || (t.Album?.Contains(text, StringComparison.CurrentCultureIgnoreCase) ?? false))
-            .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
-        _count.Text = $"{tracks.Count} {(tracks.Count == 1 ? "Titel" : "Titel")}";
-
-        foreach (var (track, index) in tracks.Take(_shownTracks).Select((t, i) => (t, i)))
-        {
-            var online = _model.PathOf(track) is not null;
-            var title = PageParts.Semi(track.Title);
-            var meta = PageParts.Muted($"{(string.IsNullOrWhiteSpace(track.Artist) ? MusicIndex.ArtistOf(track) : track.Artist)} · {track.Album ?? MusicIndex.UnknownAlbum}" + (online ? "" : " · offline"), 13);
-            meta.TextTrimming = TextTrimming.CharacterEllipsis;
-            var time = PageParts.Muted(PageParts.FormatClock(track.DurationSeconds), 13);
-            time.VerticalAlignment = VerticalAlignment.Center;
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var left = new StackPanel { Children = { title, meta }, Margin = new Thickness(0, 0, 16, 0) };
-            Grid.SetColumn(time, 1);
-            grid.Children.Add(left);
-            grid.Children.Add(time);
-            if (!online) grid.Opacity = 0.55;
-
-            var captured = index;
-            _content.Children.Add(PageParts.ClickableRow(grid, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), null, track.Title));
-        }
-
-        if (tracks.Count > _shownTracks)
-        {
-            _content.Children.Add(PageParts.Button($"Weitere anzeigen ({tracks.Count - _shownTracks})", "GhostButton", (_, _) =>
+            if (tracks.Count > shown)
             {
-                _shownTracks += TracksPerPage;
-                Fill();
-            }, new Thickness(0, 14, 0, 0)));
+                list.Children.Add(PageParts.Button($"Weitere anzeigen ({tracks.Count - shown})", "GhostButton", (_, _) =>
+                {
+                    shown += TracksPerPage;
+                    Fill();
+                }, new Thickness(0, 10, 0, 0)));
+            }
         }
+
+        box.TextChanged += (_, _) =>
+        {
+            shown = TracksPerPage;
+            Fill();
+        };
+        Fill();
+        return stack;
     }
 }

@@ -85,7 +85,7 @@ public sealed class LibraryPage : UserControl
         _grid.Children.Clear();
         foreach (var title in titles)
         {
-            var card = new CardView(_model.ToCard(title)) { Margin = new Thickness(0, 0, 22, 28), Menu = item => LibraryActions.CardMenu(_shell, item) };
+            var card = new CardView(_model.ToCard(title)) { Margin = new Thickness(0, 0, 20, 30), Menu = item => LibraryActions.CardMenu(_shell, item) };
             card.Activated += item => _shell.OpenTitle(item.TitleId);
             _grid.Children.Add(card);
         }

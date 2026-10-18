@@ -7,8 +7,8 @@ public sealed record ArtworkFailure(string Subject, string Error);
 /// <param name="Unreachable">Titel, deren Dateien gerade nicht erreichbar sind (Laufwerk offline oder Datei fehlt).</param>
 public sealed record ArtworkResult(int Created, int Skipped, int Unreachable, IReadOnlyList<ArtworkFailure> Failures);
 
-/// <summary>Quellen für Poster aus dem Internet (je Titelart, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
-public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images);
+/// <summary>Quellen für Cover aus dem Internet (je Titelart und für Alben, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
+public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IAlbumCoverSource? Albums = null);
 
 /// <summary>
 /// Beschafft Cover. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Poster aus dem Internet → Standbild.
@@ -267,13 +267,15 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
 
     /// <summary>
     /// Füllt fehlende Album-Cover: Bild im Ordner (nur wenn alle erreichbaren Titel des Albums dort liegen), sonst ein in einem
-    /// Titel eingebettetes Bild. Ein Album ohne Bild bleibt leer; die Oberfläche zeigt dann einen Platzhalter.
+    /// Titel eingebettetes Bild, sonst ein Cover aus dem Internet (<see cref="OnlineArtwork.Albums"/>). Ein Album ohne Bild bleibt leer;
+    /// die Oberfläche zeigt dann einen Platzhalter.
     /// </summary>
     public async Task<ArtworkResult> RefreshAlbumsAsync(VolumeStatus status, bool force = false, CancellationToken ct = default)
     {
         int created = 0, skipped = 0, unreachable = 0;
         var failures = new List<ArtworkFailure>();
         var known = db.GetAllAlbumArt();
+        var online = new OnlineRun();
 
         foreach (var album in MusicIndex.BuildAlbums(db.ListTracks()))
         {
@@ -310,6 +312,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
                     continue;
                 }
 
+                var found = false;
                 foreach (var track in reachable.Take(3))
                 {
                     var picture = (await probe.ProbeAsync(track, ct)).AttachedPictures.FirstOrDefault();
@@ -318,8 +321,10 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
                     await images.ExtractStreamImageAsync(track, picture.Index, output, AlbumSize.W, AlbumSize.H, ct);
                     db.SetAlbumArt(album.Key, "embedded", file);
                     created++;
+                    found = true;
                     break;
                 }
+                if (!found && await TryOnlineAlbumCoverAsync(album, file, force, online, failures, ct)) created++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -329,12 +334,57 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
         return new ArtworkResult(created, skipped, unreachable, failures);
     }
 
+    /// <summary>
+    /// Sucht das Cover eines Albums im Internet. Wie bei den Postern stoppt ein Fehler den Durchlauf nicht: fällt der Anbieter aus,
+    /// steht einmal eine Meldung in den Fehlern und er wird nicht weiter gefragt. Ohne bekannten Künstler wird nicht gesucht
+    /// (ein Albumtitel allein trifft zu oft das falsche Album).
+    /// </summary>
+    private async Task<bool> TryOnlineAlbumCoverAsync(AlbumInfo album, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    {
+        if (Online is not { Albums: { } finder } online || run.Unavailable.Contains(finder.Provider)) return false;
+        if (album.Artist == MusicIndex.UnknownArtist || album.Title == MusicIndex.UnknownAlbum) return false;
+
+        var provider = finder.Provider;
+        var query = $"{album.Artist}|{album.Title}|v{MatchVersion}";
+        if (!force && db.GetAlbumLookup(album.Key, provider) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
+        {
+            return false;
+        }
+
+        try
+        {
+            var cover = await finder.FindAsync(album.Artist, album.Title, ct);
+            if (cover is null)
+            {
+                db.SetAlbumLookup(album.Key, provider, query, found: false);
+                return false;
+            }
+
+            await online.Images.DownloadAsync(cover.ImageUrl, file, AlbumSize.W, AlbumSize.H, ct);
+            db.SetAlbumArt(album.Key, "online", file);
+            db.SetAlbumLookup(album.Key, provider, query, found: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
+        {
+            run.Unavailable.Add(provider);
+            failures.Add(new ArtworkFailure($"Online-Cover ({provider})", $"nicht verfügbar: {ex.Message}"));
+            return false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failures.Add(new ArtworkFailure($"{album.Artist} – {album.Title}", $"Online-Cover nicht übernommen: {ex.Message}"));
+            return false;
+        }
+    }
+
     /// <summary>Löscht Cover von Titeln und Videos, die es nicht mehr gibt (nach dem Aufräumen der Bibliothek).</summary>
     public int PruneOrphans()
     {
         var files = db.DeleteOrphanedArtwork();
         var liveAlbums = MusicIndex.BuildAlbums(db.ListTracks()).Select(a => a.Key).ToHashSet();
         files.AddRange(db.DeleteOrphanedAlbumArt(liveAlbums));
+        db.DeleteOrphanedAlbumLookups(liveAlbums);
         foreach (var file in files)
         {
             var path = Path.Combine(cacheDir, file);

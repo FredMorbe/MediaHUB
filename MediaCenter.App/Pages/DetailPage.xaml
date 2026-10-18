@@ -10,8 +10,8 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
                 <Button x:Name="BackButton" Style="{StaticResource IconButton}" Content="&#xE72B;" HorizontalAlignment="Left"
-                        VerticalAlignment="Top" Margin="0,86,0,24" ToolTip="Zurück (Esc)"/>
-                <c:GlassPanel Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,26" Width="720" CornerRadius="28" Padding="32,26,32,26">
+                        VerticalAlignment="Top" Margin="0,88,0,24" ToolTip="Zurück (Esc)"/>
+                <Grid Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34" Width="680">
                     <StackPanel>
                         <TextBlock x:Name="Kicker" Style="{StaticResource KickerText}" Margin="0,0,0,8"/>
                         <TextBlock x:Name="TitleText" Style="{StaticResource DisplayText}" FontSize="76" TextWrapping="Wrap" LineHeight="68" LineStackingStrategy="BlockLineHeight"/>
@@ -22,7 +22,7 @@
                             <TextBlock x:Name="OfflineText" Style="{StaticResource MutedText}" Margin="16,0,0,0" VerticalAlignment="Center" FontSize="13"/>
                         </StackPanel>
                     </StackPanel>
-                </c:GlassPanel>
+                </Grid>
             </Grid>
 
             <WrapPanel x:Name="CoverPanel" Margin="0,4,0,18"/>

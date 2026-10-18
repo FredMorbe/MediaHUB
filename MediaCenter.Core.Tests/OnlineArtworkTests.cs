@@ -405,6 +405,78 @@ public sealed class OmdbClientTests
     }
 }
 
+public sealed class ITunesAlbumClientTests
+{
+    private readonly FakeHttp _http = new();
+
+    private ITunesAlbumClient Client() => new(_http.Client(), TimeSpan.Zero);
+
+    private static string Json(params (string Album, string Artist)[] items) =>
+        "{\"resultCount\":" + items.Length + ",\"results\":[" + string.Join(",", items.Select((a, i) =>
+            "{\"wrapperType\":\"collection\",\"collectionName\":\"" + a.Album + "\",\"artistName\":\"" + a.Artist + "\""
+            + ",\"artworkUrl100\":\"https://is1-ssl.mzstatic.com/image/thumb/x" + i + "/100x100bb.jpg\"}")) + "]}";
+
+    private void Route(string term, string json) =>
+        _http.Text("https://itunes.apple.com/search?media=music&entity=album&limit=10&term=" + term, json, "application/json");
+
+    [Fact]
+    public async Task An_exact_artist_and_album_match_gives_the_large_cover()
+    {
+        Route("Daft%20Punk%20Discovery", Json(("Random Access Memories", "Daft Punk"), ("Discovery", "Daft Punk")));
+
+        var cover = await Client().FindAsync("Daft Punk", "Discovery");
+
+        Assert.Equal("Discovery", cover!.ShowName);
+        Assert.Equal("https://is1-ssl.mzstatic.com/image/thumb/x1/600x600bb.jpg", cover.ImageUrl);
+    }
+
+    [Theory]
+    [InlineData("Discovery (Remastered)")]
+    [InlineData("Discovery [Deluxe Edition]")]
+    [InlineData("Discovery - EP")]
+    [InlineData("DISCOVERY")]
+    public async Task Additions_at_the_provider_and_case_do_not_matter(string providerName)
+    {
+        Route("Daft%20Punk%20Discovery", Json((providerName, "Daft Punk")));
+
+        Assert.NotNull(await Client().FindAsync("Daft Punk", "Discovery"));
+    }
+
+    [Fact]
+    public async Task A_cover_of_another_artist_or_another_album_is_not_taken()
+    {
+        Route("Daft%20Punk%20Discovery", Json(("Discovery", "Discovery Kids"), ("Discovery Channel", "Daft Punk"), ("Homework", "Daft Punk")));
+
+        Assert.Null(await Client().FindAsync("Daft Punk", "Discovery"));
+    }
+
+    [Fact]
+    public async Task Only_https_cover_links_are_accepted()
+    {
+        Route("A%20B", "{\"results\":[{\"collectionName\":\"B\",\"artistName\":\"A\",\"artworkUrl100\":\"http://x.example/100x100bb.jpg\"}]}");
+
+        Assert.Null(await Client().FindAsync("A", "B"));
+    }
+
+    [Fact]
+    public async Task No_results_gives_null_and_an_error_status_is_loud()
+    {
+        Route("A%20B", "{\"resultCount\":0,\"results\":[]}");
+        _http.Status("https://itunes.apple.com/search?media=music&entity=album&limit=10&term=A%20Kaputt", HttpStatusCode.Forbidden);
+
+        Assert.Null(await Client().FindAsync("A", "B"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => Client().FindAsync("A", "Kaputt"));
+    }
+
+    [Fact]
+    public async Task Missing_artist_or_album_is_an_error()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => Client().FindAsync(" ", "B"));
+        await Assert.ThrowsAsync<ArgumentException>(() => Client().FindAsync("A", ""));
+        Assert.Empty(_http.Requests);
+    }
+}
+
 public sealed class OnlineArtworkServiceTests : IDisposable
 {
     private readonly string _base = Path.Combine(Path.GetTempPath(), "mc-onart-" + Guid.NewGuid().ToString("N"));
@@ -770,6 +842,7 @@ public sealed class OnlineArtworkServiceTests : IDisposable
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
                 DROP TABLE removed_files;
+                DROP TABLE album_lookups;
                 DROP TABLE online_lookups;
                 CREATE TABLE artwork_old AS SELECT * FROM artwork;
                 DROP TABLE artwork;

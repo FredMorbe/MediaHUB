@@ -283,6 +283,145 @@ public sealed class MusicLibraryTests : IDisposable
         Assert.Empty(_db.GetAllAlbumArt());
     }
 
+    private sealed class FakeAlbumSource : IAlbumCoverSource
+    {
+        public string Provider => "fakealbums";
+
+        public List<string> Asked { get; } = new();
+
+        public Func<string, string, OnlinePoster?> Answer { get; set; } = (_, _) => null;
+
+        public Task<OnlinePoster?> FindAsync(string artist, string album, CancellationToken ct = default)
+        {
+            Asked.Add($"{artist}|{album}");
+            return Task.FromResult(Answer(artist, album));
+        }
+    }
+
+    private FakeAlbumSource UseOnlineAlbums()
+    {
+        var http = new FakeHttp();
+        http.Bytes("https://is1-ssl.mzstatic.com/cover.jpg", new byte[] { 1, 2, 3 });
+        var source = new FakeAlbumSource { Answer = (_, album) => new OnlinePoster(album, "https://is1-ssl.mzstatic.com/cover.jpg") };
+        _art.Online = new OnlineArtwork(null, null, new RemoteImages(http.Client(), _tool, _cache), source);
+        return source;
+    }
+
+    [Fact]
+    public async Task Album_without_a_local_picture_gets_its_cover_from_the_internet()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var source = UseOnlineAlbums();
+
+        var result = await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Empty(result.Failures);
+        Assert.Equal(1, result.Created);
+        Assert.Equal(new[] { "Band|Platte" }, source.Asked);
+        var key = MusicIndex.BuildAlbums(_db.ListTracks()).Single().Key;
+        Assert.True(File.Exists(_art.GetAlbumPath(key)));
+        Assert.Equal("online", _db.GetAllAlbumArt()[key].Source);
+        Assert.Contains(_tool.Calls, c => c.EndsWith(":480x480"));
+    }
+
+    [Fact]
+    public async Task A_local_album_cover_is_never_replaced_by_the_internet_and_nothing_is_asked()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        Touch(_drive, @"Musik\Platte\cover.jpg");
+        await _library.AddFolderAsync(_drive);
+        var source = UseOnlineAlbums();
+
+        await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+        await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Empty(source.Asked);
+        Assert.Equal("sidecar", _db.GetAllAlbumArt().Single().Value.Source);
+    }
+
+    [Fact]
+    public async Task Albums_without_a_known_artist_or_title_are_not_searched()
+    {
+        Touch(_drive, @"Musik\eins.mp3");
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["title"] = "Lied" });
+        await _library.AddFolderAsync(_drive);
+        var source = UseOnlineAlbums();
+
+        await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Empty(source.Asked);
+        Assert.Empty(_db.GetAllAlbumArt());
+    }
+
+    [Fact]
+    public async Task A_search_without_result_is_remembered_until_forced()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var source = UseOnlineAlbums();
+        source.Answer = (_, _) => null;
+        var status = _library.RefreshVolumes();
+
+        await _art.RefreshAlbumsAsync(status);
+        await _art.RefreshAlbumsAsync(status);
+        Assert.Single(source.Asked);
+
+        await _art.RefreshAlbumsAsync(status, force: true);
+        Assert.Equal(2, source.Asked.Count);
+    }
+
+    [Fact]
+    public async Task An_unavailable_provider_is_reported_once_and_the_run_continues()
+    {
+        Touch(_drive, @"Musik\A\eins.mp3");
+        Touch(_drive, @"Musik\B\eins.mp3");
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["title"] = "x", ["artist"] = "Band", ["album"] = Path.GetFileName(Path.GetDirectoryName(path))!,
+            });
+        await _library.AddFolderAsync(_drive);
+        var source = UseOnlineAlbums();
+        source.Answer = (_, _) => throw new HttpRequestException("itunes.apple.com antwortete mit 403 Forbidden.");
+
+        var result = await _art.RefreshAlbumsAsync(_library.RefreshVolumes());
+
+        Assert.Single(source.Asked); // das zweite Album wird nicht mehr gefragt
+        var failure = Assert.Single(result.Failures);
+        Assert.Contains("fakealbums", failure.Subject);
+        Assert.Contains("403", failure.Error);
+        Assert.Empty(_db.GetAllAlbumArt());
+    }
+
+    [Fact]
+    public void Database_at_schema_8_keeps_album_art_and_accepts_online_covers_afterwards()
+    {
+        var path = Path.Combine(_base, "migrate8.db");
+        using (var db = new LibraryDb(path)) db.SetAlbumArt("band|platte", "embedded", "album-1.jpg");
+        using (var connection = new SqliteConnection($"Data Source={path}"))
+        {
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = """
+                DROP TABLE album_lookups;
+                CREATE TABLE album_art_old (album_key TEXT PRIMARY KEY, source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded')), file TEXT NOT NULL, updated_utc TEXT NOT NULL);
+                INSERT INTO album_art_old SELECT album_key, source, file, updated_utc FROM album_art;
+                DROP TABLE album_art; ALTER TABLE album_art_old RENAME TO album_art;
+                PRAGMA user_version = 8;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using var migrated = new LibraryDb(path);
+
+        Assert.Equal("album-1.jpg", migrated.GetAlbumArt("band|platte"));
+        migrated.SetAlbumArt("andere|platte", "online", "album-2.jpg");
+        migrated.SetAlbumLookup("andere|platte", "itunes", "q", found: false);
+        Assert.False(migrated.GetAlbumLookup("andere|platte", "itunes")!.Found);
+    }
+
     [Fact]
     public async Task Database_at_schema_3_is_migrated_to_the_current_schema_without_losing_data()
     {
@@ -300,7 +439,7 @@ public sealed class MusicLibraryTests : IDisposable
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
                 DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
-                DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
+                DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE album_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();
         }

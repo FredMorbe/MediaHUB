@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 8;
+    private const int SchemaVersion = 9;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -279,6 +279,29 @@ public sealed partial class LibraryDb : IDisposable
                     rel_path TEXT NOT NULL COLLATE NOCASE,
                     removed_utc TEXT NOT NULL,
                     PRIMARY KEY (volume_id, rel_path)
+                );
+                """);
+
+            // Schema 9: Album-Cover aus dem Internet. album_art wird wie artwork in Schema 7 neu aufgebaut (source darf jetzt auch
+            // 'online' sein); album_lookups merkt sich ergebnislose Suchen je Album und Anbieter.
+            if (version < 9) Run("""
+                CREATE TABLE album_art_new (
+                    album_key TEXT PRIMARY KEY,
+                    source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded', 'online')),
+                    file TEXT NOT NULL,
+                    updated_utc TEXT NOT NULL
+                );
+                INSERT INTO album_art_new SELECT album_key, source, file, updated_utc FROM album_art;
+                DROP TABLE album_art;
+                ALTER TABLE album_art_new RENAME TO album_art;
+
+                CREATE TABLE album_lookups (
+                    album_key TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    query TEXT NOT NULL,
+                    found INTEGER NOT NULL,
+                    checked_utc TEXT NOT NULL,
+                    PRIMARY KEY (album_key, provider)
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

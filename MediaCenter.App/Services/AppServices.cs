@@ -44,11 +44,17 @@ public sealed class AppServices : IDisposable
     /// <summary>Liest die Spuren einer Datei (ffprobe).</summary>
     public required FfprobeReader Probe { get; init; }
 
+    /// <summary>Stumme Ausschnitte für die Vorschau beim Überfahren einer Karte.</summary>
+    public required PreviewClips Previews { get; init; }
+
     /// <summary>Lädt Bilder aus dem Netz in den Cover-Cache.</summary>
     public required RemoteImages Images { get; init; }
 
     /// <summary>Serienposter von TVmaze; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
     public required TvMazeClient TvMaze { get; init; }
+
+    /// <summary>Album-Cover von iTunes; eine Instanz, weil sie die Abstände zwischen den Abrufen einhält.</summary>
+    public required ITunesAlbumClient ITunes { get; init; }
 
     /// <summary>Filmposter von OMDb; null, solange weder <see cref="OmdbKeyVariable"/> noch <see cref="OmdbKeyFile"/> einen Schlüssel hat.</summary>
     public OmdbClient? Omdb { get; private set; }
@@ -90,7 +96,7 @@ public sealed class AppServices : IDisposable
 
     /// <summary>Schaltet die Online-Suche nach Postern nach der Einstellung ein oder aus (gilt ab dem nächsten Cover-Durchlauf).</summary>
     public void ApplyOnlineCovers() =>
-        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images) : null;
+        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images, ITunes) : null;
 
     /// <summary>Ohne Zeitlimit des Clients: Antworten eines großen Modells brauchen lange, <see cref="OllamaClient"/> setzt sein eigenes.</summary>
     public required HttpClient OllamaHttp { get; init; }
@@ -116,17 +122,20 @@ public sealed class AppServices : IDisposable
         var images = new RemoteImages(http, ffmpeg, cache);
         var mpvPath = Environment.GetEnvironmentVariable("MEDIACENTER_MPV") ?? DefaultMpvPath;
 
+        var model = new LibraryModel(db, library, artwork);
         var services = new AppServices
         {
             Settings = settings,
             Theme = new ThemeService(settings),
             Db = db,
-            Model = new LibraryModel(db, library, artwork),
+            Model = model,
+            Previews = new PreviewClips(model, ffmpeg, settings, Path.Combine(AppSettings.DataDirectory, "previews")),
             MpvPath = mpvPath,
             Audio = new AudioController(mpvPath, db, settings),
             Http = http,
             Images = images,
             TvMaze = new TvMazeClient(http),
+            ITunes = new ITunesAlbumClient(http),
             RadioSearch = new RadioBrowserClient(http),
             RadioStations = new RadioService(db, images),
             PodcastSearch = new PodcastSearchClient(http),

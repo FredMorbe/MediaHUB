@@ -10,19 +10,34 @@ namespace MediaCenter.App.Controls;
 public sealed class CardRow : Grid
 {
     /// <param name="menu">Einträge des Kontextmenüs einer Karte; ohne Angabe gibt es kein Menü.</param>
-    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated, Func<CardItem, IReadOnlyList<(string Text, Action Click)>>? menu = null)
+    /// <param name="showAll">Löst „Alle anzeigen“ rechts neben dem Titel aus; ohne Angabe fehlt der Link.</param>
+    /// <param name="compact">Kleinere Überschrift und engere Abstände (Musik-Seite).</param>
+    public CardRow(string title, IEnumerable<CardItem> items, Action<CardItem> onActivated, Func<CardItem, IReadOnlyList<(string Text, Action Click)>>? menu = null, Action? showAll = null, bool compact = false)
     {
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var header = new TextBlock { Text = title, FontSize = 30, Margin = new Thickness(0, 0, 0, 4) };
-        header.SetResourceReference(StyleProperty, "DisplayText");
-        Children.Add(header);
+        // Reihentitel wie bei Disney+: Satzschrift in normaler Stärke, kein Versalsatz.
+        var header = new TextBlock { Text = title, FontSize = compact ? 18 : 21, Margin = new Thickness(0, 0, 0, compact ? 0 : 4) };
+        header.SetResourceReference(TextBlock.FontFamilyProperty, "BodyFont");
+        header.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+        if (showAll is null)
+        {
+            Children.Add(header);
+        }
+        else
+        {
+            var link = new Button { Content = "Alle anzeigen", FontSize = 13, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 4) };
+            link.SetResourceReference(StyleProperty, "VersionLink");
+            link.SetResourceReference(Control.ForegroundProperty, "MutedBrush");
+            link.Click += (_, _) => showAll();
+            Children.Add(new Grid { Children = { header, link } });
+        }
 
-        var strip = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 14) };
+        var strip = new StackPanel { Orientation = Orientation.Horizontal, Margin = compact ? new Thickness(0, 8, 0, 8) : new Thickness(0, 14, 0, 26) };
         foreach (var item in items)
         {
-            var card = new CardView(item) { Margin = new Thickness(0, 0, 18, 0), Menu = menu };
+            var card = new CardView(item) { Margin = new Thickness(0, 0, compact ? 14 : 20, 0), Menu = menu };
             card.Activated += onActivated;
             strip.Children.Add(card);
         }
@@ -66,7 +81,7 @@ public sealed class CardRow : Grid
             Content = glyph,
             HorizontalAlignment = side,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(side == HorizontalAlignment.Left ? 4 : 0, 0, side == HorizontalAlignment.Right ? 4 : 0, 34),
+            Margin = new Thickness(side == HorizontalAlignment.Left ? 4 : 0, 0, side == HorizontalAlignment.Right ? 4 : 0, 0),
             Visibility = Visibility.Collapsed,
             Width = 44,
             Height = 44,

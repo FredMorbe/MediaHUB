@@ -5,55 +5,87 @@ using MediaCenter.Core;
 
 namespace MediaCenter.App.Pages;
 
-/// <summary>Ein Album: Cover, Angaben und die Titelliste; ein Klick startet die Wiedergabe ab diesem Titel.</summary>
+/// <summary>
+/// Ein Album im Mittelpanel der Musik-Seite: Cover, Angaben, runder Abspielknopf und die Titeltabelle; ein Klick startet die
+/// Wiedergabe ab diesem Titel. Bildlauf und Zurück liefert die Musik-Seite.
+/// </summary>
 public sealed class AlbumPage : UserControl
 {
+    private const string PlayGlyph = "\uE768";
+    private const string ShuffleGlyph = "\uE8B1";
+
     private readonly IShell _shell;
     private readonly LibraryModel _model;
     private readonly AlbumInfo _album;
     private readonly StackPanel _list = new();
+    private readonly IReadOnlyList<GridLength> _columns;
+    private readonly bool _showArtist;
     private long? _playingId;
 
-    public AlbumPage(IShell shell, string albumKey)
+    /// <param name="openArtist">Öffnet die Seite des Künstlers; der Name im Kopf ist dann ein Link.</param>
+    public AlbumPage(IShell shell, string albumKey, Action<string>? openArtist = null)
     {
         _shell = shell;
         _model = shell.Services.Model;
         _album = _model.Albums.FirstOrDefault(a => a.Key == albumKey) ?? throw new InvalidOperationException($"Album '{albumKey}' existiert nicht (mehr).");
 
-        var back = new Button { Content = "", HorizontalAlignment = HorizontalAlignment.Left, ToolTip = "Zurück (Esc)", Margin = new Thickness(0, 0, 0, 14) };
-        back.SetResourceReference(StyleProperty, "IconButton");
-        back.Click += (_, _) => _shell.Back();
+        // Bei Sammlungen mit wechselnden Künstlern bekommt die Tabelle eine Spalte für den Künstler.
+        _showArtist = _album.Tracks.Select(t => t.Artist).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.CurrentCultureIgnoreCase).Count() > 1;
+        _columns = _showArtist
+            ? new[] { new GridLength(36), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) }
+            : new[] { new GridLength(36), new GridLength(1, GridUnitType.Star), new GridLength(56) };
 
-        var cover = PageParts.Thumb(ImageCache.Load(_model.AlbumArtPath(_album.Key), 520), 240);
-        cover.VerticalAlignment = VerticalAlignment.Top;
+        var cover = PageParts.Thumb(ImageCache.Load(_model.AlbumArtPath(_album.Key), 360), 168);
+        cover.CornerRadius = new CornerRadius(6);
+        cover.VerticalAlignment = VerticalAlignment.Bottom;
 
-        var kicker = new TextBlock { Text = "ALBUM", Margin = new Thickness(0, 0, 0, 6) };
+        var kicker = new TextBlock { Text = "ALBUM", Margin = new Thickness(0, 0, 0, 4) };
         kicker.SetResourceReference(StyleProperty, "KickerText");
-        var title = PageParts.Heading(_album.Title, 64);
+        var title = PageParts.Heading(_album.Title, 44);
         title.TextWrapping = TextWrapping.Wrap;
-        var artist = PageParts.Semi(_album.Artist, 20);
-        artist.Margin = new Thickness(0, 4, 0, 0);
+        title.LineHeight = 42;
+        title.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+
+        var artist = PageParts.Semi(_album.Artist, 15);
+        artist.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
+        if (openArtist is not null && _album.Artist != MusicIndex.UnknownArtist)
+        {
+            artist.Cursor = System.Windows.Input.Cursors.Hand;
+            artist.ToolTip = "Künstler öffnen";
+            artist.MouseEnter += (_, _) => artist.TextDecorations = TextDecorations.Underline;
+            artist.MouseLeave += (_, _) => artist.TextDecorations = null;
+            artist.MouseLeftButtonUp += (_, _) => openArtist(_album.Artist);
+        }
         var total = _album.Tracks.Sum(t => t.DurationSeconds ?? 0);
         var meta = PageParts.Muted(string.Join(" · ", new[]
         {
             _album.Year?.ToString(), $"{_album.Tracks.Count} {(_album.Tracks.Count == 1 ? "Titel" : "Titel")}", PageParts.FormatDuration(total),
-        }.Where(s => !string.IsNullOrEmpty(s))));
-        meta.Margin = new Thickness(0, 6, 0, 0);
+        }.Where(s => !string.IsNullOrEmpty(s))), 13);
+        meta.Margin = new Thickness(0, 2, 0, 0);
 
-        var buttons = new WrapPanel { Margin = new Thickness(0, 22, 0, 0) };
-        buttons.Children.Add(PageParts.Button("Abspielen", "PrimaryButton", async (_, _) => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, 0)));
-        buttons.Children.Add(PageParts.Button("Zufällig", "GhostButton", async (_, _) => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, 0, shuffle: true)));
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 16, 0, 0) };
+        var play = new Button { Content = PlayGlyph, Width = 44, Height = 44, FontSize = 18, ToolTip = "Abspielen" };
+        play.SetResourceReference(StyleProperty, "AccentIconButton");
+        System.Windows.Automation.AutomationProperties.SetName(play, "Album abspielen");
+        play.Click += async (_, _) => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, 0);
+        var shuffle = new Button { Content = ShuffleGlyph, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Zufällig" };
+        shuffle.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(shuffle, "Album zufällig abspielen");
+        shuffle.Click += async (_, _) => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, 0, shuffle: true);
+        buttons.Children.Add(play);
+        buttons.Children.Add(shuffle);
 
-        var info = new StackPanel { Margin = new Thickness(32, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta, buttons } };
-        var header = new Grid { Margin = new Thickness(0, 0, 0, 26) };
+        var info = new StackPanel { Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta } };
+        var header = new Grid { Margin = new Thickness(0, 0, 0, 0) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(info, 1);
         header.Children.Add(cover);
         header.Children.Add(info);
 
-        var stack = new StackPanel { Children = { back, header, _list } };
-        Content = PageParts.Scrolling(stack);
+        var tableHead = PageParts.TableHeader(_columns, _showArtist ? new[] { "#", "Titel", "Künstler", "Dauer" } : new[] { "#", "Titel", "Dauer" });
+        ((FrameworkElement)tableHead).Margin = new Thickness(0, 16, 0, 4);
+        Content = new StackPanel { Children = { header, buttons, tableHead, _list } };
 
         _playingId = _shell.Services.Audio.Current is { Kind: QueueKind.Track, Id: { } playing } ? playing : null;
         BuildTracks();
@@ -74,7 +106,6 @@ public sealed class AlbumPage : UserControl
     {
         _list.Children.Clear();
         var multiDisc = _album.Tracks.Any(t => (t.DiscNo ?? 1) > 1);
-        var variousArtists = _album.Tracks.Select(t => t.Artist).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.CurrentCultureIgnoreCase).Count() > 1;
         int? lastDisc = null;
 
         foreach (var (track, index) in _album.Tracks.Select((t, i) => (t, i)))
@@ -82,37 +113,20 @@ public sealed class AlbumPage : UserControl
             if (multiDisc && (track.DiscNo ?? 1) != lastDisc)
             {
                 lastDisc = track.DiscNo ?? 1;
-                var disc = PageParts.Muted($"Disc {lastDisc}", 13);
-                disc.Margin = new Thickness(10, 14, 0, 6);
+                var disc = PageParts.Muted($"Disc {lastDisc}", 12);
+                disc.Margin = new Thickness(8, 10, 0, 4);
                 _list.Children.Add(disc);
             }
 
-            var online = _model.PathOf(track) is not null;
             var playing = track.TrackId == _playingId;
-            var number = PageParts.Muted(track.TrackNo?.ToString() ?? "", 14);
-            number.Width = 34;
-            number.VerticalAlignment = VerticalAlignment.Center;
-            var name = PageParts.Semi(track.Title, 16);
+            var name = PageParts.Semi(track.Title, 14);
             name.SetResourceReference(TextBlock.ForegroundProperty, playing ? "AccentBrush" : "InkBrush");
-            var sub = variousArtists && !string.IsNullOrWhiteSpace(track.Artist) ? PageParts.Muted(track.Artist!, 13) : null;
-            var time = PageParts.Muted(PageParts.FormatClock(track.DurationSeconds), 13);
-            time.VerticalAlignment = VerticalAlignment.Center;
-
-            var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name } };
-            if (sub is not null) left.Children.Add(sub);
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(left, 1);
-            Grid.SetColumn(time, 2);
-            grid.Children.Add(number);
-            grid.Children.Add(left);
-            grid.Children.Add(time);
-            if (!online) grid.Opacity = 0.55;
+            var cells = new List<FrameworkElement> { PageParts.Cell(track.TrackNo?.ToString() ?? ""), name };
+            if (_showArtist) cells.Add(PageParts.Cell(track.Artist ?? ""));
+            cells.Add(PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)));
 
             var captured = index;
-            _list.Children.Add(PageParts.ClickableRow(grid, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), null, track.Title));
+            _list.Children.Add(PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null));
         }
     }
 }

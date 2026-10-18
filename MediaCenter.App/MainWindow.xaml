@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:c="clr-namespace:MediaCenter.App.Controls"
         xmlns:p="clr-namespace:MediaCenter.App.Player"
-        Title="Mediacenter" Width="1500" Height="900" MinWidth="900" MinHeight="600" WindowStartupLocation="CenterScreen"
+        Title="Mediacenter" Icon="pack://application:,,,/Assets/app.ico" Width="1500" Height="900" MinWidth="900" MinHeight="600" WindowStartupLocation="CenterScreen"
         Background="{DynamicResource BgBrush}" FontFamily="{StaticResource BodyFont}"
         TextElement.Foreground="{DynamicResource InkBrush}" UseLayoutRounding="True">
     <Grid x:Name="Shell">
@@ -18,6 +18,23 @@
                     <Rectangle.Fill>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                             <GradientStop Color="{DynamicResource BgClearColor}" Offset="0.25"/>
+                            <GradientStop Color="{DynamicResource BgColor}" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <!-- Seiten: links dunkelt das Bild ab (dort steht der Text), rechts läuft es in die Grundfarbe aus -->
+                <Rectangle Opacity="0.92">
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="{DynamicResource BgColor}" Offset="0"/>
+                            <GradientStop Color="{DynamicResource BgClearColor}" Offset="0.62"/>
+                        </LinearGradientBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+                <Rectangle>
+                    <Rectangle.Fill>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="{DynamicResource BgClearColor}" Offset="0.78"/>
                             <GradientStop Color="{DynamicResource BgColor}" Offset="1"/>
                         </LinearGradientBrush>
                     </Rectangle.Fill>
@@ -51,29 +68,29 @@
 
         <ContentPresenter x:Name="PageHost"/>
 
-        <!-- Navigation oben: Leiste über die ganze Breite, Reiter nur als Text; Inbox, Laufwerke und Einstellungen rechts -->
-        <c:GlassPanel x:Name="Nav" Style="{StaticResource BarGlass}" VerticalAlignment="Top" Height="58" Padding="30,0,18,0">
+        <!-- Navigation oben wie bei Netflix: Logo links bündig mit dem Inhalt, Reiter als Pillen, Symbole rechts -->
+        <c:GlassPanel x:Name="Nav" Style="{StaticResource BarGlass}" VerticalAlignment="Top" Height="60" Padding="48,0,40,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="25" VerticalAlignment="Center"/>
-                    <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="25" Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center"/>
-                    <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="8,7,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
+                <!-- Wortmarke: Bebas Neue in Ink, der Punkt als Signal in der Akzentfarbe (wie im App-Symbol, Assets\make_icon.py) -->
+                <StackPanel x:Name="Logo" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,0,0" Background="Transparent" Cursor="Hand"
+                            ToolTip="Start" AutomationProperties.Name="Mediacenter Start">
+                    <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="30"/>
+                    <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="30" Foreground="{DynamicResource AccentBrush}"/>
                 </StackPanel>
                 <StackPanel x:Name="NavItems" Grid.Column="1" Orientation="Horizontal" Margin="30,0,0,0"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <StackPanel x:Name="UtilItems" Orientation="Horizontal"/>
-                    <Border Width="1" Height="18" Margin="10,0,8,0" Background="{DynamicResource GlassEdgeBrush}"/>
-                    <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Width="36" Height="36" FontSize="15" VerticalAlignment="Center" Content="&#xE713;" ToolTip="Einstellungen" AutomationProperties.Name="Einstellungen"/>
+                    <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
                 </StackPanel>
             </Grid>
         </c:GlassPanel>
 
-        <c:MiniPlayer x:Name="Mini" VerticalAlignment="Bottom" Margin="24,0,24,18"/>
+        <c:MiniPlayer x:Name="Mini" VerticalAlignment="Bottom"/>
 
         <!-- Fenster über der Seite (Browser, Umbenennen, Editor …) und Rückfragen darüber -->
         <c:ModalHost x:Name="Modal"/>

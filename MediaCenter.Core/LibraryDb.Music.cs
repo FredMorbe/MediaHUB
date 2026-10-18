@@ -57,6 +57,36 @@ public sealed partial class LibraryDb
         """,
         ("$key", albumKey), ("$source", source), ("$file", file), ("$now", Utc(DateTime.UtcNow)));
 
+    /// <summary>Letzte Suche dieses Albums bei diesem Anbieter, oder null.</summary>
+    public OnlineLookup? GetAlbumLookup(string albumKey, string provider)
+    {
+        using var cmd = Command(
+            "SELECT query, found, checked_utc FROM album_lookups WHERE album_key = $key AND provider = $provider",
+            ("$key", albumKey), ("$provider", provider));
+        using var r = cmd.ExecuteReader();
+        return r.Read()
+            ? new OnlineLookup(r.GetString(0), r.GetInt32(1) == 1, DateTime.Parse(r.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime())
+            : null;
+    }
+
+    public void SetAlbumLookup(string albumKey, string provider, string query, bool found) => Run("""
+        INSERT INTO album_lookups (album_key, provider, query, found, checked_utc) VALUES ($key, $provider, $query, $found, $now)
+        ON CONFLICT (album_key, provider) DO UPDATE SET query = excluded.query, found = excluded.found, checked_utc = excluded.checked_utc
+        """,
+        ("$key", albumKey), ("$provider", provider), ("$query", query), ("$found", found ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
+
+    /// <summary>Vergisst gemerkte Suchen von Alben, die es nicht mehr gibt.</summary>
+    public void DeleteOrphanedAlbumLookups(ISet<string> liveAlbumKeys) => InTransaction(() =>
+    {
+        var keys = new List<string>();
+        using (var cmd = Command("SELECT DISTINCT album_key FROM album_lookups"))
+        using (var r = cmd.ExecuteReader())
+        {
+            while (r.Read()) keys.Add(r.GetString(0));
+        }
+        foreach (var key in keys.Where(k => !liveAlbumKeys.Contains(k))) Run("DELETE FROM album_lookups WHERE album_key = $key", ("$key", key));
+    });
+
     /// <summary>Löscht Cover von Alben, die es nicht mehr gibt; liefert deren Dateinamen.</summary>
     public List<string> DeleteOrphanedAlbumArt(ISet<string> liveAlbumKeys) => InTransaction(() =>
     {

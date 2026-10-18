@@ -16,6 +16,9 @@ public sealed class AppSettings
     /// <summary>Id eines Farbstils aus <see cref="Theming.Palettes"/>.</summary>
     public string Palette { get; set; } = "signal";
 
+    /// <summary>Schlüssel der zuletzt gespielten Alben, das neueste zuerst (für „Zuletzt gehört“ auf der Musik-Seite).</summary>
+    public List<string> RecentAlbums { get; set; } = new();
+
     /// <summary>Lautstärke von Musik, Radio und Podcasts (0 bis 100).</summary>
     public double AudioVolume { get; set; } = 80;
 
@@ -34,6 +37,9 @@ public sealed class AppSettings
     /// Fehlende Poster im Internet suchen: Serien bei TVmaze, Filme bei OMDb (nur mit Schlüssel). Gesendet werden Titel und Jahr.
     /// </summary>
     public bool OnlineCovers { get; set; } = true;
+
+    /// <summary>Beim Überfahren eines Films oder einer Serie einen kurzen stummen Ausschnitt zeigen (wird beim ersten Mal per ffmpeg erzeugt).</summary>
+    public bool PreviewOnHover { get; set; } = true;
 
     /// <summary>Adresse des lokalen Ollama, das Untertitel übersetzt.</summary>
     public string OllamaUrl { get; set; } = "http://localhost:11434";

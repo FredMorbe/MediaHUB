@@ -18,19 +18,19 @@ internal static class PageParts
     /// Kopf einer Seite: Kleinzeile in der Akzentfarbe, großer Titel, darunter ein gedämpfter Text (z. B. Anzahl oder Hinweis).
     /// Den Text übernimmt die Seite als TextBlock, wenn sie ihn später ändert.
     /// </summary>
-    public static StackPanel Header(string kicker, string title, TextBlock? subtitle = null)
+    public static StackPanel Header(string kicker, string title, TextBlock? subtitle = null, double size = 56)
     {
-        var stack = new StackPanel { Margin = new Thickness(0, 0, 0, 22) };
+        var stack = new StackPanel { Margin = new Thickness(0, 0, 0, size < 56 ? 14 : 22) };
         if (kicker.Length > 0)
         {
             var label = new TextBlock { Text = kicker.ToUpperInvariant(), Margin = new Thickness(2, 0, 0, 0) };
             label.SetResourceReference(FrameworkElement.StyleProperty, "KickerText");
             stack.Children.Add(label);
         }
-        stack.Children.Add(Heading(title, 56));
+        stack.Children.Add(Heading(title, size));
         if (subtitle is not null)
         {
-            subtitle.Margin = new Thickness(2, 6, 0, 0);
+            subtitle.Margin = new Thickness(2, size < 56 ? 2 : 6, 0, 0);
             subtitle.MaxWidth = 820;
             subtitle.HorizontalAlignment = HorizontalAlignment.Left;
             subtitle.TextWrapping = TextWrapping.Wrap;
@@ -39,7 +39,7 @@ internal static class PageParts
         return stack;
     }
 
-    public static StackPanel Header(string kicker, string title, string subtitle) => Header(kicker, title, Muted(subtitle, 14));
+    public static StackPanel Header(string kicker, string title, string subtitle, double size = 56) => Header(kicker, title, Muted(subtitle, size < 56 ? 13 : 14), size);
 
     /// <summary>Überschrift eines Abschnitts innerhalb einer Seite.</summary>
     public static TextBlock SectionTitle(string text, Thickness? margin = null)
@@ -218,10 +218,10 @@ internal static class PageParts
     }
 
     /// <summary>Eingabefeld mit Hinweistext, der verschwindet, sobald etwas drinsteht.</summary>
-    public static (Grid Field, TextBox Box) HintBox(string hint, double width)
+    public static (Grid Field, TextBox Box) HintBox(string hint, double width, double fontSize = 14)
     {
-        var box = new TextBox { Width = width };
-        var label = new TextBlock { Text = hint, FontSize = 14, Margin = new Thickness(13, 0, 0, 0), IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+        var box = new TextBox { Width = width, FontSize = fontSize };
+        var label = new TextBlock { Text = hint, FontSize = fontSize, Margin = new Thickness(13, 0, 0, 0), IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
         label.SetResourceReference(FrameworkElement.StyleProperty, "MutedText");
         box.TextChanged += (_, _) => label.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         return (new Grid { Children = { box, label } }, box);
@@ -256,6 +256,56 @@ internal static class PageParts
             }
         };
         return row;
+    }
+
+    /// <summary>
+    /// Kopfzeile einer Tabelle (Titellisten): kleine gedämpfte Beschriftung in den Spalten von <paramref name="widths"/>, die letzte Spalte
+    /// rechtsbündig, darunter eine feine Linie. Fluchtet mit <see cref="TableRow"/>.
+    /// </summary>
+    public static UIElement TableHeader(IReadOnlyList<GridLength> widths, params string[] titles)
+    {
+        var grid = new Grid { Margin = new Thickness(8, 0, 8, 6) };
+        for (var i = 0; i < widths.Count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = widths[i] });
+            var label = Muted(i < titles.Length ? titles[i].ToUpperInvariant() : "", 11);
+            label.TextWrapping = TextWrapping.NoWrap;
+            label.Margin = new Thickness(0, 0, i < widths.Count - 1 ? 12 : 0, 0);
+            if (i == widths.Count - 1) label.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(label, i);
+            grid.Children.Add(label);
+        }
+        return new StackPanel { Margin = new Thickness(0, 0, 0, 4), Children = { grid, Divider() } };
+    }
+
+    /// <summary>Kompakte Tabellenzeile (Titel einer Liste): eine Zelle je Spalte, die letzte rechtsbündig; nicht erreichbare Titel gedimmt.</summary>
+    public static Border TableRow(IReadOnlyList<GridLength> widths, IReadOnlyList<FrameworkElement> cells, Action onClick, string name, bool dimmed = false)
+    {
+        var grid = new Grid();
+        for (var i = 0; i < widths.Count; i++)
+        {
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = widths[i] });
+            var cell = cells[i];
+            cell.VerticalAlignment = VerticalAlignment.Center;
+            cell.Margin = new Thickness(cell.Margin.Left, cell.Margin.Top, i < widths.Count - 1 ? 12 : 0, cell.Margin.Bottom);
+            if (i == widths.Count - 1) cell.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(cell, i);
+            grid.Children.Add(cell);
+        }
+        if (dimmed) grid.Opacity = 0.55;
+        var row = ClickableRow(grid, onClick, new Thickness(0), name);
+        row.Padding = new Thickness(8, 5, 8, 5);
+        row.CornerRadius = new CornerRadius(6);
+        return row;
+    }
+
+    /// <summary>Einzeiliger gedämpfter Text für Tabellenzellen (wird bei Platzmangel mit „…“ gekürzt).</summary>
+    public static TextBlock Cell(string text, double size = 13)
+    {
+        var block = Muted(text, size);
+        block.TextWrapping = TextWrapping.NoWrap;
+        block.TextTrimming = TextTrimming.CharacterEllipsis;
+        return block;
     }
 
     /// <summary>Anklickbare Zeile; für Screenreader und Automation ein Knopf.</summary>
@@ -318,8 +368,8 @@ internal static class PageParts
         return span.TotalHours >= 1 ? span.ToString(@"h\:mm\:ss") : span.ToString(@"m\:ss");
     }
 
-    /// <summary>Höhe der Navigationsleiste oben; Seiten lassen darunter Platz.</summary>
-    public const double NavInset = 58;
+    /// <summary>Höhe des Navigationsstreifens oben; Seiten lassen darunter Platz.</summary>
+    public const double NavInset = 60;
 
     /// <summary>Seitenrahmen unterhalb der Navigation: Inhalt scrollt senkrecht.</summary>
     public static ScrollViewer Scrolling(Panel content)

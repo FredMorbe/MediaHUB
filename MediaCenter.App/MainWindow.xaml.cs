@@ -35,9 +35,15 @@ public partial class MainWindow : Window, IShell
         Height = Math.Min(Height, area.Height * 0.92);
 
         GlassPanel.Backdrop = Backdrop;
+        CardView.Previews = Services.Previews;
+        // Ein defektes ffmpeg oder eine kaputte Datei würde bei jedem Überfahren dieselbe Meldung auslösen; jede nur einmal zeigen.
+        var reported = new HashSet<string>();
+        Services.Previews.Failed += message =>
+        {
+            if (reported.Add(message)) ShowMessage(message, isError: true);
+        };
         Modal.Blocked = reason => ShowMessage(reason, isError: true);
         BuildNav();
-        SettingsButton.Click += (_, _) => Navigate(Section.Settings);
         VersionButton.Content = "v" + AppInfo.Version;
         VersionButton.Click += (_, _) => ChangelogPage.Show(this);
 
@@ -61,7 +67,7 @@ public partial class MainWindow : Window, IShell
     /// <summary>Lässt unten Platz für die Audio-Leiste, damit sie keine Inhalte verdeckt.</summary>
     private void UpdateBottomInset()
     {
-        var inset = Mini.IsVisible ? 104 : 0;
+        var inset = Mini.IsVisible ? 72 : 0;
         PageHost.Margin = new Thickness(0, 0, 0, inset);
         Toasts.Margin = new Thickness(0, 0, 0, 26 + inset);
     }
@@ -70,18 +76,24 @@ public partial class MainWindow : Window, IShell
 
     // --- Navigation ----------------------------------------------------------------------------------------
 
+    // Symbolzeichen der Segoe-Symbolschrift: Laufwerk, Glocke, Zahnrad
+    private const string DriveGlyph = "\uEDA2";
+    private const string InboxGlyph = "\uEA8F";
+    private const string SettingsGlyph = "\uE713";
+
     private void BuildNav()
     {
-        var items = new (Section Section, string Label, Panel Host)[]
+        var items = new (Section Section, string Label, Panel Host, string? Glyph)[]
         {
-            (Section.Home, "Start", NavItems), (Section.Movies, "Filme", NavItems), (Section.Series, "Serien", NavItems),
-            (Section.Music, "Musik", NavItems), (Section.Radio, "Radio", NavItems), (Section.Podcasts, "Podcasts", NavItems),
-            (Section.Inbox, "Inbox", UtilItems), (Section.Sources, "Laufwerke", UtilItems),
+            (Section.Home, "Start", NavItems, null), (Section.Movies, "Filme", NavItems, null), (Section.Series, "Serien", NavItems, null),
+            (Section.Music, "Musik", NavItems, null), (Section.Radio, "Radio", NavItems, null), (Section.Podcasts, "Podcasts", NavItems, null),
+            (Section.Sources, "Laufwerke", UtilItems, DriveGlyph), (Section.Inbox, "Inbox", UtilItems, InboxGlyph), (Section.Settings, "Einstellungen", UtilItems, SettingsGlyph),
         };
-        foreach (var (section, label, host) in items)
+        foreach (var (section, label, host, glyph) in items)
         {
-            var button = new RadioButton { Content = label, GroupName = "nav", Height = 58 };
-            button.SetResourceReference(StyleProperty, "NavToggle");
+            var button = new RadioButton { Content = glyph ?? label, GroupName = "nav", Height = 60 };
+            button.SetResourceReference(StyleProperty, glyph is null ? "StripToggle" : "StripIcon");
+            if (glyph is not null) button.ToolTip = label;
             System.Windows.Automation.AutomationProperties.SetName(button, label);
             // Checked statt Click: auch die Pfeiltasten in der Gruppe wählen eine Seite.
             button.Checked += (_, _) =>
@@ -91,27 +103,34 @@ public partial class MainWindow : Window, IShell
             _navButtons[section] = button;
             host.Children.Add(button);
         }
+        Logo.MouseLeftButtonUp += (_, _) => Navigate(Section.Home);
     }
 
-    /// <summary>Die Inbox zeigt ihre Anzahl als kleine Marke neben dem Namen, nicht als Klammer im Text.</summary>
+    /// <summary>Die Inbox zeigt ihre Anzahl als kleine Marke an der Glocke, nicht als Klammer im Text.</summary>
     private void UpdateInboxBadge()
     {
         var count = Services.Model.Inbox.Count;
         if (count == 0)
         {
-            _navButtons[Section.Inbox].Content = "Inbox";
+            _navButtons[Section.Inbox].Content = InboxGlyph;
             return;
         }
-        var number = new TextBlock { Text = count > 99 ? "99+" : count.ToString(), FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        var number = new TextBlock { Text = count > 99 ? "99+" : count.ToString(), FontSize = 10, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
         number.SetResourceReference(TextBlock.FontFamilyProperty, "BodySemiFont");
-        number.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
-        var badge = new Border { CornerRadius = new CornerRadius(9), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(7, 1, 0, 0), Child = number };
-        badge.SetResourceReference(Border.BackgroundProperty, "AccentSoftBrush");
-        _navButtons[Section.Inbox].Content = new StackPanel
+        number.SetResourceReference(TextBlock.ForegroundProperty, "OnAccentBrush");
+        var badge = new Border
         {
-            Orientation = Orientation.Horizontal,
-            Children = { new TextBlock { Text = "Inbox", VerticalAlignment = VerticalAlignment.Center }, badge },
+            CornerRadius = new CornerRadius(8),
+            MinWidth = 16,
+            Height = 16,
+            Padding = new Thickness(4, 0, 4, 0),
+            Margin = new Thickness(0, -9, -10, 0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = number,
         };
+        badge.SetResourceReference(Border.BackgroundProperty, "AccentBrush");
+        _navButtons[Section.Inbox].Content = new Grid { Children = { new TextBlock { Text = InboxGlyph }, badge } };
     }
 
     public void Navigate(Section section)

@@ -5,9 +5,8 @@
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
         <StackPanel Margin="48,0,48,60">
             <Grid x:Name="HeroZone" Height="480">
-                <!-- Mit Inhalten: Info-Feld über dem Titelbild -->
-                <c:GlassPanel x:Name="HeroPanel" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,26"
-                              Width="580" CornerRadius="28" Padding="32,26,32,28">
+                <!-- Mit Inhalten: Text direkt auf dem Titelbild, ohne Karte; das Bild läuft links, rechts und unten aus (MainWindow) -->
+                <Grid x:Name="HeroPanel" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34" Width="600">
                     <StackPanel>
                         <TextBlock x:Name="Kicker" Style="{StaticResource KickerText}" Margin="0,0,0,8"/>
                         <TextBlock x:Name="HeroTitle" Style="{StaticResource DisplayText}" FontSize="72" TextWrapping="Wrap" LineHeight="64" LineStackingStrategy="BlockLineHeight"/>
@@ -20,11 +19,10 @@
                             <Button x:Name="DetailsButton" Style="{StaticResource GhostButton}" Content="Details" Margin="10,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
-                </c:GlassPanel>
+                </Grid>
 
                 <!-- Leere Bibliothek -->
-                <c:GlassPanel x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,26"
-                              Width="620" CornerRadius="28" Padding="32,26,32,28">
+                <Grid x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34" Width="620">
                     <StackPanel>
                         <TextBlock Text="START" Style="{StaticResource KickerText}"/>
                         <TextBlock Text="Noch nichts in der Bibliothek" Style="{StaticResource DisplayText}" FontSize="52" TextWrapping="Wrap"/>
@@ -35,7 +33,7 @@
                             <Button x:Name="AddFileButton" Style="{StaticResource GhostButton}" Content="Datei hinzufügen" Margin="10,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
-                </c:GlassPanel>
+                </Grid>
             </Grid>
             <StackPanel x:Name="Rows"/>
         </StackPanel>

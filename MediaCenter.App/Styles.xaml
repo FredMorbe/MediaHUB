@@ -50,6 +50,16 @@
         </Setter>
     </Style>
 
+    <Style x:Key="StripFocus">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="0,12" BorderBrush="{DynamicResource FaintBrush}" BorderThickness="1.5" CornerRadius="18" IsHitTestVisible="False"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ===== Text ===== -->
 
     <Style x:Key="DisplayText" TargetType="TextBlock">
@@ -274,6 +284,86 @@
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Reiter in der Navigationsleiste (wie bei Netflix): der aktive liegt auf einer hellen, durchscheinenden Pille, die einblendet -->
+    <Style x:Key="StripToggle" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource BodySemiFont}"/>
+        <Setter Property="FontSize" Value="15"/>
+        <Setter Property="Padding" Value="17,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource StripFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Grid Background="Transparent" SnapsToDevicePixels="True">
+                        <Border x:Name="Hover" Margin="0,13" Opacity="0" Background="{DynamicResource InkBrush}"
+                                CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}"/>
+                        <Border x:Name="Pill" Margin="0,13" Opacity="0" Background="{DynamicResource InkBrush}"
+                                CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}"/>
+                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                            <Setter TargetName="Hover" Property="Opacity" Value="0.08"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Pill" Storyboard.TargetProperty="Opacity" To="0.16" Duration="0:0:0.22">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Pill" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.14"/>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Rundes Symbol rechts in der Navigationsleiste (Laufwerke, Inbox, Einstellungen); der Inhalt ist ein Symbolzeichen, ggf. mit Marke -->
+    <Style x:Key="StripIcon" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        <Setter Property="FontFamily" Value="{StaticResource IconFont}"/>
+        <Setter Property="FontSize" Value="18"/>
+        <Setter Property="Width" Value="42"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource StripFocus}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Grid Background="Transparent" SnapsToDevicePixels="True">
+                        <Ellipse x:Name="Hover" Width="38" Height="38" Opacity="0" Fill="{DynamicResource InkBrush}"/>
+                        <Ellipse x:Name="Pill" Width="38" Height="38" Opacity="0" Fill="{DynamicResource InkBrush}"/>
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                            <Setter TargetName="Hover" Property="Opacity" Value="0.08"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+                            <Setter TargetName="Pill" Property="Opacity" Value="0.16"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -601,7 +691,7 @@
         </Setter>
     </Style>
 
-    <!-- Leiste über die ganze Breite (Navigation): Milchglas ohne Rahmen, nur eine feine Linie unten -->
+    <!-- Streifen über die ganze Breite (Navigation): Milchglas ohne Rahmen, das unten weich in den Inhalt ausläuft -->
     <Style x:Key="BarGlass" TargetType="c:GlassPanel" BasedOn="{StaticResource {x:Type c:GlassPanel}}">
         <Setter Property="CornerRadius" Value="0"/>
         <Setter Property="Template">
@@ -609,6 +699,13 @@
                 <ControlTemplate TargetType="c:GlassPanel">
                     <Grid>
                         <Grid x:Name="PART_Clip">
+                            <Grid.OpacityMask>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#FF000000" Offset="0"/>
+                                    <GradientStop Color="#F2000000" Offset="0.55"/>
+                                    <GradientStop Color="#00000000" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Grid.OpacityMask>
                             <Border Background="{DynamicResource BgBrush}"/>
                             <Rectangle x:Name="PART_Blur" Margin="-48">
                                 <Rectangle.Effect>
@@ -617,7 +714,6 @@
                             </Rectangle>
                             <Border Background="{DynamicResource GlassTintBrush}"/>
                         </Grid>
-                        <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}"/>
                     </Grid>
                 </ControlTemplate>

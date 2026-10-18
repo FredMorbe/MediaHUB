@@ -1,7 +1,7 @@
 <UserControl x:Class="MediaCenter.App.Controls.CardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Width="176" Focusable="True" Cursor="Hand" FocusVisualStyle="{x:Null}">
+             Width="200" Focusable="True" Cursor="Hand" FocusVisualStyle="{x:Null}">
     <Grid x:Name="Root" RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform>
             <ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/>
@@ -12,14 +12,42 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border x:Name="Poster" Height="264" CornerRadius="14" BorderThickness="1.5" BorderBrush="{DynamicResource GlassEdgeBrush}"
+        <!-- Weicher Schatten unter dem Poster (ohne Effekt, damit viele Karten billig bleiben); beim Überfahren übernimmt der echte Schatten -->
+        <Ellipse x:Name="Shade" Height="34" VerticalAlignment="Bottom" Margin="16,0,16,-18" IsHitTestVisible="False">
+            <Ellipse.Fill>
+                <RadialGradientBrush>
+                    <GradientStop Color="#70000000" Offset="0"/>
+                    <GradientStop Color="#00000000" Offset="1"/>
+                </RadialGradientBrush>
+            </Ellipse.Fill>
+        </Ellipse>
+
+        <Border x:Name="Poster" Height="300" CornerRadius="12" BorderThickness="1.5" BorderBrush="{DynamicResource GlassEdgeBrush}"
                 Background="{DynamicResource CardBgBrush}" SnapsToDevicePixels="True">
-            <Grid>
-                <TextBlock x:Name="PlaceholderTitle" Style="{StaticResource DisplayText}" Foreground="White" FontSize="32"
-                           TextWrapping="Wrap" VerticalAlignment="Bottom" Margin="14,0,14,16" Visibility="Collapsed"/>
-                <Border x:Name="OfflineChip" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10"
-                        CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" Background="#CC000000" Padding="9,3">
-                    <TextBlock Text="Offline" Foreground="White" FontSize="11" FontFamily="{StaticResource BodySemiFont}"/>
+            <Grid x:Name="PosterContent">
+                <!-- Das Poster behält seine Breite, wenn die Karte beim Überfahren zur Seite wächst; das Video legt sich darüber -->
+                <Border x:Name="PosterArt" Width="197" HorizontalAlignment="Left">
+                    <TextBlock x:Name="PlaceholderTitle" Style="{StaticResource DisplayText}" Foreground="White" FontSize="34"
+                               TextWrapping="Wrap" VerticalAlignment="Bottom" Margin="16,0,16,18" Visibility="Collapsed"/>
+                </Border>
+                <!-- Titel und Zusatzzeile erscheinen beim Überfahren über einem Verlauf am unteren Rand -->
+                <Border x:Name="InfoPanel" VerticalAlignment="Bottom" Opacity="0" IsHitTestVisible="False" Padding="16,44,16,16">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#00000000" Offset="0"/>
+                            <GradientStop Color="#E6000000" Offset="0.7"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <StackPanel>
+                        <TextBlock x:Name="OverlayTitle" FontFamily="{StaticResource BodySemiFont}" FontSize="16" Foreground="White"
+                                   TextWrapping="Wrap" MaxHeight="44" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock x:Name="OverlayMeta" FontSize="12" Foreground="#CCFFFFFF" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Border>
+                <!-- Kleine helle Marke wie „Neue Folge“ -->
+                <Border x:Name="OfflineChip" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,12"
+                        CornerRadius="6" Background="#F2FFFFFF" Padding="8,3">
+                    <TextBlock Text="Offline" Foreground="#FF15161C" FontSize="12" FontFamily="{StaticResource BodySemiFont}"/>
                 </Border>
                 <Border x:Name="ProgressTrack" Visibility="Collapsed" VerticalAlignment="Bottom" Height="4" Margin="12,0,12,12"
                         CornerRadius="2" Background="#66000000">
@@ -28,6 +56,7 @@
             </Grid>
         </Border>
 
+        <!-- Nur für quadratische Cover (Alben, Podcasts): dort steht der Titel unter dem Bild -->
         <TextBlock x:Name="TitleText" Grid.Row="1" Margin="2,10,2,0" FontFamily="{StaticResource BodySemiFont}" FontSize="14"
                    Foreground="{DynamicResource InkBrush}" TextTrimming="CharacterEllipsis"/>
         <TextBlock x:Name="MetaText" Grid.Row="2" Margin="2,2,2,0" FontSize="12" Foreground="{DynamicResource MutedBrush}"

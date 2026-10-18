@@ -26,6 +26,9 @@ public sealed class CardItem
     /// <summary>Quadratisches Cover (Alben, Podcasts, Sender) statt Poster im Hochformat.</summary>
     public bool Square { get; init; }
 
+    /// <summary>Kantenlänge einer quadratischen Karte; die Musik-Seite nimmt kleinere für mehr Inhalt je Reihe.</summary>
+    public double SquareSize { get; init; } = 176;
+
     /// <summary>Was die Seite mit der Karte verbindet (z. B. Album oder Podcast).</summary>
     public object? Tag { get; init; }
 }
@@ -110,6 +113,7 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Image = AlbumArtPath(album.Key) is { } path ? ImageCache.Load(path, 360) : null,
         Offline = !IsOnline(album),
         Square = true,
+        SquareSize = 140,
         Tag = album,
     };
 

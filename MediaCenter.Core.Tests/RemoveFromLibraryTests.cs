@@ -190,7 +190,7 @@ public sealed class RemoveFromLibraryTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE removed_files; PRAGMA user_version = 7;";
+            cmd.CommandText = "DROP TABLE removed_files; DROP TABLE album_lookups; PRAGMA user_version = 7;";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();
