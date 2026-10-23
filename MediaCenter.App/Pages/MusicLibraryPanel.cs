@@ -67,14 +67,18 @@ internal sealed class MusicLibraryPanel : Border
         add.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(add, "Ordner mit Musik hinzufügen");
         add.Click += async (_, _) => await LibraryActions.AddFolderAsync(_shell);
-        Grid.SetColumn(add, 2);
+        var refresh = PageParts.LibraryRefreshButton(shell, iconOnly: true);
+        Grid.SetColumn(refresh, 2);
+        Grid.SetColumn(add, 3);
         var header = new Grid { Margin = new Thickness(16, 10, 10, 6) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(title, 1);
         header.Children.Add(icon);
         header.Children.Add(title);
+        header.Children.Add(refresh);
         header.Children.Add(add);
 
         var modes = PageParts.Segmented("musiclib",
@@ -120,13 +124,27 @@ internal sealed class MusicLibraryPanel : Border
         {
             _shell.Services.Audio.Changed += OnAudioChanged;
             _model.PlaylistsChanged += OnPlaylistsChanged;
+            _model.MusicChanged += OnMusicChanged;
             OnAudioChanged();
         };
         Unloaded += (_, _) =>
         {
             _shell.Services.Audio.Changed -= OnAudioChanged;
             _model.PlaylistsChanged -= OnPlaylistsChanged;
+            _model.MusicChanged -= OnMusicChanged;
         };
+    }
+
+    /// <summary>Ein Song oder Album wurde umbenannt: die Liste baut sich mit den neuen Namen neu auf, ohne dass sie nach oben springt.</summary>
+    private void OnMusicChanged(string? oldAlbumKey, string? newAlbumKey)
+    {
+        if (oldAlbumKey is not null && _selectedKey == $"album:{oldAlbumKey}") _selectedKey = $"album:{newAlbumKey}";
+        var offset = _scroll.VerticalOffset;
+        Fill();
+        _scroll.UpdateLayout();
+        _scroll.ScrollToVerticalOffset(offset);
+        _playingTrack = null; // die Färbung des laufenden Albums neu bestimmen
+        OnAudioChanged();
     }
 
     /// <summary>Die Liste der Playlists hat sich geändert; ist sie sichtbar, baut sie sich neu auf, ohne dass die Liste nach oben springt.</summary>

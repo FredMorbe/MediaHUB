@@ -139,11 +139,12 @@ public sealed partial class LibraryDb
     public ColorSettings GetColorSettings(long videoId)
     {
         using var cmd = Command(
-            "SELECT brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert FROM color_settings WHERE video_id = $id",
+            "SELECT brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert, lut, lut_strength FROM color_settings WHERE video_id = $id",
             ("$id", videoId));
         using var r = cmd.ExecuteReader();
         return r.Read()
-            ? new ColorSettings(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6), r.GetInt32(7), r.GetInt32(8) == 1).Validated()
+            ? new ColorSettings(r.GetInt32(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetInt32(6), r.GetInt32(7), r.GetInt32(8) == 1,
+                r.IsDBNull(9) ? null : r.GetString(9), r.GetInt32(10)).Validated()
             : ColorSettings.Default;
     }
 
@@ -157,15 +158,15 @@ public sealed partial class LibraryDb
             return;
         }
         Run("""
-            INSERT INTO color_settings (video_id, brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert)
-            VALUES ($id, $brightness, $contrast, $saturation, $hue, $gamma, $temperature, $tint, $sharpness, $invert)
+            INSERT INTO color_settings (video_id, brightness, contrast, saturation, hue, gamma, temperature, tint, sharpness, invert, lut, lut_strength)
+            VALUES ($id, $brightness, $contrast, $saturation, $hue, $gamma, $temperature, $tint, $sharpness, $invert, $lut, $lutStrength)
             ON CONFLICT (video_id) DO UPDATE SET brightness = excluded.brightness, contrast = excluded.contrast, saturation = excluded.saturation,
                 hue = excluded.hue, gamma = excluded.gamma, temperature = excluded.temperature, tint = excluded.tint,
-                sharpness = excluded.sharpness, invert = excluded.invert
+                sharpness = excluded.sharpness, invert = excluded.invert, lut = excluded.lut, lut_strength = excluded.lut_strength
             """,
             ("$id", videoId), ("$brightness", color.Brightness), ("$contrast", color.Contrast), ("$saturation", color.Saturation),
             ("$hue", color.Hue), ("$gamma", color.Gamma), ("$temperature", color.Temperature), ("$tint", color.Tint),
-            ("$sharpness", color.Sharpness), ("$invert", color.Invert ? 1 : 0));
+            ("$sharpness", color.Sharpness), ("$invert", color.Invert ? 1 : 0), ("$lut", color.Lut), ("$lutStrength", color.LutStrength));
     }
 
     /// <summary>

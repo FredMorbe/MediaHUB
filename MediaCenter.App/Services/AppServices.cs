@@ -30,6 +30,9 @@ public sealed class AppServices : IDisposable
 
     public required HttpClient Http { get; init; }
 
+    /// <summary>Überträgt Videos per Google Cast auf einen Fernseher.</summary>
+    public required CastService Cast { get; init; }
+
     public required RadioBrowserClient RadioSearch { get; init; }
 
     public required RadioService RadioStations { get; init; }
@@ -40,6 +43,8 @@ public sealed class AppServices : IDisposable
 
     /// <summary>Vom Nutzer hinzugefügte Untertitel, pro Video im Datenordner.</summary>
     public required SubtitleStore Subtitles { get; init; }
+
+    public required LutStore Luts { get; init; }
 
     /// <summary>Schreibt Untertitel in MKV-Dateien (ffmpeg).</summary>
     public required MkvSubtitleEmbedder Embedder { get; init; }
@@ -111,7 +116,7 @@ public sealed class AppServices : IDisposable
 
     /// <summary>Schaltet die Online-Suche nach Postern nach der Einstellung ein oder aus (gilt ab dem nächsten Cover-Durchlauf).</summary>
     public void ApplyOnlineCovers() =>
-        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images, new IAlbumCoverSource[] { ITunes, MusicBrainz }) : null;
+        Model.Artwork.Online = Settings.OnlineCovers ? new OnlineArtwork(TvMaze, Omdb, Images, new IAlbumCoverSource[] { ITunes, MusicBrainz }, TvMaze, Omdb) : null;
 
     /// <summary>Schaltet die Suche nach Songtexten im Internet nach der Einstellung ein oder aus (gilt ab dem nächsten Titel).</summary>
     public void ApplyOnlineLyrics() => Lyrics.Online = Settings.OnlineLyrics ? LrcLib : null;
@@ -167,9 +172,11 @@ public sealed class AppServices : IDisposable
             PodcastSearch = new PodcastSearchClient(http),
             Podcasts = new PodcastService(db, new PodcastFeedClient(http), images),
             Subtitles = new SubtitleStore(Path.Combine(AppSettings.DataDirectory, "subtitles")),
+            Luts = new LutStore(Path.Combine(AppSettings.DataDirectory, "luts")),
             Embedder = MkvSubtitleEmbedder.FromEnvironment(),
             Editor = MkvEditor.FromEnvironment(),
             Probe = probe,
+            Cast = new CastService(Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg", SubtitleExtractor.FromEnvironment()),
             OllamaHttp = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan },
             SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
@@ -182,6 +189,8 @@ public sealed class AppServices : IDisposable
     public void Dispose()
     {
         Sleep.Dispose();
+        // Beendet eine laufende Übertragung (der Fernseher geht in den Ruhezustand zurück); höchstens ein paar Sekunden warten.
+        Task.Run(() => Cast.DisposeAsync().AsTask()).Wait(TimeSpan.FromSeconds(10));
         Audio.Dispose();
         Http.Dispose();
         OllamaHttp.Dispose();

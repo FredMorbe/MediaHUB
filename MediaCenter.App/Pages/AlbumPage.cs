@@ -13,6 +13,7 @@ public sealed class AlbumPage : UserControl
 {
     private const string PlayGlyph = "\uE768";
     private const string ShuffleGlyph = "\uE8B1";
+    private const string RenameGlyph = "\uE70F";
 
     private readonly IShell _shell;
     private readonly LibraryModel _model;
@@ -76,9 +77,14 @@ public sealed class AlbumPage : UserControl
         toPlaylist.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(toPlaylist, "Album zu Playlist hinzufügen");
         toPlaylist.Click += (_, _) => PlaylistActions.ShowAddMenu(_shell, toPlaylist, _album.Tracks);
+        var rename = new Button { Content = RenameGlyph, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Album bearbeiten (Name, Künstler)" };
+        rename.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(rename, "Album bearbeiten");
+        rename.Click += (_, _) => MusicRenamePage.ShowAlbum(_shell, _album.Key);
         buttons.Children.Add(play);
         buttons.Children.Add(shuffle);
         buttons.Children.Add(toPlaylist);
+        buttons.Children.Add(rename);
 
         var info = new StackPanel { Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta } };
         var header = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -133,7 +139,11 @@ public sealed class AlbumPage : UserControl
             var captured = index;
             Border? row = null;
             row = PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
-                menu: () => new (string, Action)[] { ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })) });
+                menu: () => new (string, Action)[]
+                {
+                    ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
+                    ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
+                });
             _list.Children.Add(row);
         }
     }

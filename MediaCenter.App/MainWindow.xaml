@@ -76,15 +76,15 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- Wortmarke: Bebas Neue in Ink, der Punkt als Signal in der Akzentfarbe (wie im App-Symbol, Assets\make_icon.py) -->
-                <StackPanel x:Name="Logo" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,3,0,0" Background="Transparent" Cursor="Hand"
-                            ToolTip="Start" AutomationProperties.Name="Mediacenter Start">
-                    <TextBlock Text="MEDIACENTER" Style="{StaticResource DisplayText}" FontSize="30"/>
-                    <TextBlock Text="." Style="{StaticResource DisplayText}" FontSize="30" Foreground="{DynamicResource AccentBrush}"/>
-                </StackPanel>
+                <!-- Logo: das App-Symbol (K aus gefalteten Bändern, Assets\logo.png) statt der Wortmarke -->
+                <Border x:Name="Logo" VerticalAlignment="Center" Background="Transparent" Cursor="Hand"
+                        ToolTip="Start" AutomationProperties.Name="Mediacenter Start">
+                    <Image Source="/Assets/logo.png" Width="38" Height="38" RenderOptions.BitmapScalingMode="HighQuality"/>
+                </Border>
                 <StackPanel x:Name="NavItems" Grid.Column="1" Orientation="Horizontal" Margin="30,0,0,0"/>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <StackPanel x:Name="UtilItems" Orientation="Horizontal"/>
+                    <Button x:Name="FullscreenNavButton" Style="{StaticResource IconButton}" Content="&#xE740;" Margin="4,0,0,0" VerticalAlignment="Center" ToolTip="Vollbild (F11)" AutomationProperties.Name="Vollbild"/>
                     <Button x:Name="VersionButton" Style="{StaticResource VersionLink}" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="Changelog anzeigen" AutomationProperties.Name="Version und Changelog"/>
                 </StackPanel>
             </Grid>
@@ -99,6 +99,7 @@
         <!-- Meldungen und Fortschritt unten -->
         <StackPanel x:Name="Toasts" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,26"/>
 
+        <Border x:Name="PictureInPictureFrame" Background="#161616" Visibility="Collapsed"/>
         <p:PlayerView x:Name="PlayerLayer" Visibility="Collapsed"/>
     </Grid>
 </Window>

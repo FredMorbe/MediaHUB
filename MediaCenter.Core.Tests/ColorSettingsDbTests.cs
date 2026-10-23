@@ -112,7 +112,7 @@ public sealed class ColorSettingsDbTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE removed_files; DROP TABLE album_lookups; DROP TABLE online_lookups; DROP TABLE color_settings; PRAGMA user_version = 5;";
+            cmd.CommandText = "DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE removed_files; DROP TABLE album_lookups; DROP TABLE online_lookups; DROP TABLE color_settings; PRAGMA user_version = 5;";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();
@@ -122,5 +122,48 @@ public sealed class ColorSettingsDbTests : IDisposable
         Assert.Equal(1.5, migrated.GetSubtitleAdjustment(solo).DelaySeconds); // Daten aus Schema 5 bleiben
         migrated.SaveColorSettings(solo, new ColorSettings(Saturation: 10));
         Assert.Equal(10, migrated.GetColorSettings(solo).Saturation);
+    }
+
+    [Fact]
+    public async Task The_lut_and_its_strength_are_saved_per_video()
+    {
+        await _service.AddFolderAsync(_drive);
+        var solo = VideoId("Solo");
+        var duo = VideoId("Duo");
+
+        _db.SaveColorSettings(solo, new ColorSettings(Brightness: 5, Lut: "Kodak 2383", LutStrength: 40));
+        _db.SaveColorSettings(duo, new ColorSettings(Lut: "Kodak 2383"));
+
+        Assert.Equal(new ColorSettings(Brightness: 5, Lut: "Kodak 2383", LutStrength: 40), _db.GetColorSettings(solo));
+        Assert.Equal("Kodak 2383", _db.GetColorSettings(duo).Lut);
+        Assert.Equal(100, _db.GetColorSettings(duo).LutStrength);
+
+        _db.SaveColorSettings(solo, ColorSettings.Default with { Brightness = 5 }); // LUT wieder aus
+        Assert.Null(_db.GetColorSettings(solo).Lut);
+    }
+
+    [Fact]
+    public async Task A_schema_13_database_gets_the_lut_columns_keeping_saved_colors()
+    {
+        await _service.AddFolderAsync(_drive);
+        var solo = VideoId("Solo");
+        _db.SaveColorSettings(solo, new ColorSettings(Saturation: 10));
+        _db.Dispose();
+
+        var path = Path.Combine(_base, "library.db");
+        using (var connection = new SqliteConnection($"Data Source={path}"))
+        {
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DROP TABLE episode_info; DROP TABLE title_info; ALTER TABLE color_settings DROP COLUMN lut; ALTER TABLE color_settings DROP COLUMN lut_strength; PRAGMA user_version = 13;";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+
+        using var migrated = new LibraryDb(path);
+
+        Assert.Equal(new ColorSettings(Saturation: 10), migrated.GetColorSettings(solo));
+        migrated.SaveColorSettings(solo, new ColorSettings(Saturation: 10, Lut: "Look", LutStrength: 70));
+        Assert.Equal("Look", migrated.GetColorSettings(solo).Lut);
     }
 }

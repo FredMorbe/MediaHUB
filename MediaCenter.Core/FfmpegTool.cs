@@ -91,7 +91,7 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
     private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(120);
 
     // Umwandlung von HDR (PQ/HLG, BT.2020) nach SDR (BT.709); ohne sie wirkt das Bild blass.
-    private const string HdrToSdr = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
+    internal const string HdrToSdr = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
     /// <summary>
     /// Schneidet einen kurzen Ausschnitt ohne Ton als MP4 (H.264) heraus, den WPF ohne weitere Codecs abspielt. Die Höhe wird

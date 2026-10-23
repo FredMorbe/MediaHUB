@@ -16,6 +16,8 @@ namespace MediaCenter.Core;
 /// <param name="Tint">Weißabgleich: negativ grüner, positiv magentafarbener.</param>
 /// <param name="Sharpness">Positiv schärfer, negativ weicher (Unsharp-Mask im Shader).</param>
 /// <param name="Invert">Farben umkehren (Negativ).</param>
+/// <param name="Lut">Name der LUT aus der <see cref="LutStore"/>-Sammlung, null = keine.</param>
+/// <param name="LutStrength">Wie stark die LUT wirkt, 0 bis 100 Prozent.</param>
 public sealed record ColorSettings(
     int Brightness = 0,
     int Contrast = 0,
@@ -25,7 +27,9 @@ public sealed record ColorSettings(
     int Temperature = 0,
     int Tint = 0,
     int Sharpness = 0,
-    bool Invert = false)
+    bool Invert = false,
+    string? Lut = null,
+    int LutStrength = 100)
 {
     public const int Min = -100;
     public const int Max = 100;
@@ -35,10 +39,15 @@ public sealed record ColorSettings(
 
     public static readonly ColorSettings Default = new();
 
+    public const int LutStrengthMax = 100;
+
     public bool IsDefault => this == Default;
 
     /// <summary>Weißabgleich, Schärfe und Invertieren brauchen den Shader; ohne alle drei bleibt der Bildaufbau von mpv unverändert.</summary>
     public bool UsesShader => Invert || Temperature != 0 || Tint != 0 || Sharpness != 0;
+
+    /// <summary>Eine LUT ist gewählt; sie läuft in einem eigenen Shader.</summary>
+    public bool UsesLut => Lut is not null;
 
     /// <summary>Wirft bei Werten außerhalb von −100 bis 100 (nie still klemmen).</summary>
     public ColorSettings Validated()
@@ -51,6 +60,8 @@ public sealed record ColorSettings(
         Check(Temperature, nameof(Temperature));
         Check(Tint, nameof(Tint));
         Check(Sharpness, nameof(Sharpness));
+        if (Lut is not null && string.IsNullOrWhiteSpace(Lut)) throw new ArgumentException("Der LUT-Name darf nicht leer sein.", nameof(Lut));
+        if (LutStrength is < 0 or > LutStrengthMax) throw new ArgumentOutOfRangeException(nameof(LutStrength), LutStrength, $"{nameof(LutStrength)} zwischen 0 und {LutStrengthMax}.");
         return this;
     }
 
@@ -85,4 +96,13 @@ public sealed record ColorSettings(
             return $"gain_r={Num(r)},gain_g={Num(g)},gain_b={Num(b)},invert={(Invert ? 1 : 0)},sharpen={Num(ShaderSharpen)}";
         }
     }
+
+    /// <summary>Parameter des LUT-Shaders für mpv (<c>glsl-shader-opts</c>): die Stärke von 0 bis 1.</summary>
+    public string LutShaderOptions => string.Create(CultureInfo.InvariantCulture, $"lut_strength={LutStrength / 100.0:0.####}");
+
+    /// <summary>
+    /// Alle Parameter der geladenen Shader in einer Liste für <c>glsl-shader-opts</c>; was nicht läuft, bleibt draußen
+    /// (mpv bekäme sonst Parameter eines Shaders, den es nicht geladen hat).
+    /// </summary>
+    public string AllShaderOptions => string.Join(',', new[] { UsesShader ? ShaderOptions : null, UsesLut ? LutShaderOptions : null }.OfType<string>());
 }

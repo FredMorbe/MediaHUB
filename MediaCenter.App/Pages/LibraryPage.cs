@@ -41,14 +41,19 @@ public sealed class LibraryPage : UserControl
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.Children.Add(_chips);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+        var refresh = PageParts.LibraryRefreshButton(_shell);
+        refresh.Margin = new Thickness(16, 0, 0, 8);
+        actions.Children.Add(refresh);
         if (kind == TitleKind.Movie)
         {
             var rename = PageParts.Compact(PageParts.Button("Dateien umbenennen …", "GhostButton", (_, _) => RenamePage.Show(_shell), new Thickness(16, 0, 0, 8)));
             rename.VerticalAlignment = VerticalAlignment.Top;
             System.Windows.Automation.AutomationProperties.SetName(rename, "Filme umbenennen");
-            Grid.SetColumn(rename, 1);
-            toolbar.Children.Add(rename);
+            actions.Children.Add(rename);
         }
+        Grid.SetColumn(actions, 1);
+        toolbar.Children.Add(actions);
         stack.Children.Add(toolbar);
         stack.Children.Add(_grid);
 

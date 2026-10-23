@@ -4,11 +4,11 @@ using System.Text.Json;
 namespace MediaCenter.Core;
 
 /// <summary>
-/// Serienposter von TVmaze (api.tvmaze.com, ohne Schlüssel). Ein Treffer muss genau so heißen wie die Serie in der Bibliothek
+/// Serienposter und Infotexte (Handlung, Wertung, Besetzung, Folgen) von TVmaze (api.tvmaze.com, ohne Schlüssel). Ein Treffer muss genau so heißen wie die Serie in der Bibliothek
 /// (Groß-/Kleinschreibung, Satzzeichen und Akzente egal); bei bekanntem Jahr muss auch das Startjahr stimmen. Deutsche Titel
 /// finden sich über die alternativen Namen der Serie (Die Simpsons → The Simpsons).
 /// </summary>
-public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPosterSource
+public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPosterSource, ITitleInfoSource
 {
     private const long MaxJsonBytes = 2_000_000;
 
@@ -23,7 +23,57 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
 
     public string Provider => "tvmaze";
 
-    public async Task<OnlinePoster?> FindAsync(string title, int? year, CancellationToken ct = default)
+    public async Task<OnlinePoster?> FindAsync(string title, int? year, CancellationToken ct = default) =>
+        (await FindShowAsync(title, year, requireImage: true, ct))?.ToPoster();
+
+    /// <summary>Handlung, Wertung, Besetzung und die Folgen (Name und Zusammenfassung) der Serie; ein einziger Abruf dazu, nachdem die Serie gefunden ist.</summary>
+    public async Task<OnlineTitleInfo?> FindInfoAsync(string title, int? year, CancellationToken ct = default)
+    {
+        if (await FindShowAsync(title, year, requireImage: false, ct) is not { } show) return null;
+
+        using var doc = await GetJsonAsync($"https://api.tvmaze.com/shows/{show.Id}?embed%5B%5D=episodes&embed%5B%5D=cast", ct);
+        var embedded = doc.RootElement.TryGetProperty("_embedded", out var e) && e.ValueKind == JsonValueKind.Object ? e : default;
+
+        var episodes = new List<EpisodeText>();
+        if (embedded.ValueKind == JsonValueKind.Object && embedded.TryGetProperty("episodes", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                // Sonderfolgen haben keine Nummer: die Bibliothek kennt sie nicht als Staffel/Folge.
+                if (item.TryGetProperty("season", out var s) && s.ValueKind == JsonValueKind.Number
+                    && item.TryGetProperty("number", out var n) && n.ValueKind == JsonValueKind.Number)
+                {
+                    var name = Text(item, "name");
+                    var summary = PodcastFeedParser.Plain(Text(item, "summary"));
+                    if (name is not null || summary is not null) episodes.Add(new EpisodeText(s.GetInt32(), n.GetInt32(), name, summary));
+                }
+            }
+        }
+
+        var cast = new List<string>();
+        if (embedded.ValueKind == JsonValueKind.Object && embedded.TryGetProperty("cast", out var members) && members.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var member in members.EnumerateArray())
+            {
+                if (member.TryGetProperty("person", out var person) && person.ValueKind == JsonValueKind.Object
+                    && Text(person, "name") is { } actor && !cast.Contains(actor) && cast.Count < MaxCast)
+                {
+                    cast.Add(actor);
+                }
+            }
+        }
+
+        var info = new OnlineTitleInfo(show.Name, PodcastFeedParser.Plain(show.Summary), show.Rating, null, cast.Count > 0 ? string.Join(", ", cast) : null, episodes);
+        return info.IsEmpty ? null : info;
+    }
+
+    private const int MaxCast = 6;
+
+    private static string? Text(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <param name="requireImage">Fürs Poster zählen nur Serien mit Bild; für Infotexte reicht jede Serie mit dem richtigen Namen.</param>
+    private async Task<Show?> FindShowAsync(string title, int? year, bool requireImage, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("Titel fehlt.", nameof(title));
 
@@ -38,8 +88,8 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
         }
 
         // Gleichnamige Serien (Das Boot 1985 und 2018) trennt das Jahr; ohne Jahr gewinnt der bessere Suchtreffer.
-        var matching = candidates.Where(c => c.ImageUrl is not null && YearFits(c.Year, year)).ToList();
-        if (matching.FirstOrDefault(c => PosterNames.MatchKey(c.Name) == wanted) is { } exact) return exact.ToPoster();
+        var matching = candidates.Where(c => (!requireImage || c.ImageUrl is not null) && YearFits(c.Year, year)).ToList();
+        if (matching.FirstOrDefault(c => PosterNames.MatchKey(c.Name) == wanted) is { } exact) return exact;
 
         foreach (var candidate in matching.Take(MaxAkaChecks))
         {
@@ -47,7 +97,7 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
             using var akas = await GetJsonAsync($"https://api.tvmaze.com/shows/{candidate.Id}/akas", ct);
             if (akas.RootElement.EnumerateArray().Any(a => a.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String && PosterNames.MatchKey(n.GetString()!) == wanted))
             {
-                return candidate.ToPoster();
+                return candidate;
             }
         }
         return null;
@@ -89,7 +139,7 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
         }
     }
 
-    private sealed record Show(int Id, string Name, int? Year, string? ImageUrl)
+    private sealed record Show(int Id, string Name, int? Year, string? ImageUrl, string? Summary, double? Rating)
     {
         public OnlinePoster ToPoster() => new(Name, ImageUrl!);
 
@@ -111,7 +161,9 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
             {
                 image = Url(images, "original") ?? Url(images, "medium");
             }
-            parsed = new Show(id.GetInt32(), name.GetString()!, year, image);
+            double? rating = show.TryGetProperty("rating", out var r) && r.ValueKind == JsonValueKind.Object
+                && r.TryGetProperty("average", out var average) && average.ValueKind == JsonValueKind.Number ? average.GetDouble() : null;
+            parsed = new Show(id.GetInt32(), name.GetString()!, year, image, Text(show, "summary"), rating);
             return true;
         }
 

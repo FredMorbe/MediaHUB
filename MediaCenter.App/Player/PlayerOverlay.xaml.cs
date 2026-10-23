@@ -10,6 +10,12 @@ using MediaCenter.Core;
 
 namespace MediaCenter.App.Player;
 
+/// <summary>Eine Folge im Folgenmenü des Players.</summary>
+public sealed record EpisodeChoice(long VideoId, int? Season, string Label, bool Watched, bool Reachable);
+
+/// <summary>Ein Fernseher im Menü „Übertragen“.</summary>
+public sealed record CastChoice(string Id, string Name, string Model);
+
 /// <summary>Eine Ton- oder Untertitelspur aus der Spurliste von mpv.</summary>
 /// <param name="Removable">Selbst hinzugefügter Untertitel: das Menü bietet „entfernen“ an.</param>
 /// <param name="Translatable">Textuntertitel, aus dem sich eine Übersetzung machen lässt.</param>
@@ -36,6 +42,8 @@ public partial class PlayerOverlay : Window
     private string _soundPreset = Equalizer.Flat;
     private SleepMode _sleepMode;
     private string _sleepLabel = "";
+    private bool _compact;
+    private Point? _compactDragPoint;
 
     /// <summary>Einschlaf-Timer gewählt: Minuten (&gt; 0), 0 = aus, -1 = am Ende der Folge.</summary>
     public event Action<int>? SleepChosen;
@@ -43,9 +51,23 @@ public partial class PlayerOverlay : Window
     /// <summary>Equalizer-Voreinstellung gewählt (Id aus <see cref="Equalizer.Presets"/>).</summary>
     public event Action<string>? SoundPresetChosen;
 
+    /// <summary>Das Menü „Übertragen“ wurde geöffnet oder „Erneut suchen“ gedrückt: der Empfänger soll nach Geräten suchen.</summary>
+    public event Action? CastSearchRequested;
+
+    /// <summary>Ein Fernseher im Menü „Übertragen“ gewählt (Id aus <see cref="CastChoice"/>).</summary>
+    public event Action<string>? CastDeviceChosen;
+
+    /// <summary>„Übertragung beenden“: weiter auf diesem PC schauen.</summary>
+    public event Action? CastStopRequested;
+
+    /// <summary>Eine Folge im Folgenmenü gewählt (Video-Id).</summary>
+    public event Action<long>? EpisodeChosen;
+
     public event Action? BackClicked;
     public event Action? PlayPauseClicked;
     public event Action? FullscreenClicked;
+    public event Action? PictureInPictureClicked;
+    public event Action<Vector>? DragMoved;
     public event Action? MuteClicked;
     public event Action<double>? SeekRelative;
     public event Action<double>? SeekAbsolute;
@@ -87,6 +109,40 @@ public partial class PlayerOverlay : Window
         BackButton.Click += (_, _) => BackClicked?.Invoke();
         PlayPauseButton.Click += (_, _) => PlayPauseClicked?.Invoke();
         FullscreenButton.Click += (_, _) => FullscreenClicked?.Invoke();
+        PictureInPictureButton.Click += (_, _) => PictureInPictureClicked?.Invoke();
+        RestorePlayerButton.Click += (_, _) => PictureInPictureClicked?.Invoke();
+        CloseCompactButton.Click += (_, _) => BackClicked?.Invoke();
+        CompactPlayPause.Click += (_, _) => PlayPauseClicked?.Invoke();
+        CompactMute.Click += (_, _) => MuteClicked?.Invoke();
+        CompactNextNow.Click += (_, _) => NextClicked?.Invoke();
+        CompactNextCancel.Click += (_, _) => NextCancelled?.Invoke();
+        CompactHeader.MouseLeftButtonDown += (_, e) =>
+        {
+            if (IsInteractive(e.OriginalSource as DependencyObject, includeHeader: false)) return;
+            e.Handled = true;
+            if (e.ClickCount == 2) PictureInPictureClicked?.Invoke();
+            else
+            {
+                _compactDragPoint = PointToScreen(e.GetPosition(this));
+                CompactHeader.CaptureMouse();
+            }
+        };
+        CompactHeader.MouseMove += (_, e) =>
+        {
+            if (_compactDragPoint is not { } previous || e.LeftButton != MouseButtonState.Pressed) return;
+            var current = PointToScreen(e.GetPosition(this));
+            _compactDragPoint = current;
+            DragMoved?.Invoke(current - previous);
+            e.Handled = true;
+        };
+        CompactHeader.MouseLeftButtonUp += (_, e) =>
+        {
+            if (_compactDragPoint is null) return;
+            _compactDragPoint = null;
+            CompactHeader.ReleaseMouseCapture();
+            e.Handled = true;
+        };
+        CompactHeader.LostMouseCapture += (_, _) => _compactDragPoint = null;
         MuteButton.Click += (_, _) => MuteClicked?.Invoke();
         BackButton10.Click += (_, _) => SeekRelative?.Invoke(-10);
         ForwardButton.Click += (_, _) => SeekRelative?.Invoke(30);
@@ -105,8 +161,14 @@ public partial class PlayerOverlay : Window
         NextButton.Click += (_, _) => NextClicked?.Invoke();
         NextNowButton.Click += (_, _) => NextClicked?.Invoke();
         NextCancelButton.Click += (_, _) => NextCancelled?.Invoke();
+        EpisodesButton.Click += (_, _) => ToggleMenu("episodes");
         AudioButton.Click += (_, _) => ToggleMenu("audio");
         SubButton.Click += (_, _) => ToggleMenu("sub");
+        CastButton.Click += (_, _) =>
+        {
+            ToggleMenu("cast");
+            if (_menuType == "cast") CastSearchRequested?.Invoke();
+        };
         SleepButton.Click += (_, _) => ToggleMenu("sleep");
         SoundButton.Click += (_, _) => ToggleMenu("sound");
 
@@ -149,36 +211,70 @@ public partial class PlayerOverlay : Window
     private void OnRootClick(object sender, MouseButtonEventArgs e)
     {
         Activity?.Invoke();
+        // Der Titel ist ausschließlich zum Verschieben und Zurückwechseln da.
+        if (_compact && e.GetPosition(Root).Y <= CompactHeader.ActualHeight) return;
         if (IsInteractive(e.OriginalSource as DependencyObject))
         {
             return;
         }
-        if (_menuType is not null)
+        // Ein Klick aufs Video schließt ein offenes Menü oder Einstellungsfenster und pausiert nicht.
+        if (CloseOpenPanels())
         {
-            CloseMenu();
+            _panelClosedByClick = true;
             return;
         }
         // Einfacher Klick pausiert; ein Doppelklick wechselt den Vollbildmodus und macht die Pause des ersten Klicks wieder rückgängig.
-        PlayPauseClicked?.Invoke();
+        // Schloss der erste Klick eines Doppelklicks ein Fenster, gab es keine Pause, die zurückzunehmen wäre.
+        var skipPause = e.ClickCount == 2 && _panelClosedByClick;
+        _panelClosedByClick = false;
+        if (!skipPause) PlayPauseClicked?.Invoke();
         if (e.ClickCount == 2) FullscreenClicked?.Invoke();
     }
 
-    private bool IsInteractive(DependencyObject? element)
+    private bool _panelClosedByClick;
+
+    /// <summary>Schließt Spurmenü und alle Einstellungsfenster; true, wenn eins offen war.</summary>
+    private bool CloseOpenPanels()
+    {
+        var open = IsMenuOpen;
+        CloseMenu();
+        AdjustPanel.Visibility = Visibility.Collapsed;
+        TranslatePanel.Visibility = Visibility.Collapsed;
+        PicturePanel.Visibility = Visibility.Collapsed;
+        ColorPanel.Visibility = Visibility.Collapsed;
+        return open;
+    }
+
+    private bool IsInteractive(DependencyObject? element, bool includeHeader = true)
     {
         for (var node = element; node is not null; node = node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
         {
-            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, PicturePanel) || ReferenceEquals(node, ColorPanel) || ReferenceEquals(node, BusyLayer)) return true;
+            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || (includeHeader && ReferenceEquals(node, CompactHeader)) || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, PicturePanel) || ReferenceEquals(node, ColorPanel) || ReferenceEquals(node, TranslatePanel) || ReferenceEquals(node, BusyLayer)) return true;
         }
         return false;
     }
 
     // --- Anzeige -------------------------------------------------------------------------------------------
 
-    public void SetTitle(string text) => TitleText.Text = text;
+    public void SetTitle(string text) => CompactTitle.Text = TitleText.Text = text;
+
+    public void SetCompact(bool compact)
+    {
+        CloseOpenPanels();
+        _compact = compact;
+        Controls.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        CompactControls.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+        Topmost = compact;
+        Notice.Margin = new Thickness(8, compact ? 48 : 70, 8, 0);
+        Notice.HorizontalAlignment = compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Center;
+        NextCard.Visibility = !compact && CompactNext.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+        SetControlsVisible(true);
+    }
 
     public void SetPosition(double seconds)
     {
         PositionText.Text = Format(seconds);
+        CompactTime.Text = $"{Format(seconds)} / {DurationText.Text}";
         if (!_seeking) SeekSlider.Value = seconds;
     }
 
@@ -191,6 +287,7 @@ public partial class PlayerOverlay : Window
     public void SetPaused(bool paused)
     {
         PlayPauseButton.Content = paused ? "" : "";
+        CompactPlayPause.Content = PlayPauseButton.Content;
         // Einzelbild-Knöpfe nur bei Pause (die Tasten Strg+←/→ pausieren selbst).
         FramePrevButton.Visibility = FrameNextButton.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -202,7 +299,7 @@ public partial class PlayerOverlay : Window
         _settingVolume = false;
     }
 
-    public void SetMuted(bool muted) => MuteButton.Content = muted ? "" : "";
+    public void SetMuted(bool muted) => CompactMute.Content = MuteButton.Content = muted ? "" : "";
 
     public void SetFullscreen(bool fullscreen) => FullscreenButton.Content = fullscreen ? "" : "";
 
@@ -231,10 +328,13 @@ public partial class PlayerOverlay : Window
     {
         NextHint.Text = $"Nächste Folge in {secondsLeft} s";
         NextTitle.Text = title;
-        NextCard.Visibility = Visibility.Visible;
+        CompactNextHint.Text = NextHint.Text;
+        CompactNextHint.ToolTip = title;
+        CompactNext.Visibility = Visibility.Visible;
+        NextCard.Visibility = _compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    public void HideNextCountdown() => NextCard.Visibility = Visibility.Collapsed;
+    public void HideNextCountdown() => CompactNext.Visibility = NextCard.Visibility = Visibility.Collapsed;
 
     /// <summary>Zeigt einen Hinweis für ein paar Sekunden; Fehler bleiben länger stehen.</summary>
     public void ShowNotice(string text, bool isError)
@@ -247,7 +347,7 @@ public partial class PlayerOverlay : Window
         _noticeTimer.Start();
     }
 
-    public bool IsNextCountdownVisible => NextCard.Visibility == Visibility.Visible;
+    public bool IsNextCountdownVisible => CompactNext.Visibility == Visibility.Visible;
 
     /// <summary>Blendet Leisten und Menü ein oder aus; ausgeblendet verschwindet auch der Mauszeiger über dem Video.</summary>
     public void SetControlsVisible(bool visible)
@@ -259,12 +359,13 @@ public partial class PlayerOverlay : Window
             PicturePanel.Visibility = Visibility.Collapsed;
             ColorPanel.Visibility = Visibility.Collapsed;
         }
-        Controls.IsHitTestVisible = visible;
+        var controls = _compact ? CompactControls : Controls;
+        controls.IsHitTestVisible = visible;
         Cursor = visible ? Cursors.Arrow : Cursors.None;
-        Controls.BeginAnimation(OpacityProperty, new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromMilliseconds(visible ? 120 : 350)));
+        controls.BeginAnimation(OpacityProperty, new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromMilliseconds(visible ? 120 : 350)));
     }
 
-    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible || PicturePanel.Visibility == Visibility.Visible || ColorPanel.Visibility == Visibility.Visible;
+    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible || PicturePanel.Visibility == Visibility.Visible || ColorPanel.Visibility == Visibility.Visible || TranslatePanel.Visibility == Visibility.Visible;
 
     // --- Untertitel anpassen -------------------------------------------------------------------------------
 
@@ -420,6 +521,9 @@ public partial class PlayerOverlay : Window
         PicturePanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = Visibility.Collapsed;
         _menuType = type;
+        // Die Folgenliste ist lang und die Namen sind breit; die Spurlisten bleiben schmal.
+        TrackMenu.MaxHeight = type == "episodes" ? 480 : 320;
+        TrackMenu.MinWidth = type == "episodes" ? 320 : 220;
         BuildMenu(type);
         TrackMenu.Visibility = Visibility.Visible;
     }
@@ -445,6 +549,153 @@ public partial class PlayerOverlay : Window
         _sleepLabel = label;
         SleepButton.Content = mode == SleepMode.Off ? "Timer" : $"Timer {label}";
         if (_menuType == "sleep") BuildMenu("sleep");
+    }
+
+    /// <summary>Folgen der laufenden Serie für das Folgenmenü; weniger als zwei blenden den Knopf aus (Film, einzelne Folge).</summary>
+    public void SetEpisodes(IReadOnlyList<EpisodeChoice> episodes, long currentVideoId)
+    {
+        _episodes = episodes;
+        _currentVideoId = currentVideoId;
+        EpisodesButton.Visibility = episodes.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        if (_menuType == "episodes")
+        {
+            if (episodes.Count > 1) BuildMenu("episodes");
+            else CloseMenu();
+        }
+    }
+
+    private IReadOnlyList<EpisodeChoice> _episodes = Array.Empty<EpisodeChoice>();
+    private long _currentVideoId;
+
+    /// <summary>Menü „Folgen“: die Folgen der Serie nach Staffeln, die laufende ist markiert.</summary>
+    private void BuildEpisodeMenu()
+    {
+        _building = true; // das Setzen von IsChecked beim Aufbau ist keine Wahl des Nutzers
+        foreach (var season in _episodes.GroupBy(e => e.Season).OrderBy(g => g.Key ?? int.MaxValue))
+        {
+            var header = new TextBlock
+            {
+                Text = season.Key is { } number ? $"Staffel {number}" : "Folgen",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)),
+                Margin = new Thickness(8, 8, 0, 4),
+            };
+            TrackList.Children.Add(header);
+
+            foreach (var episode in season)
+            {
+                var chosen = episode;
+                var button = new RadioButton
+                {
+                    Content = episode.Label + (episode.Watched ? "  ✓" : "") + (episode.Reachable ? "" : "  (offline)"),
+                    GroupName = "episodes",
+                    IsChecked = episode.VideoId == _currentVideoId,
+                    IsEnabled = episode.Reachable,
+                    Foreground = Brushes.White,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                };
+                button.SetResourceReference(StyleProperty, "Chip");
+                button.Margin = new Thickness(0, 0, 0, 4);
+                System.Windows.Automation.AutomationProperties.SetName(button, $"{(episode.Season is { } s ? $"Staffel {s} " : "")}{episode.Label}");
+                button.Checked += (_, _) =>
+                {
+                    if (_building) return;
+                    CloseMenu();
+                    EpisodeChosen?.Invoke(chosen.VideoId);
+                };
+                TrackList.Children.Add(button);
+            }
+        }
+        _building = false;
+    }
+
+    // --- Übertragen auf einen Fernseher ----------------------------------------------------------------------
+
+    private IReadOnlyList<CastChoice> _castDevices = Array.Empty<CastChoice>();
+    private bool _castSearching;
+    private string? _castActiveName;
+
+    /// <summary>Gefundene Geräte für das Menü „Übertragen“; <paramref name="searching"/> zeigt, dass die Suche noch läuft.</summary>
+    public void SetCastDevices(IReadOnlyList<CastChoice> devices, bool searching)
+    {
+        _castDevices = devices;
+        _castSearching = searching;
+        if (_menuType == "cast") BuildMenu("cast");
+    }
+
+    /// <summary>Name des Fernsehers, auf dem gerade übertragen wird; null = die Wiedergabe läuft auf diesem PC.</summary>
+    public void SetCastActive(string? deviceName)
+    {
+        _castActiveName = deviceName;
+        var casting = deviceName is not null;
+        CastButton.Content = casting ? "Übertragen ●" : "Übertragen";
+        CastBanner.Visibility = casting ? Visibility.Visible : Visibility.Collapsed;
+        CastBannerTitle.Text = deviceName ?? "";
+        // Bildoptionen und Untertitel-Anpassung wirken nur im lokalen Player.
+        var local = casting ? Visibility.Collapsed : Visibility.Visible;
+        PictureButton.Visibility = ColorButton.Visibility = AdjustButton.Visibility = PictureInPictureButton.Visibility = local;
+        if (_menuType == "cast") BuildMenu("cast");
+    }
+
+    private void BuildCastMenu()
+    {
+        TextBlock Note(string text) => new()
+        {
+            Text = text, FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxWidth = 300,
+            Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), Margin = new Thickness(8, 6, 8, 6),
+        };
+
+        if (_castActiveName is not null)
+        {
+            var stop = new Button { Content = $"Übertragung beenden ({_castActiveName})", Foreground = Brushes.White, Padding = new Thickness(18, 7, 18, 7), Margin = new Thickness(0, 0, 0, 8) };
+            stop.SetResourceReference(StyleProperty, "GhostButton");
+            System.Windows.Automation.AutomationProperties.SetName(stop, "Übertragung beenden");
+            stop.Click += (_, _) =>
+            {
+                CloseMenu();
+                CastStopRequested?.Invoke();
+            };
+            TrackList.Children.Add(stop);
+        }
+
+        _building = true; // das Setzen von IsChecked beim Aufbau ist keine Wahl des Nutzers
+        foreach (var device in _castDevices)
+        {
+            var chosen = device;
+            var button = new RadioButton
+            {
+                Content = string.IsNullOrWhiteSpace(device.Model) ? device.Name : $"{device.Name}  ·  {device.Model}",
+                GroupName = "cast",
+                IsChecked = device.Name == _castActiveName,
+                Foreground = Brushes.White,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+            };
+            button.SetResourceReference(StyleProperty, "Chip");
+            button.Margin = new Thickness(0, 0, 0, 4);
+            System.Windows.Automation.AutomationProperties.SetName(button, $"Übertragen auf {device.Name}");
+            button.Checked += (_, _) =>
+            {
+                if (_building) return;
+                CloseMenu();
+                CastDeviceChosen?.Invoke(chosen.Id);
+            };
+            TrackList.Children.Add(button);
+        }
+        _building = false;
+
+        if (_castSearching) TrackList.Children.Add(Note("Suche nach Geräten …"));
+        else
+        {
+            if (_castDevices.Count == 0)
+            {
+                TrackList.Children.Add(Note("Kein Gerät gefunden. Ist der Fernseher an und im selben WLAN? Das Windows-Netzwerk sollte als „Privat“ eingestellt sein."));
+            }
+            var again = new Button { Content = "Erneut suchen", Foreground = Brushes.White, Padding = new Thickness(18, 7, 18, 7), Margin = new Thickness(0, 6, 0, 0) };
+            again.SetResourceReference(StyleProperty, "GhostButton");
+            System.Windows.Automation.AutomationProperties.SetName(again, "Nach Geräten suchen");
+            again.Click += (_, _) => CastSearchRequested?.Invoke();
+            TrackList.Children.Add(again);
+        }
     }
 
     /// <summary>Menü „Timer“ und „Klang“: eine Liste zum Anklicken statt der Spurauswahl.</summary>
@@ -494,6 +745,16 @@ public partial class PlayerOverlay : Window
         if (type is "sleep" or "sound")
         {
             BuildChoiceMenu(type);
+            return;
+        }
+        if (type == "episodes")
+        {
+            BuildEpisodeMenu();
+            return;
+        }
+        if (type == "cast")
+        {
+            BuildCastMenu();
             return;
         }
         var items = _tracks.Where(t => t.Type == type).ToList();

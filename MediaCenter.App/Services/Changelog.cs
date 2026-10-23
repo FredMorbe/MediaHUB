@@ -10,6 +10,42 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.8.2", "23.10.2026", new[]
+        {
+            "Infotexte aus dem Internet: die Seite eines Films oder einer Serie zeigt jetzt Handlung, Wertung (IMDb bei Filmen, TVmaze bei Serien), Regie und Besetzung; bei Serien haben die Folgen in der Liste ihren Namen und eine kurze Zusammenfassung. Die Texte sind englisch, darunter steht die Quelle.",
+            "Sie kommen von denselben Diensten und mit denselben Treffer-Regeln wie die Poster (Filme OMDb, Serien TVmaze), über den Schalter „Cover aus dem Internet“ in den Einstellungen. „Fehlende Cover suchen“ holt sie für Titel ohne Infotexte, „Alle Cover neu erzeugen“ lädt sie neu. Gesendet werden nur Titel und Jahr.",
+            "Detailseite von Film und Serie: das Poster steht links neben Titel und Beschreibung. Die Reihe der Knöpfe und die nicht gewählten Genres sind in den dezenten Knopf „Bearbeiten“ (Fenster) gewandert: Genres, Poster/Hintergrund, Umbenennen, MKV bearbeiten, Entfernen. Gewählte Genres bleiben sichtbar. In der Navigation steht oben links das App-Symbol (das K) statt der Wortmarke „MEDIACENTER“.",
+        }),
+        new ChangelogEntry("0.8.1", "23.10.2026", new[]
+        {
+            "LUTs für den Look: im Player unter „Farbe“ lassen sich 3D-LUTs (.cube) importieren und in Echtzeit auf das Bild legen, z. B. für einen Film-Look. Die Stärke ist von 0 bis 100 % regelbar; die LUT gilt wie die anderen Farbregler pro Video und wird dafür gespeichert. Untertitel bleiben unverfärbt.",
+            "Die LUT liegt nach dem Import in der Sammlung der App (Datenordner, Ordner „luts“) und steht für jedes Video zur Wahl; „Gewählte LUT löschen“ entfernt sie nach Rückfrage für alle Videos. Unterstützt werden 3D-LUTs bis Größe 65; 1D-LUTs und andere Formate lehnt die App mit einer Meldung ab.",
+        }),
+        new ChangelogEntry("0.8.0", "23.10.2026", new[]
+        {
+            "Auf den Fernseher übertragen (Google Cast): im Player der neue Knopf „Übertragen“ sucht Chromecast-Geräte und Fernseher mit Cast im Netz. Das Video läuft dann dort an der aktuellen Stelle weiter; Pause, Spulen, Lautstärke, Ton- und Untertitelwahl und die nächste Folge steuert der Player wie gewohnt. „Übertragung beenden“ setzt es auf diesem PC fort.",
+            "Passt das Video, geht es unverändert an den Fernseher (H.264/AAC im MP4); sonst wandelt ffmpeg nur um, was der Fernseher nicht kann (z. B. DTS-Ton oder HEVC → H.264, HDR → SDR, mit der Grafikkarte, wenn möglich). Untertitel (eingebettet, daneben liegend oder hinzugefügt) gehen als Text mit. Unter Einstellungen → Wiedergabe lässt sich HEVC direkt senden, wenn der Fernseher es kann.",
+            "Der Fernseher holt das Video von einem kleinen Webserver der App (nur an der Adresse im Netz des Fernsehers, nur für das gerade übertragene Video). Beim ersten Mal fragt die Windows-Firewall; für ein als „Öffentlich“ eingestuftes WLAN muss der Zugriff dafür auch dort erlaubt sein.",
+        }),
+        new ChangelogEntry("0.7.2", "20.10.2026", new[]
+        {
+            "Bibliothek aktualisieren: neuer Knopf auf Start, bei Filmen und Serien sowie neben dem Plus in „Deine Bibliothek“ bei Musik. Erkennt nachträglich angeschlossene Laufwerke, liest die bekannten Quellen neu ein und aktualisiert Dateien, Erreichbarkeit und Cover. Nicht angeschlossene Quellen bleiben erhalten; gleichzeitige Aktualisierungen werden verhindert.",
+        }),
+        new ChangelogEntry("0.7.1", "20.10.2026", new[]
+        {
+            "Bild-in-Bild für Videos: Knopf oben im Player oder Taste P. Das kleine Fenster bleibt über anderen Programmen, lässt sich am Titel verschieben und am Rand skalieren. Pause, Ton und Rückkehr zum großen Player sind direkt erreichbar; P oder Esc stellt die vorherige Fenster- bzw. Vollbildansicht wieder her. Die Wiedergabe läuft beim Umschalten ohne Neuladen weiter.",
+        }),
+        new ChangelogEntry("0.7.0", "19.10.2026", new[]
+        {
+            "Songs und Alben: Im Fenster „Bearbeiten …“ (vorher „Umbenennen …“) lässt sich jetzt auch der Künstler ändern. Der Künstler eines Songs ändert nichts an seinem Album; der Künstler eines Albums bestimmt, unter welchem Künstler es steht, das Cover wandert mit. Leer lassen heißt: Künstler aus den Tags. „Angaben aus den Tags wiederherstellen“ nimmt Name und Künstler zurück.",
+            "Vollbild für die ganze App: Knopf rechts in der Navigation und F11; unter Einstellungen → Darstellung „Immer im Vollbild starten“. Ein vor dem Player eingeschaltetes Vollbild bleibt nach dem Player erhalten.",
+            "Folgen wählen: im Player der neue Knopf „Folgen“ (Staffeln und Folgen der Serie, die laufende ist markiert), auf der Startseite bei „Weiterschauen“ und im Hero der Knopf „Folge wählen“ bzw. Rechtsklick auf die Serienkarte.",
+            "Player: Ein Klick aufs Video schließt ein offenes Menü oder Einstellungsfenster (Untertitel anpassen, Bild, Farbe, Übersetzen, Folgen …), ohne das Video zu pausieren. Ein Doppelklick auf das Video schaltet das Vollbild um.",
+        }),
+        new ChangelogEntry("0.6.1", "19.10.2026", new[]
+        {
+            "Songs und Alben umbenennen: Rechtsklick auf einen Titel (Album, „Alle Titel“, Playlist) oder auf eine Albumkarte, bei einem Album auch der Stift-Knopf im Kopf. Es ändert nur den Namen in der Bibliothek; Dateien und Tags bleiben, der Name übersteht einen neuen Scan und gilt für später hinzukommende Titel des Albums. Das Cover wandert mit, ein Album ohne Cover wird mit dem neuen Namen neu gesucht.",
+        }),
         new ChangelogEntry("0.6.0", "18.10.2026", new[]
         {
             "Einschlaf-Timer für Musik und Video: in 15 bis 90 Minuten oder am Ende des Titels bzw. der Folge anhalten (Mond-Knopf in der Musikleiste, „Timer“ im Videoplayer). Am Ende der Folge startet die nächste dann nicht von selbst.",

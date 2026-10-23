@@ -40,6 +40,9 @@ public sealed class AppSettings
     /// <summary>Verstärkung in dB je Equalizer-Band (<see cref="Equalizer.Bands"/>); lauter Nullen = kein Eingriff in den Klang.</summary>
     public List<int> EqualizerGains { get; set; } = new int[Equalizer.Bands.Count].ToList();
 
+    /// <summary>Die App beim Start im Vollbild öffnen (ohne Fensterrahmen); F11 oder der Knopf in der Navigation beenden es.</summary>
+    public bool StartFullscreen { get; set; }
+
     /// <summary>Schlüssel der zuletzt gespielten Alben, das neueste zuerst (für „Zuletzt gehört“ auf der Musik-Seite).</summary>
     public List<string> RecentAlbums { get; set; } = new();
 
@@ -56,6 +59,12 @@ public sealed class AppSettings
 
     /// <summary>Nach einer Folge die nächste der Serie automatisch starten (mit Countdown).</summary>
     public bool AutoPlayNext { get; set; } = true;
+
+    /// <summary>
+    /// Der Fernseher spielt HEVC (auch HDR) selbst ab. Aus: HEVC-Videos wandelt ffmpeg beim Übertragen nach H.264 um (belastet den PC);
+    /// an: sie gehen unverändert hin, ein Fernseher ohne HEVC zeigt dann nichts.
+    /// </summary>
+    public bool CastHevc { get; set; }
 
     /// <summary>
     /// Fehlende Poster im Internet suchen: Serien bei TVmaze, Filme bei OMDb (nur mit Schlüssel). Gesendet werden Titel und Jahr.

@@ -13,8 +13,16 @@ public sealed partial class LibraryDb
         ("$file", fileId), ("$title", tags.Title), ("$artist", tags.Artist), ("$albumArtist", tags.AlbumArtist), ("$album", tags.Album),
         ("$track", tags.TrackNo), ("$disc", tags.DiscNo), ("$year", tags.Year), ("$genre", tags.Genre));
 
+    /// <summary>
+    /// Titel mit ihren Tags; eigene Namen und Künstler (<see cref="RenameTrack"/>, <see cref="RenameAlbum"/>) ersetzen Titel, Album und Künstler.
+    /// Die Gruppierung zu Alben hängt am Album-Künstler, nicht am Künstler des einzelnen Titels: ein geänderter Titel-Künstler holt den Titel nicht aus seinem Album.
+    /// </summary>
     public List<TrackRow> ListTracks()
     {
+        var trackNames = ListTrackNames();
+        var trackArtists = ListTrackArtists();
+        var albumNames = ListAlbumNames();
+        var albumArtists = ListAlbumArtists();
         var rows = new List<TrackRow>();
         using var cmd = Command("""
             SELECT t.id, f.id, f.volume_id, f.rel_path, f.missing,
@@ -25,12 +33,169 @@ public sealed partial class LibraryDb
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
-            rows.Add(new TrackRow(
+            var raw = new TrackRow(
                 r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetString(3), r.GetInt32(4) == 1,
                 r.GetString(5), r.GetStringOrNull(6), r.GetStringOrNull(7), r.GetStringOrNull(8),
-                r.GetInt32OrNull(9), r.GetInt32OrNull(10), r.GetInt32OrNull(11), r.GetStringOrNull(12), r.GetDoubleOrNull(13)));
+                r.GetInt32OrNull(9), r.GetInt32OrNull(10), r.GetInt32OrNull(11), r.GetStringOrNull(12), r.GetDoubleOrNull(13));
+            var tagKey = MusicIndex.AlbumKeyOf(raw);
+            var tagGroupArtist = MusicIndex.ArtistOf(raw);
+            var row = raw with { TagAlbumKey = tagKey };
+
+            if (trackNames.TryGetValue(raw.TrackId, out var title)) row = row with { Title = title, TagTitle = raw.Title };
+            if (trackArtists.TryGetValue(raw.TrackId, out var songArtist))
+            {
+                row = row with { Artist = songArtist, TagArtist = raw.Artist ?? "" };
+                if (string.IsNullOrWhiteSpace(raw.AlbumArtist)) row = row with { AlbumArtist = tagGroupArtist }; // das Album behält seinen Künstler
+            }
+            if (albumNames.TryGetValue(tagKey, out var album)) row = row with { Album = album, TagAlbum = raw.Album ?? MusicIndex.UnknownAlbum };
+            if (albumArtists.TryGetValue(tagKey, out var albumArtist)) row = row with { AlbumArtist = albumArtist, TagAlbumArtist = tagGroupArtist };
+            rows.Add(row);
         }
         return rows;
+    }
+
+    private Dictionary<long, string> ListTrackNames() => ReadNames("SELECT track_id, title FROM track_names", r => r.GetInt64(0));
+
+    private Dictionary<long, string> ListTrackArtists() => ReadNames("SELECT track_id, artist FROM track_artists", r => r.GetInt64(0));
+
+    private Dictionary<string, string> ListAlbumNames() => ReadNames("SELECT album_key, title FROM album_names", r => r.GetString(0));
+
+    private Dictionary<string, string> ListAlbumArtists() => ReadNames("SELECT album_key, artist FROM album_artists", r => r.GetString(0));
+
+    private Dictionary<TKey, string> ReadNames<TKey>(string sql, Func<Microsoft.Data.Sqlite.SqliteDataReader, TKey> key) where TKey : notnull
+    {
+        var names = new Dictionary<TKey, string>();
+        using var cmd = Command(sql);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) names[key(r)] = r.GetString(1);
+        return names;
+    }
+
+    // --- Eigene Namen und Künstler ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Gibt dem Titel einen eigenen Namen und, wenn <paramref name="artist"/> gesetzt ist, einen eigenen Künstler; die Datei und ihre Tags bleiben.
+    /// Entspricht ein Wert dem aus den Tags, fällt der eigene weg.
+    /// </summary>
+    /// <param name="artist">null lässt den Künstler, wie er ist; leer nimmt einen eigenen Künstler zurück.</param>
+    public void RenameTrack(TrackRow track, string title, string? artist = null)
+    {
+        title = title.Trim();
+        if (title.Length == 0) throw new ArgumentException("Der Name darf nicht leer sein.", nameof(title));
+
+        InTransaction(() =>
+        {
+            if (title == (track.TagTitle ?? track.Title)) Run("DELETE FROM track_names WHERE track_id = $id", ("$id", track.TrackId));
+            else Run("""
+                INSERT INTO track_names (track_id, title) VALUES ($id, $title)
+                ON CONFLICT (track_id) DO UPDATE SET title = excluded.title
+                """,
+                ("$id", track.TrackId), ("$title", title));
+
+            if (artist is not null) SetTrackArtist(track, artist.Trim());
+        });
+    }
+
+    private void SetTrackArtist(TrackRow track, string artist)
+    {
+        if (artist.Length == 0 || artist == (track.TagArtist ?? track.Artist ?? "")) Run("DELETE FROM track_artists WHERE track_id = $id", ("$id", track.TrackId));
+        else Run("""
+            INSERT INTO track_artists (track_id, artist) VALUES ($id, $artist)
+            ON CONFLICT (track_id) DO UPDATE SET artist = excluded.artist
+            """,
+            ("$id", track.TrackId), ("$artist", artist));
+    }
+
+    /// <summary>Nimmt Namen und Künstler des Titels zurück; er heißt wieder wie in den Tags.</summary>
+    public void ResetTrack(long trackId) => InTransaction(() =>
+    {
+        Run("DELETE FROM track_names WHERE track_id = $id", ("$id", trackId));
+        Run("DELETE FROM track_artists WHERE track_id = $id", ("$id", trackId));
+    });
+
+    /// <summary>
+    /// Gibt dem Album einen eigenen Namen und, wenn <paramref name="artist"/> gesetzt ist, einen eigenen Künstler (gilt für alle seine Titel,
+    /// auch für später hinzukommende). Das Cover wandert zum neuen Schlüssel, außer das Ziel hat schon eins; heißt das Album danach wie ein
+    /// anderes desselben Künstlers, werden beide zu einem.
+    /// </summary>
+    /// <param name="tracks">Die Titel des Albums, wie sie <see cref="ListTracks"/> liefert.</param>
+    /// <param name="artist">null lässt den Künstler, wie er ist; leer nimmt einen eigenen Künstler zurück. Ein geänderter Künstler gilt auch für alle Titel des Albums.</param>
+    /// <returns>Der Schlüssel des Albums danach.</returns>
+    public string RenameAlbum(IReadOnlyCollection<TrackRow> tracks, string title, string? artist = null)
+    {
+        title = title.Trim();
+        if (title.Length == 0) throw new ArgumentException("Der Name darf nicht leer sein.", nameof(title));
+        if (tracks.Count == 0) throw new ArgumentException("Das Album hat keine Titel.", nameof(tracks));
+        var wanted = artist?.Trim();
+
+        return InTransaction(() =>
+        {
+            var first = tracks.First();
+            var oldKey = MusicIndex.AlbumKeyOf(first);
+            foreach (var group in tracks.GroupBy(MusicIndex.TagAlbumKeyOf))
+            {
+                var any = group.First();
+                var tagAlbum = any.TagAlbum ?? any.Album ?? MusicIndex.UnknownAlbum;
+                if (title == tagAlbum) Run("DELETE FROM album_names WHERE album_key = $key", ("$key", group.Key));
+                else Run("""
+                    INSERT INTO album_names (album_key, title) VALUES ($key, $title)
+                    ON CONFLICT (album_key) DO UPDATE SET title = excluded.title
+                    """,
+                    ("$key", group.Key), ("$title", title));
+
+                if (wanted is null) continue;
+                if (wanted.Length == 0 || wanted == (any.TagAlbumArtist ?? MusicIndex.ArtistOf(any))) Run("DELETE FROM album_artists WHERE album_key = $key", ("$key", group.Key));
+                else Run("""
+                    INSERT INTO album_artists (album_key, artist) VALUES ($key, $artist)
+                    ON CONFLICT (album_key) DO UPDATE SET artist = excluded.artist
+                    """,
+                    ("$key", group.Key), ("$artist", wanted));
+            }
+
+            // Wird der Künstler des Albums geändert, gilt er auch für jeden Titel darin; bleibt er, wie er ist, behalten Titel ihren eigenen (Sampler).
+            if (wanted is not null && (wanted.Length == 0 || wanted != MusicIndex.ArtistOf(first)))
+            {
+                foreach (var track in tracks) SetTrackArtist(track, wanted);
+            }
+
+            var shownArtist = wanted switch
+            {
+                null => MusicIndex.ArtistOf(first),
+                { Length: 0 } => first.TagAlbumArtist ?? MusicIndex.ArtistOf(first),
+                _ => wanted,
+            };
+            var newKey = MusicIndex.AlbumKey(shownArtist, title);
+            MoveAlbumArt(oldKey, newKey);
+            return newKey;
+        });
+    }
+
+    /// <summary>Nimmt Namen und Künstler des Albums und seiner Titel zurück; alles heißt wieder wie in den Tags.</summary>
+    /// <param name="tracks">Die Titel des Albums, wie sie <see cref="ListTracks"/> liefert.</param>
+    /// <returns>Der Schlüssel des Albums danach.</returns>
+    public string ResetAlbum(IReadOnlyCollection<TrackRow> tracks)
+    {
+        if (tracks.Count == 0) throw new ArgumentException("Das Album hat keine Titel.", nameof(tracks));
+
+        return InTransaction(() =>
+        {
+            var first = tracks.First();
+            foreach (var key in tracks.Select(MusicIndex.TagAlbumKeyOf).Distinct())
+            {
+                Run("DELETE FROM album_names WHERE album_key = $key", ("$key", key));
+                Run("DELETE FROM album_artists WHERE album_key = $key", ("$key", key));
+            }
+            foreach (var track in tracks) Run("DELETE FROM track_artists WHERE track_id = $id", ("$id", track.TrackId));
+            var newKey = MusicIndex.TagAlbumKeyOf(first);
+            MoveAlbumArt(MusicIndex.AlbumKeyOf(first), newKey);
+            return newKey;
+        });
+    }
+
+    private void MoveAlbumArt(string oldKey, string newKey)
+    {
+        if (oldKey == newKey || GetAlbumArt(newKey) is not null) return; // das Ziel behält sein Cover, das alte räumt der nächste Abgleich weg
+        Run("UPDATE album_art SET album_key = $new WHERE album_key = $old", ("$new", newKey), ("$old", oldKey));
     }
 
     // --- Album-Cover ---------------------------------------------------------------------------------------

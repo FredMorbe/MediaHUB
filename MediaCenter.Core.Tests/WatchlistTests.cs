@@ -131,7 +131,7 @@ public sealed class WatchlistTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE watchlist; PRAGMA user_version = 10;";
+            cmd.CommandText = "DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; ALTER TABLE color_settings DROP COLUMN lut; ALTER TABLE color_settings DROP COLUMN lut_strength; PRAGMA user_version = 10;";
             cmd.ExecuteNonQuery();
         }
 

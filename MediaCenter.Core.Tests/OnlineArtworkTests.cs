@@ -841,7 +841,7 @@ public sealed class OnlineArtworkServiceTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                DROP TABLE watchlist; DROP TABLE playlist_items;
+                DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items;
                 DROP TABLE playlists;
                 DROP TABLE removed_files;
                 DROP TABLE album_lookups;
@@ -859,6 +859,7 @@ public sealed class OnlineArtworkServiceTests : IDisposable
                 );
                 INSERT INTO artwork SELECT * FROM artwork_old;
                 DROP TABLE artwork_old;
+                ALTER TABLE color_settings DROP COLUMN lut; ALTER TABLE color_settings DROP COLUMN lut_strength;
                 PRAGMA user_version = 6;
                 """;
             cmd.ExecuteNonQuery();

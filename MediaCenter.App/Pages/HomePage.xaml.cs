@@ -20,6 +20,11 @@ public partial class HomePage : UserControl
         SizeChanged += (_, _) => HeroZone.Height = Math.Max(440, ActualHeight * 0.56);
         AddFolderButton.Click += async (_, _) => await LibraryActions.AddFolderAsync(_shell);
         AddFileButton.Click += async (_, _) => await LibraryActions.AddFileAsync(_shell);
+        var refresh = PageParts.LibraryRefreshButton(shell);
+        refresh.HorizontalAlignment = HorizontalAlignment.Right;
+        refresh.VerticalAlignment = VerticalAlignment.Top;
+        refresh.Margin = new Thickness(0, PageParts.NavInset + 18, 0, 0);
+        HeroZone.Children.Add(refresh);
 
         BuildHero();
         BuildRows();
@@ -78,6 +83,11 @@ public partial class HomePage : UserControl
 
         PlayButton.Click += async (_, _) => await PlayAsync(title.Id);
         DetailsButton.Click += (_, _) => _shell.OpenTitle(title.Id);
+        if (title.Kind == TitleKind.Series)
+        {
+            ChooseEpisodeButton.Visibility = Visibility.Visible;
+            ChooseEpisodeButton.Click += (_, _) => EpisodePickerPage.Show(_shell, title.Id);
+        }
 
         // Das Querformat-Bild ist als Hintergrund gedacht; ein Poster wäre hier nur unscharf aufgeblasen.
         _shell.SetBackdrop(_model.ArtPath(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape));

@@ -2,10 +2,18 @@ using System.Text.RegularExpressions;
 
 namespace MediaCenter.Core;
 
+/// <param name="Title">Angezeigter Titel: der eigene Name, falls der Titel umbenannt wurde, sonst der aus den Tags.</param>
+/// <param name="Album">Angezeigtes Album, ebenso.</param>
+/// <param name="TagTitle">Titel laut Tags, nur gesetzt, wenn der Titel umbenannt ist.</param>
+/// <param name="TagAlbum">Album laut Tags (ohne Tag <see cref="MusicIndex.UnknownAlbum"/>), nur gesetzt, wenn das Album umbenannt ist.</param>
+/// <param name="TagAlbumKey">Schlüssel des Albums laut Tags (Künstler und Album, wie sie in der Datei stehen); bei Titeln aus der Datenbank immer gesetzt.</param>
+/// <param name="TagArtist">Künstler des Titels laut Tags (leer, wenn die Datei keinen hat), nur gesetzt, wenn der Künstler des Titels geändert ist.</param>
+/// <param name="TagAlbumArtist">Künstler des Albums laut Tags (ohne Tags <see cref="MusicIndex.UnknownArtist"/>), nur gesetzt, wenn er geändert ist.</param>
 public sealed record TrackRow(
     long TrackId, long FileId, long VolumeId, string RelPath, bool Missing,
     string Title, string? Artist, string? AlbumArtist, string? Album, int? TrackNo, int? DiscNo, int? Year, string? Genre,
-    double? DurationSeconds);
+    double? DurationSeconds,
+    string? TagTitle = null, string? TagAlbum = null, string? TagAlbumKey = null, string? TagArtist = null, string? TagAlbumArtist = null);
 
 public sealed record AlbumInfo(string Key, string Title, string Artist, int? Year, IReadOnlyList<TrackRow> Tracks);
 
@@ -29,6 +37,13 @@ public static partial class MusicIndex
         !string.IsNullOrWhiteSpace(track.Artist) ? track.Artist! : UnknownArtist;
 
     public static string AlbumKey(string artist, string album) => $"{Normalize(artist)}|{Normalize(album)}";
+
+    /// <summary>Schlüssel des angezeigten Albums des Titels.</summary>
+    public static string AlbumKeyOf(TrackRow track) => AlbumKey(ArtistOf(track), track.Album ?? UnknownAlbum);
+
+    /// <summary>Schlüssel des Albums laut Tags; so heißt es auch nach einer Änderung in der Datenbank.</summary>
+    public static string TagAlbumKeyOf(TrackRow track) =>
+        track.TagAlbumKey ?? AlbumKey(track.TagAlbumArtist ?? ArtistOf(track), track.TagAlbum ?? track.Album ?? UnknownAlbum);
 
     private static string Normalize(string text) => NonWord().Replace(text.ToLowerInvariant(), " ").Trim();
 

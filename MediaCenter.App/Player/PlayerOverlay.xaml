@@ -6,6 +6,12 @@
         FontFamily="{StaticResource BodyFont}" TextElement.Foreground="White">
     <!-- #01000000 statt Transparent: so fängt das Fenster Klicks auf das Video ab (Pause, Doppelklick = Vollbild). -->
     <Grid x:Name="Root" Background="#01000000">
+        <!-- Beim Übertragen auf einen Fernseher steht hier statt des Videos der Zielname -->
+        <StackPanel x:Name="CastBanner" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+            <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="72" Foreground="#80FFFFFF" HorizontalAlignment="Center"/>
+            <TextBlock x:Name="CastBannerTitle" FontFamily="{StaticResource DisplayFont}" FontSize="38" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+            <TextBlock x:Name="CastBannerText" FontSize="15" Foreground="#B0FFFFFF" HorizontalAlignment="Center" Margin="0,4,0,0" Text="Wird auf diesem Fernseher abgespielt"/>
+        </StackPanel>
         <Grid x:Name="Controls">
             <Border VerticalAlignment="Top" Height="130">
                 <Border.Background>
@@ -14,10 +20,13 @@
                         <GradientStop Color="#00000000" Offset="1"/>
                     </LinearGradientBrush>
                 </Border.Background>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="22,18,0,0">
+                <DockPanel VerticalAlignment="Top" Margin="22,18,22,0">
+                    <Button x:Name="PictureInPictureButton" DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Foreground="White" Content="Bild-in-Bild" Padding="16,8" ToolTip="Schwebenden Player aktivieren (P)" AutomationProperties.Name="Bild-in-Bild aktivieren"/>
+                    <StackPanel Orientation="Horizontal">
                     <Button x:Name="BackButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE72B;" ToolTip="Zurück (Esc)" AutomationProperties.Name="Zurück"/>
                     <TextBlock x:Name="TitleText" FontFamily="{StaticResource DisplayFont}" FontSize="30" Margin="12,0,0,0" VerticalAlignment="Center"/>
-                </StackPanel>
+                    </StackPanel>
+                </DockPanel>
             </Border>
 
             <Border VerticalAlignment="Bottom">
@@ -53,11 +62,13 @@
                         </StackPanel>
                         <TextBlock x:Name="StatsText" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" Foreground="#B0FFFFFF" Visibility="Collapsed"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="EpisodesButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Folgen" Padding="18,7" Margin="0,0,8,0" Visibility="Collapsed" ToolTip="Folge der Serie wählen" AutomationProperties.Name="Folgen"/>
                             <Button x:Name="AudioButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Ton" Padding="18,7" Margin="0,0,8,0"/>
                             <Button x:Name="SubButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Untertitel" Padding="18,7" Margin="0,0,8,0"/>
                             <Button x:Name="AdjustButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Anpassen" Padding="18,7" Margin="0,0,8,0" ToolTip="Untertitel: Zeitversatz, Größe, Position (Z / X = 0,1 s früher / später)" AutomationProperties.Name="Untertitel anpassen"/>
                             <Button x:Name="PictureButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Bild" Padding="18,7" Margin="0,0,8,0" ToolTip="Seitenverhältnis, Tempo, Zoom, Drehen" AutomationProperties.Name="Bildoptionen"/>
-                            <Button x:Name="ColorButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Farbe" Padding="18,7" Margin="0,0,8,0" ToolTip="Helligkeit, Kontrast, Sättigung, Weißabgleich, Invertieren" AutomationProperties.Name="Farbeinstellungen"/>
+                            <Button x:Name="ColorButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Farbe" Padding="18,7" Margin="0,0,8,0" ToolTip="LUT, Helligkeit, Kontrast, Sättigung, Weißabgleich, Invertieren" AutomationProperties.Name="Farbeinstellungen"/>
+                            <Button x:Name="CastButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Übertragen" Padding="18,7" Margin="0,0,8,0" ToolTip="Auf einen Fernseher übertragen (Google Cast)" AutomationProperties.Name="Übertragen"/>
                             <Button x:Name="SleepButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Timer" Padding="18,7" Margin="0,0,8,0" ToolTip="Einschlaf-Timer" AutomationProperties.Name="Einschlaf-Timer"/>
                             <Button x:Name="SoundButton" Style="{StaticResource GhostButton}" Foreground="White" Content="Klang" Padding="18,7" Margin="0,0,8,0" ToolTip="Equalizer-Voreinstellungen" AutomationProperties.Name="Klang"/>
                             <Button x:Name="FullscreenButton" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE740;" ToolTip="Vollbild (F)" AutomationProperties.Name="Vollbild"/>
@@ -72,6 +83,35 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="TrackList"/>
                 </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Kompakte Bedienung im schwebenden Fenster. Die freien Fensterränder bleiben zum Skalieren erreichbar. -->
+        <Grid x:Name="CompactControls" Visibility="Collapsed">
+            <Border x:Name="CompactHeader" VerticalAlignment="Top" Background="#B0000000" Padding="10,4" Cursor="SizeAll">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="RestorePlayerButton" Style="{StaticResource IconButton}" Width="32" Height="32" Foreground="White" Content="&#xE73F;" ToolTip="Zurück zum großen Player (P / Esc)" AutomationProperties.Name="Bild-in-Bild beenden"/>
+                        <Button x:Name="CloseCompactButton" Style="{StaticResource IconButton}" Width="32" Height="32" Foreground="White" Content="&#xE711;" ToolTip="Wiedergabe beenden" AutomationProperties.Name="Wiedergabe beenden"/>
+                    </StackPanel>
+                    <TextBlock x:Name="CompactTitle" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                </DockPanel>
+            </Border>
+            <Border VerticalAlignment="Bottom" Background="#B0000000" Padding="10,4">
+                <StackPanel>
+                    <DockPanel x:Name="CompactNext" Visibility="Collapsed" Margin="0,0,0,4">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="CompactNextNow" Style="{StaticResource GhostButton}" Foreground="White" Content="Jetzt" Padding="8,4" AutomationProperties.Name="Nächste Folge jetzt abspielen"/>
+                            <Button x:Name="CompactNextCancel" Style="{StaticResource IconButton}" Foreground="White" Content="&#xE711;" Width="28" Height="28" ToolTip="Automatischen Start abbrechen" AutomationProperties.Name="Automatischen Start abbrechen"/>
+                        </StackPanel>
+                        <TextBlock x:Name="CompactNextHint" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+                    <DockPanel>
+                        <Button x:Name="CompactPlayPause" DockPanel.Dock="Left" Style="{StaticResource IconButton}" Foreground="White" Width="32" Height="32" Content="&#xE769;" ToolTip="Wiedergabe / Pause (Leertaste)" AutomationProperties.Name="Wiedergabe oder Pause"/>
+                        <Button x:Name="CompactMute" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Foreground="White" Width="32" Height="32" Content="&#xE767;" ToolTip="Ton aus / an (M)" AutomationProperties.Name="Stumm schalten"/>
+                        <TextBlock x:Name="CompactTime" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </DockPanel>
+                </StackPanel>
             </Border>
         </Grid>
 

@@ -117,6 +117,13 @@ public sealed class SettingsPage : UserControl
                 settings.Save();
             }))),
             "GPU-Beschleunigung");
+        var fullscreen = PageParts.Segmented("start-fullscreen",
+            new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.StartFullscreen == o.Item2, (Action)(() =>
+            {
+                settings.StartFullscreen = o.Item2;
+                settings.Save();
+            }))),
+            "Immer im Vollbild starten");
         var gpuNote = settings.GpuMode == AppSettings.GpuAuto
             ? settings.GpuAutoResult switch
             {
@@ -132,6 +139,7 @@ public sealed class SettingsPage : UserControl
                 PageParts.Group(
                     PageParts.SettingRow("Modus", "„System“ folgt der Einstellung von Windows.", modes),
                     PageParts.SettingRow("Farbstil", "Akzentfarbe für Knöpfe, Hervorhebungen und Farbverläufe; je Modus auf Kontrast abgestimmt.", _paletteTiles, stacked: true),
+                    PageParts.SettingRow("Immer im Vollbild starten", "Die App öffnet sich ohne Fensterrahmen über den ganzen Bildschirm. Im Betrieb schaltet der Knopf oben rechts in der Navigation (oder F11) das Vollbild um.", fullscreen),
                     PageParts.SettingRow("GPU-Beschleunigung", "Oberfläche über die Grafikkarte zeichnen. Automatisch nutzt sie und prüft einmal, ob das Fenster etwas zeigt: Auf manchen Rechnern (z. B. Intel Arc mit NVIDIA) bleibt es sonst weiß, dann wechselt die App von selbst auf Software. Gilt nach einem Neustart; bei weißem Fenster in settings.json „GpuMode“ auf „off“ setzen. Videos laufen immer über die GPU." + gpuNote, gpu)),
             },
         };
@@ -254,7 +262,8 @@ public sealed class SettingsPage : UserControl
                         "Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com); " +
                         "gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; " +
                         "deutsche Filmtitel findet OMDb oft nicht. Album-Cover kommen von iTunes (itunes.apple.com), sonst von MusicBrainz und dem Cover Art Archive (musicbrainz.org, coverartarchive.org); gesendet werden Künstler und Albumtitel; " +
-                        "Alben ohne Künstler im Tag werden nicht gesucht. Ein selbst gesetztes Poster bleibt immer.", online),
+                        "Alben ohne Künstler im Tag werden nicht gesucht. Ein selbst gesetztes Poster bleibt immer. " +
+                        "Von denselben Diensten (und mit denselben Treffer-Regeln) kommen auf die Seite eines Films oder einer Serie Handlung, Wertung, Besetzung und bei Serien die Folgentexte, jeweils auf Englisch.", online),
                     PageParts.SettingRow("OMDb-Schlüssel", null, new StackPanel { Children = { keyStatus, keyRow } }, stacked: true)),
                 PageParts.Group(
                     PageParts.SettingRow("Songtexte aus dem Internet",
@@ -266,8 +275,8 @@ public sealed class SettingsPage : UserControl
                         "mit ffmpeg erzeugt und liegt danach im Ordner „previews“ im Datenordner.", preview)),
                 PageParts.Group(
                     PageParts.SettingRow("Fehlende Cover suchen",
-                        "Erzeugt und holt Cover für Titel, die noch keins haben. Ohne Treffer wird erst nach zwei Wochen neu gefragt.", refresh),
-                    PageParts.SettingRow("Alle Cover neu erzeugen", "Ersetzt automatisch erzeugte Cover; selbst gewählte Poster bleiben.", rebuild)),
+                        "Erzeugt und holt Cover für Titel, die noch keins haben, und Infotexte für Titel ohne. Ohne Treffer wird erst nach zwei Wochen neu gefragt.", refresh),
+                    PageParts.SettingRow("Alle Cover neu erzeugen", "Ersetzt automatisch erzeugte Cover und lädt die Infotexte neu; selbst gewählte Poster bleiben.", rebuild)),
                 PageParts.Group(
                     PageParts.SettingRow("Datenbank", Path.Combine(AppSettings.DataDirectory, "library.db"), null),
                     PageParts.SettingRow("Cover-Cache", _shell.Services.Model.Artwork.CacheDir, null),
@@ -324,6 +333,7 @@ public sealed class SettingsPage : UserControl
         }.Select(m => (m.Item1, settings.Subtitles == m.Item2, (Action)(() => settings.Subtitles = m.Item2)));
         var language = Offered(settings.SubtitleLanguage).Select(l => (l.Name, settings.SubtitleLanguage == l.Id, (Action)(() => settings.SubtitleLanguage = l.Id)));
         var autoplay = new[] { ("An", true), ("Aus", false) }.Select(a => (a.Item1, settings.AutoPlayNext == a.Item2, (Action)(() => settings.AutoPlayNext = a.Item2)));
+        var castHevc = new[] { ("Umwandeln", false), ("Direkt senden", true) }.Select(a => (a.Item1, settings.CastHevc == a.Item2, (Action)(() => settings.CastHevc = a.Item2)));
 
         var note = PageParts.Muted(
             "Gilt ab der nächsten Wiedergabe; im Player lässt sich jede Spur von Hand wählen. Fehlt die Tonsprache in der Datei, läuft die Spur der Datei. " +
@@ -340,7 +350,10 @@ public sealed class SettingsPage : UserControl
                         "„Bei fremdem Ton“ zeigt Untertitel nur, wenn die Tonspur nicht in der Untertitelsprache ist (dann nur erzwungene).",
                         Choice("Untertitel", mode)),
                     PageParts.SettingRow("Untertitelsprache", null, Chips("Untertitelsprache", language), stacked: true),
-                    PageParts.SettingRow("Nächste Folge automatisch", "Nach einer Folge startet nach einem Countdown von 8 Sekunden die nächste.", Choice("Nächste Folge", autoplay))),
+                    PageParts.SettingRow("Nächste Folge automatisch", "Nach einer Folge startet nach einem Countdown von 8 Sekunden die nächste.", Choice("Nächste Folge", autoplay)),
+                    PageParts.SettingRow("Auf den Fernseher übertragen: HEVC",
+                        "„Direkt senden“ schickt HEVC-Videos (auch HDR) unverändert an den Fernseher, wenn er sie abspielt; schont den PC. „Umwandeln“ macht per ffmpeg H.264 daraus, das jedes Cast-Gerät kann.",
+                        Choice("HEVC beim Übertragen", castHevc))),
                 note,
                 PageParts.Group(
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
@@ -566,10 +579,11 @@ public sealed class SettingsPage : UserControl
         ("Wiedergabe", new[]
         {
             ("Leertaste · K", "Wiedergabe / Pause"),
-            ("Klick auf das Video", "Wiedergabe / Pause"),
+            ("Klick auf das Video", "Wiedergabe / Pause; ist ein Menü oder Einstellungsfenster offen, schließt der Klick nur dieses"),
             ("Doppelklick auf das Video", "Vollbild an / aus"),
-            ("F · F11", "Vollbild an / aus"),
-            ("Esc", "Vollbild verlassen, sonst Player schließen"),
+            ("F · F11", "Vollbild an / aus (F11 auch außerhalb des Players: ganze App)"),
+            ("P · Knopf „Bild-in-Bild“", "Schwebenden Player an / aus; bleibt über anderen Fenstern. Am Titel ziehen, am Fensterrand die Größe ändern"),
+            ("Esc", "Bild-in-Bild oder Vollbild des Players verlassen, sonst Player schließen"),
             ("←  /  →", "10 Sekunden zurück / vor"),
             ("Umschalt + ←  /  →", "60 Sekunden zurück / vor"),
             ("↑  /  ↓", "Lautstärke um 5 erhöhen / senken"),

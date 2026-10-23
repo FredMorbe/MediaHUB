@@ -109,6 +109,8 @@ public sealed class MusicPage : UserControl
         Content = root;
 
         SizeChanged += (_, e) => _nowPlaying.Suppressed = e.NewSize.Width < NowPlayingMinWidth;
+        Loaded += (_, _) => _model.MusicChanged += OnMusicChanged;
+        Unloaded += (_, _) => _model.MusicChanged -= OnMusicChanged;
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape || _back.Count == 0 || Keyboard.FocusedElement is TextBox) return;
@@ -150,6 +152,29 @@ public sealed class MusicPage : UserControl
         _view = _back.Count > 0 ? _back.Pop() : new View(Kind.Home);
         Render(animate: true);
     }
+
+    /// <summary>
+    /// Ein Song oder Album wurde umbenannt: die Ansicht baut sich an derselben Stelle neu auf. Ein umbenanntes Album hat einen neuen Schlüssel,
+    /// den die offene Ansicht und der Zurück-Verlauf übernehmen.
+    /// </summary>
+    private void OnMusicChanged(string? oldAlbumKey, string? newAlbumKey)
+    {
+        View Remap(View view) => oldAlbumKey is not null && view.Kind == Kind.Album && view.Key == oldAlbumKey ? view with { Key = newAlbumKey } : view;
+
+        var kept = _back.Reverse().Select(Remap).ToList(); // der Stapel liefert die neueste zuerst
+        _back.Clear();
+        foreach (var view in kept) _back.Push(view);
+        _view = Remap(_view);
+
+        var offset = _scroll.VerticalOffset;
+        Render(animate: false);
+        _scroll.UpdateLayout();
+        _scroll.ScrollToVerticalOffset(offset);
+    }
+
+    /// <summary>Menü einer Albumkarte.</summary>
+    private IReadOnlyList<(string Text, Action Click)> AlbumCardMenu(CardItem item) =>
+        item.Tag is AlbumInfo album ? new (string, Action)[] { ("Bearbeiten …", () => MusicRenamePage.ShowAlbum(_shell, album.Key)) } : Array.Empty<(string, Action)>();
 
     private void Render(bool animate)
     {
@@ -231,7 +256,7 @@ public sealed class MusicPage : UserControl
     {
         var cards = albums.Select(a => _model.ToCard(a)).ToList();
         if (cards.Count == 0) return;
-        stack.Children.Add(new CardRow(heading, cards, card => Go(new View(Kind.Album, ((AlbumInfo)card.Tag!).Key)), null, showAll, compact: true) { Margin = new Thickness(0, 12, 0, 0) });
+        stack.Children.Add(new CardRow(heading, cards, card => Go(new View(Kind.Album, ((AlbumInfo)card.Tag!).Key)), AlbumCardMenu, showAll, compact: true) { Margin = new Thickness(0, 12, 0, 0) });
     }
 
     /// <summary>Kachel des Schnellzugriffs: Cover links, Titel rechts, beim Überfahren erscheint ein Abspielknopf.</summary>
@@ -333,7 +358,7 @@ public sealed class MusicPage : UserControl
         var grid = new WrapPanel();
         foreach (var album in albums)
         {
-            var card = new CardView(_model.ToCard(album)) { Margin = new Thickness(0, 0, 14, 14) };
+            var card = new CardView(_model.ToCard(album)) { Margin = new Thickness(0, 0, 14, 14), Menu = AlbumCardMenu };
             var key = album.Key;
             card.Activated += _ => Go(new View(Kind.Album, key));
             grid.Children.Add(card);
@@ -388,7 +413,11 @@ public sealed class MusicPage : UserControl
                 var captured = index;
                 Border? row = null;
                 row = PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
-                    menu: () => new (string, Action)[] { ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })) });
+                    menu: () => new (string, Action)[]
+                    {
+                        ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
+                        ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
+                    });
                 list.Children.Add(row);
             }
 

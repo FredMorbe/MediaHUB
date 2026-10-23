@@ -7,6 +7,35 @@ namespace MediaCenter.App.Pages;
 /// <summary>Kleine Bausteine, die mehrere Seiten teilen (Überschrift, Karte, Seitenrahmen mit Bildlauf).</summary>
 internal static class PageParts
 {
+    /// <summary>Gemeinsamer Refresh für Video- und Musikbibliothek, einschließlich neu angeschlossener Laufwerke.</summary>
+    public static Button LibraryRefreshButton(Services.IShell shell, bool iconOnly = false)
+    {
+        var glyph = new TextBlock { Text = "\uE72C", FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+        glyph.SetResourceReference(TextBlock.FontFamilyProperty, "IconFont");
+        var content = new StackPanel { Orientation = Orientation.Horizontal, Children = { glyph } };
+        if (!iconOnly) content.Children.Add(new TextBlock { Text = "Aktualisieren", Margin = new Thickness(8, 0, 0, 0) });
+        var button = new Button
+        {
+            Content = content,
+            ToolTip = "Bibliothek aktualisieren: Laufwerke neu erkennen und Dateien einlesen",
+        };
+        button.SetResourceReference(FrameworkElement.StyleProperty, iconOnly ? "IconButton" : "GhostButton");
+        if (iconOnly) { button.Width = 30; button.Height = 30; }
+        else Compact(button);
+        System.Windows.Automation.AutomationProperties.SetName(button, "Bibliothek aktualisieren");
+        button.Click += async (_, _) =>
+        {
+            button.IsEnabled = false;
+            try
+            {
+                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+                await Services.LibraryActions.RescanAsync(shell);
+            }
+            finally { button.IsEnabled = true; }
+        };
+        return button;
+    }
+
     public static TextBlock Heading(string text, double size = 64)
     {
         var block = new TextBlock { Text = text, FontSize = size };

@@ -51,11 +51,13 @@ public partial class MainWindow : Window, IShell
         SourceInitialized += (_, _) => Services.Theme.StyleTitleBar(this);
         SizeChanged += (_, _) => BackdropArt.Height = ActualHeight * 0.66;
         PreviewKeyDown += OnPreviewKeyDown;
+        FullscreenNavButton.Click += (_, _) => ToggleFullscreen();
         Loaded += (_, _) =>
         {
             Services.Model.Reload();
             UpdateInboxBadge();
             Navigate(Section.Home);
+            if (Services.Settings.StartFullscreen) SetFullscreen(true);
             CheckRendering();
         };
         InitPlayer();
@@ -237,6 +239,12 @@ public partial class MainWindow : Window, IShell
         if (PlayerActive)
         {
             OnPlayerKey(e);
+            return;
+        }
+        if (e.Key == Key.F11)
+        {
+            ToggleFullscreen();
+            e.Handled = true;
             return;
         }
         if (e.Key == Key.Escape && (Dialog.IsOpen || Modal.IsOpen))

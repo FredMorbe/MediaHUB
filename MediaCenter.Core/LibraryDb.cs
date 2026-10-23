@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 11;
+    private const int SchemaVersion = 15;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -327,6 +327,59 @@ public sealed partial class LibraryDb : IDisposable
                 CREATE TABLE watchlist (
                     title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE,
                     added_utc TEXT NOT NULL
+                );
+                """);
+
+            // Schema 12: eigene Namen für Songs und Alben (Nutzerdaten). Die Tags in tracks werden beim Scan überschrieben, diese Namen nicht.
+            // album_names gilt für den Albumschlüssel aus den Tags, also auch für Titel, die erst später dazukommen.
+            if (version < 12) Run("""
+                CREATE TABLE track_names (
+                    track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL
+                );
+
+                CREATE TABLE album_names (
+                    album_key TEXT PRIMARY KEY,
+                    title TEXT NOT NULL
+                );
+                """);
+            // Schema 13: eigene Künstler für Songs und Alben (Nutzerdaten), wie Schema 12 für die Namen.
+            if (version < 13) Run("""
+                CREATE TABLE track_artists (
+                    track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+                    artist TEXT NOT NULL
+                );
+
+                CREATE TABLE album_artists (
+                    album_key TEXT PRIMARY KEY,
+                    artist TEXT NOT NULL
+                );
+                """);
+            // Schema 14: LUT je Video (Nutzerdaten), Spalten der Farbeinstellungen. Name aus der LUT-Sammlung, Stärke in Prozent.
+            if (version < 14) Run("""
+                ALTER TABLE color_settings ADD COLUMN lut TEXT;
+                ALTER TABLE color_settings ADD COLUMN lut_strength INTEGER NOT NULL DEFAULT 100;
+                """);
+            // Schema 15: Infotexte aus dem Internet (abgeleitete Daten, ein Durchlauf mit force holt sie neu): Handlung, Wertung, Regie und
+            // Besetzung je Titel, Name und Zusammenfassung je Folge (Staffel/Folge, unabhängig davon, ob die Datei vorhanden ist).
+            if (version < 15) Run("""
+                CREATE TABLE title_info (
+                    title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL,
+                    plot TEXT,
+                    rating REAL,
+                    director TEXT,
+                    actors TEXT,
+                    updated_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE episode_info (
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    season INTEGER NOT NULL,
+                    episode INTEGER NOT NULL,
+                    name TEXT,
+                    summary TEXT,
+                    PRIMARY KEY (title_id, season, episode)
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

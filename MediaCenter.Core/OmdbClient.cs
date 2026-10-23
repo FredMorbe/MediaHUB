@@ -4,13 +4,13 @@ using System.Text.Json;
 namespace MediaCenter.Core;
 
 /// <summary>
-/// Filmposter von OMDb (omdbapi.com). Der Schlüssel kommt aus der Umgebung des Aufrufers und steht in keiner Datei und in
+/// Filmposter und Infotexte (Handlung, Wertung, Regie, Besetzung) von OMDb (omdbapi.com). Der Schlüssel kommt aus der Umgebung des Aufrufers und steht in keiner Datei und in
 /// keiner Fehlermeldung. Ein Treffer muss denselben Titel haben wie der Film in der Bibliothek (<see cref="PosterNames.MatchKey"/>:
 /// Groß-/Kleinschreibung, Satzzeichen, Akzente, führender Artikel und römische/arabische Zahlen egal) und, bei bekanntem Jahr, aus
 /// demselben Jahr sein (eins Abweichung nur bei der Abfrage ohne Jahr). OMDb kennt vor allem die englischen Originaltitel: ein
 /// deutscher Titel findet dort oft nichts, das ergibt dann kein Poster statt eines geratenen.
 /// </summary>
-public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap = null) : IPosterSource, IMovieInfoSource
+public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap = null) : IPosterSource, IMovieInfoSource, ITitleInfoSource
 {
     private const long MaxJsonBytes = 1_000_000;
     private static readonly TimeSpan DefaultGap = TimeSpan.FromMilliseconds(150);
@@ -23,7 +23,7 @@ public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap 
     /// <summary>Eine Abfrage an OMDb; <see cref="YearParam"/> null fragt ohne Jahr (der Dateiname kann ein Jahr daneben liegen).</summary>
     private sealed record Attempt(string Query, int? YearParam, bool SequelNumbersDropped, int YearTolerance);
 
-    private sealed record Candidate(string Title, int? Year, string? PosterUrl);
+    private sealed record Candidate(string Title, int? Year, string? PosterUrl, string? Plot, double? Rating, string? Director, string? Cast);
 
     public async Task<OnlinePoster?> FindAsync(string title, int? year, CancellationToken ct = default)
     {
@@ -33,7 +33,16 @@ public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap 
     }
 
     /// <summary>Der Film mit seiner Schreibweise bei OMDb, auch wenn er kein Poster hat.</summary>
-    public async Task<MovieInfo?> LookupAsync(string title, int? year, CancellationToken ct = default)
+    public async Task<MovieInfo?> LookupAsync(string title, int? year, CancellationToken ct = default) =>
+        await FindCandidateAsync(title, year, fullPlot: false, ct) is { } c ? new MovieInfo(c.Title, c.Year, c.PosterUrl) : null;
+
+    /// <summary>Handlung (ausführliche Fassung), IMDb-Wertung, Regie und Besetzung des Films; null, wenn OMDb den Film nicht sicher kennt.</summary>
+    public async Task<OnlineTitleInfo?> FindInfoAsync(string title, int? year, CancellationToken ct = default) =>
+        await FindCandidateAsync(title, year, fullPlot: true, ct) is { } c
+            ? new OnlineTitleInfo(c.Title, c.Plot, c.Rating, c.Director, c.Cast, [])
+            : null;
+
+    private async Task<Candidate?> FindCandidateAsync(string title, int? year, bool fullPlot, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new ArgumentException("Titel fehlt.", nameof(title));
         if (string.IsNullOrWhiteSpace(apiKey)) throw new PosterSourceUnavailableException("OMDb: kein Schlüssel gesetzt.");
@@ -41,9 +50,9 @@ public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap 
 
         foreach (var attempt in Attempts(title.Trim(), year))
         {
-            var candidate = await QueryAsync(attempt, ct);
+            var candidate = await QueryAsync(attempt, fullPlot, ct);
             // Gleicher Film gefunden: keine Suche nach anderen Filmen mehr.
-            if (candidate is not null && Accepts(attempt, candidate, year)) return new MovieInfo(candidate.Title, candidate.Year, candidate.PosterUrl);
+            if (candidate is not null && Accepts(attempt, candidate, year)) return candidate;
         }
         return null;
     }
@@ -72,10 +81,11 @@ public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap 
         return year is not { } wanted || (candidate.Year is { } found && Math.Abs(found - wanted) <= attempt.YearTolerance);
     }
 
-    private async Task<Candidate?> QueryAsync(Attempt attempt, CancellationToken ct)
+    private async Task<Candidate?> QueryAsync(Attempt attempt, bool fullPlot, CancellationToken ct)
     {
         var url = $"https://www.omdbapi.com/?apikey={Uri.EscapeDataString(apiKey)}&type=movie&t={Uri.EscapeDataString(attempt.Query)}"
-                  + (attempt.YearParam is { } y ? $"&y={y.ToString(CultureInfo.InvariantCulture)}" : "");
+                  + (attempt.YearParam is { } y ? $"&y={y.ToString(CultureInfo.InvariantCulture)}" : "")
+                  + (fullPlot ? "&plot=full" : "");
         using var doc = await GetJsonAsync(url, ct);
         var root = doc.RootElement;
 
@@ -89,11 +99,16 @@ public sealed class OmdbClient(HttpClient http, string apiKey, TimeSpan? minGap 
         int? year = Text(root, "Year") is { Length: >= 4 } text && int.TryParse(text.AsSpan(0, 4), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
         // „N/A“ heißt: OMDb kennt den Film, aber kein Bild. Nur https-Adressen: ein Link aus einer fremden Antwort darf nicht auf file: zeigen.
         var poster = Uri.TryCreate(Text(root, "Poster"), UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps ? uri.ToString() : null;
-        return new Candidate(Text(root, "Title"), year, poster);
+        double? rating = double.TryParse(Text(root, "imdbRating"), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedRating) ? parsedRating : null; // „N/A“ → null
+        return new Candidate(Text(root, "Title"), year, poster, Known(root, "Plot"), rating, Known(root, "Director"), Known(root, "Actors"));
     }
 
     private static string Text(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+
+    /// <summary>Der Text eines Feldes; „N/A“ und Leeres heißen: OMDb weiß es nicht.</summary>
+    private static string? Known(JsonElement e, string name) =>
+        Text(e, name).Trim() is { Length: > 0 } text && !text.Equals("N/A", StringComparison.OrdinalIgnoreCase) ? text : null;
 
     private async Task<JsonDocument> GetJsonAsync(string url, CancellationToken ct)
     {

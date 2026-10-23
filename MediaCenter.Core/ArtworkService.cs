@@ -9,7 +9,11 @@ public sealed record ArtworkResult(int Created, int Skipped, int Unreachable, IR
 
 /// <summary>Quellen für Cover aus dem Internet (je Titelart und für Alben, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
 /// <param name="Albums">Anbieter für Album-Cover in der Reihenfolge der Anfrage; der nächste wird nur gefragt, wenn der vorige nichts fand oder ausfiel.</param>
-public sealed record OnlineArtwork(IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IReadOnlyList<IAlbumCoverSource>? Albums = null);
+/// <param name="SeriesText">Quelle für die Infotexte von Serien (null = keine); wie die Poster-Quellen nur gefragt, wenn <see cref="ArtworkService.Online"/> gesetzt ist.</param>
+/// <param name="MovieText">Quelle für die Infotexte von Filmen (null = keine).</param>
+public sealed record OnlineArtwork(
+    IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IReadOnlyList<IAlbumCoverSource>? Albums = null,
+    ITitleInfoSource? SeriesText = null, ITitleInfoSource? MovieText = null);
 
 /// <summary>
 /// Beschafft Cover. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Poster aus dem Internet → Standbild.
@@ -85,6 +89,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
                 made += await RefreshEpisodeThumbsAsync(title, reachable, force, ct, failures);
                 if (made == 0) skipped++;
                 created += made;
+                await TryOnlineInfoAsync(title, force, online, failures, ct); // zählt nicht als Cover
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -200,6 +205,47 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
         {
             failures.Add(new ArtworkFailure(title.Name, $"Online-Poster nicht übernommen: {ex.Message}"));
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Holt Handlung, Wertung, Besetzung (und bei Serien die Folgentexte) eines Titels aus dem Internet. Ein Titel mit Infotexten wird nur mit
+    /// <paramref name="force"/> neu gefragt. Ergebnislose Suchen und Ausfälle behandelt es wie <see cref="TryOnlinePosterAsync"/>; ein Ausfall des
+    /// Dienstes gilt dabei für Poster und Infotexte zugleich, denn es ist derselbe Dienst.
+    /// </summary>
+    private async Task TryOnlineInfoAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    {
+        if (Online is not { } online) return;
+        if ((title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is not { } finder || run.Unavailable.Contains(finder.Provider)) return;
+        if (!force && db.GetTitleInfo(title.Id) is not null) return;
+
+        var lookupKey = $"info:{finder.Provider}"; // getrennt von der Posteranfrage an denselben Dienst
+        var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
+        if (!force && db.GetOnlineLookup(title.Id, lookupKey) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
+        {
+            return;
+        }
+
+        try
+        {
+            var info = await finder.FindInfoAsync(title.Name, title.Year, ct);
+            if (info is null || info.IsEmpty)
+            {
+                db.SetOnlineLookup(title.Id, lookupKey, query, found: false);
+                return;
+            }
+
+            db.SetTitleInfo(title.Id, finder.Provider, info);
+            db.SetOnlineLookup(title.Id, lookupKey, query, found: true);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
+        {
+            run.Unavailable.Add(finder.Provider);
+            failures.Add(new ArtworkFailure($"Online-Infotexte ({finder.Provider})", $"nicht verfügbar: {ex.Message}"));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            failures.Add(new ArtworkFailure(title.Name, $"Online-Infotexte nicht übernommen: {ex.Message}"));
         }
     }
 

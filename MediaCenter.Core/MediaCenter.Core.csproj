@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Der Webserver, von dem der Fernseher beim Übertragen (Google Cast) das Video holt -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
     <InternalsVisibleTo Include="MediaCenter.Core.Tests" />
   </ItemGroup>

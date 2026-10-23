@@ -96,14 +96,31 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
         _art = db.GetAllArtwork().ToDictionary(a => (a.Owner, a.OwnerId, a.Kind), a => Path.Combine(artwork.CacheDir, a.File));
 
+        LoadMusic();
+        Stations = db.ListStations();
+        Podcasts = db.ListPodcasts();
+    }
+
+    private void LoadMusic()
+    {
         Tracks = db.ListTracks();
         Albums = MusicIndex.BuildAlbums(Tracks);
         Artists = MusicIndex.BuildArtists(Albums);
         _albumArt = db.GetAllAlbumArt().ToDictionary(a => a.Key, a => Path.Combine(artwork.CacheDir, a.Value.File));
         Playlists = MusicIndex.BuildPlaylists(db.ListPlaylists(), db.ListPlaylistItems(), Tracks);
-        Stations = db.ListStations();
-        Podcasts = db.ListPodcasts();
     }
+
+    /// <summary>Titel, Alben, Künstler, Cover und Playlists wurden von Hand umbenannt (oder ihr Cover kam dazu): liest nur die Musik neu und meldet es.</summary>
+    /// <param name="oldAlbumKey">Schlüssel des umbenannten Albums vorher; null, wenn nur ein Titel umbenannt wurde.</param>
+    /// <param name="newAlbumKey">Schlüssel danach.</param>
+    public void ReloadMusic(string? oldAlbumKey = null, string? newAlbumKey = null)
+    {
+        LoadMusic();
+        MusicChanged?.Invoke(oldAlbumKey, newAlbumKey);
+    }
+
+    /// <summary>Die Musik wurde neu gelesen (<see cref="ReloadMusic"/>); Argumente: Albumschlüssel vorher und nachher, beide null ohne Albumwechsel. Die Musik-Seite baut sich neu auf und bleibt, wo sie ist.</summary>
+    public event Action<string?, string?>? MusicChanged;
 
     /// <summary>Liest nur die Playlists neu (nach einer Änderung) und meldet es; die übrige Momentaufnahme bleibt, die Seiten behalten ihren Stand.</summary>
     public void ReloadPlaylists()

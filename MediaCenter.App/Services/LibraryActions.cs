@@ -8,6 +8,8 @@ namespace MediaCenter.App.Services;
 /// <summary>Bibliothek erweitern und neu scannen, mit Rückmeldung an den Nutzer.</summary>
 public static class LibraryActions
 {
+    private static bool _rescanning;
+
     public static async Task AddFolderAsync(IShell shell)
     {
         var dialog = new OpenFolderDialog { Title = "Ordner mit Filmen und Serien wählen" };
@@ -25,13 +27,23 @@ public static class LibraryActions
 
     public static async Task RescanAsync(IShell shell)
     {
-        IReadOnlyList<(Source Source, ScanResult Result)>? results = null;
-        await shell.RunBusyAsync("Bibliothek wird neu gescannt …", async () => results = await shell.Services.Model.Library.RescanAllAsync());
-        if (results is null) return;
+        if (_rescanning)
+        {
+            shell.ShowMessage("Die Bibliothek wird bereits aktualisiert.");
+            return;
+        }
+        _rescanning = true;
+        try
+        {
+            IReadOnlyList<(Source Source, ScanResult Result)>? results = null;
+            await shell.RunBusyAsync("Bibliothek wird neu gescannt …", async () => results = await shell.Services.Model.Library.RescanAllAsync());
+            if (results is null) return;
 
-        shell.ReloadView();
-        Report(shell, results.Select(r => r.Result).ToList());
-        await shell.RefreshArtworkAsync();
+            shell.ReloadView();
+            Report(shell, results.Select(r => r.Result).ToList());
+            await shell.RefreshArtworkAsync();
+        }
+        finally { _rescanning = false; }
     }
 
     /// <summary>Papierkorb, wo es einen gibt; auf Laufwerken ohne Papierkorb (USB) wird endgültig gelöscht.</summary>
@@ -166,6 +178,7 @@ public static class LibraryActions
             ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
             ("Umbenennen …", () => RenameTitle(shell, item.TitleId)),
         };
+        if (item.Kind == TitleKind.Series) menu.Insert(0, ("Folge wählen …", (Action)(() => Pages.EpisodePickerPage.Show(shell, item.TitleId))));
         if (item.Kind == TitleKind.Movie) menu.Add(("Bearbeiten …", () => EditMovie(shell, item.TitleId)));
         menu.Add(("Aus Mediacenter entfernen …", () =>
         {

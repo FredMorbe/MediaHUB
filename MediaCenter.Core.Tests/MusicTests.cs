@@ -204,6 +204,170 @@ public sealed class MusicLibraryTests : IDisposable
     }
 
     [Fact]
+    public async Task Renamed_track_keeps_its_own_name_through_a_rescan_and_can_be_reset()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        await _library.AddFolderAsync(_drive);
+        var track = _db.ListTracks().Single();
+
+        _db.RenameTrack(track, "  Erster Song ");
+
+        var renamed = _db.ListTracks().Single();
+        Assert.Equal("Erster Song", renamed.Title);
+        Assert.Equal("eins", renamed.TagTitle);
+
+        // Neu getaggt: der eigene Name bleibt, die Tags dahinter ändern sich.
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams,
+            new Dictionary<string, string> { ["title"] = "eins (neu getaggt)", ["artist"] = "Band", ["album"] = "Platte" });
+        File.WriteAllText(Path.Combine(_drive, @"Musik\Platte\eins.mp3"), "geändert und länger");
+        await _library.RescanAllAsync();
+        var rescanned = _db.ListTracks().Single();
+        Assert.Equal("Erster Song", rescanned.Title);
+        Assert.Equal("eins (neu getaggt)", rescanned.TagTitle);
+
+        // Wer den Namen der Tags eintippt, hat keinen eigenen Namen mehr.
+        _db.RenameTrack(rescanned, "eins (neu getaggt)");
+        var back = _db.ListTracks().Single();
+        Assert.Equal("eins (neu getaggt)", back.Title);
+        Assert.Null(back.TagTitle);
+
+        _db.RenameTrack(back, "Noch einer");
+        _db.ResetTrack(back.TrackId);
+        Assert.Equal("eins (neu getaggt)", _db.ListTracks().Single().Title);
+        Assert.Throws<ArgumentException>(() => _db.RenameTrack(back, "   "));
+    }
+
+    [Fact]
+    public async Task Renamed_album_moves_its_cover_covers_later_tracks_and_can_be_reset()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        Touch(_drive, @"Musik\Platte\zwei.mp3");
+        await _library.AddFolderAsync(_drive);
+        var oldKey = MusicIndex.BuildAlbums(_db.ListTracks()).Single().Key;
+        _db.SetAlbumArt(oldKey, "embedded", "album-alt.jpg");
+
+        _db.RenameAlbum(MusicIndex.BuildAlbums(_db.ListTracks()).Single().Tracks, "Neue Platte");
+
+        var album = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal("Neue Platte", album.Title);
+        Assert.Equal(MusicIndex.AlbumKey("Band", "Neue Platte"), album.Key);
+        Assert.All(album.Tracks, t => Assert.Equal("Platte", t.TagAlbum));
+        Assert.Equal("album-alt.jpg", _db.GetAlbumArt(album.Key));
+        Assert.Null(_db.GetAlbumArt(oldKey));
+
+        // Ein Titel, der später dazukommt, gehört mit zum umbenannten Album.
+        Touch(_drive, @"Musik\Platte\drei.mp3");
+        await _library.RescanAllAsync();
+        var withThird = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(3, withThird.Tracks.Count);
+        Assert.Equal("Neue Platte", withThird.Title);
+
+        _db.ResetAlbum(withThird.Tracks);
+
+        var reset = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal("Platte", reset.Title);
+        Assert.Equal(oldKey, reset.Key);
+        Assert.All(reset.Tracks, t => Assert.Null(t.TagAlbum));
+        Assert.Equal("album-alt.jpg", _db.GetAlbumArt(oldKey));
+    }
+
+    [Fact]
+    public async Task Album_renamed_to_an_existing_album_of_the_artist_merges_and_keeps_the_cover_of_the_target()
+    {
+        Touch(_drive, @"Musik\A\eins.mp3");
+        Touch(_drive, @"Musik\B\zwei.mp3");
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams, new Dictionary<string, string>
+        {
+            ["title"] = Path.GetFileNameWithoutExtension(path), ["artist"] = "Band", ["album"] = Path.GetFileName(Path.GetDirectoryName(path))!,
+        });
+        await _library.AddFolderAsync(_drive);
+        _db.SetAlbumArt(MusicIndex.AlbumKey("Band", "A"), "embedded", "a.jpg");
+        _db.SetAlbumArt(MusicIndex.AlbumKey("Band", "B"), "embedded", "b.jpg");
+
+        _db.RenameAlbum(MusicIndex.BuildAlbums(_db.ListTracks()).Single(a => a.Title == "A").Tracks, "B");
+
+        var album = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(2, album.Tracks.Count);
+        Assert.Equal("b.jpg", _db.GetAlbumArt(album.Key));
+    }
+
+    [Fact]
+    public async Task Track_artist_is_changed_without_taking_the_track_out_of_its_album_and_can_be_reset()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        Touch(_drive, @"Musik\Platte\zwei.mp3");
+        await _library.AddFolderAsync(_drive); // Tags: Künstler "Band", kein Album-Künstler
+        var one = _db.ListTracks().Single(t => t.Title == "eins");
+
+        _db.RenameTrack(one, "eins", "Band feat. Gast");
+
+        var tracks = _db.ListTracks();
+        var changed = tracks.Single(t => t.Title == "eins");
+        Assert.Equal("Band feat. Gast", changed.Artist);
+        Assert.Equal("Band", changed.TagArtist);
+        var album = Assert.Single(MusicIndex.BuildAlbums(tracks)); // beide Titel stehen weiter im selben Album
+        Assert.Equal("Band", album.Artist);
+        Assert.Equal(2, album.Tracks.Count);
+
+        // Der eigene Künstler übersteht einen neuen Scan.
+        File.WriteAllText(Path.Combine(_drive, @"Musik\Platte\eins.mp3"), "geändert und länger");
+        await _library.RescanAllAsync();
+        Assert.Equal("Band feat. Gast", _db.ListTracks().Single(t => t.Title == "eins").Artist);
+
+        // Leer oder der Name aus den Tags nimmt ihn zurück; null lässt ihn.
+        _db.RenameTrack(_db.ListTracks().Single(t => t.Title == "eins"), "eins", null);
+        Assert.Equal("Band feat. Gast", _db.ListTracks().Single(t => t.Title == "eins").Artist);
+        _db.RenameTrack(_db.ListTracks().Single(t => t.Title == "eins"), "eins", "  ");
+        var back = _db.ListTracks().Single(t => t.Title == "eins");
+        Assert.Equal("Band", back.Artist);
+        Assert.Null(back.TagArtist);
+    }
+
+    [Fact]
+    public async Task Album_artist_moves_the_album_and_its_cover_and_covers_later_tracks_and_can_be_reset()
+    {
+        Touch(_drive, @"Musik\Platte\eins.mp3");
+        Touch(_drive, @"Musik\Platte\zwei.mp3");
+        await _library.AddFolderAsync(_drive);
+        var oldKey = MusicIndex.AlbumKey("Band", "Platte");
+        _db.SetAlbumArt(oldKey, "embedded", "album-alt.jpg");
+        var tracks = MusicIndex.BuildAlbums(_db.ListTracks()).Single().Tracks;
+
+        var newKey = _db.RenameAlbum(tracks, "Platte", "Die Band");
+
+        var album = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal("Die Band", album.Artist);
+        Assert.Equal("Platte", album.Title);
+        Assert.Equal(newKey, album.Key);
+        Assert.Equal(MusicIndex.AlbumKey("Die Band", "Platte"), album.Key);
+        Assert.Equal("album-alt.jpg", _db.GetAlbumArt(newKey));
+        Assert.All(album.Tracks, t => Assert.Equal("Band", t.TagAlbumArtist));
+        Assert.All(album.Tracks, t => Assert.Equal("Die Band", t.Artist)); // der Künstler gilt auch für jeden Titel
+        Assert.All(album.Tracks, t => Assert.Equal("Band", t.TagArtist));
+
+        // Nur den Namen ändern, den Künstler nicht (null): ein eigener Künstler eines Titels bleibt.
+        _db.RenameTrack(album.Tracks[0], album.Tracks[0].Title, "Gast");
+        _db.RenameAlbum(MusicIndex.BuildAlbums(_db.ListTracks()).Single().Tracks, "Platte (neu)");
+        Assert.Contains(_db.ListTracks(), t => t.Artist == "Gast");
+        _db.RenameAlbum(MusicIndex.BuildAlbums(_db.ListTracks()).Single().Tracks, "Platte");
+
+        Touch(_drive, @"Musik\Platte\drei.mp3");
+        await _library.RescanAllAsync();
+        var withThird = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(3, withThird.Tracks.Count);
+        Assert.Equal("Die Band", withThird.Artist);
+
+        var resetKey = _db.ResetAlbum(withThird.Tracks);
+
+        var reset = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(oldKey, resetKey);
+        Assert.Equal("Band", reset.Artist);
+        Assert.Equal("album-alt.jpg", _db.GetAlbumArt(oldKey));
+        Assert.All(reset.Tracks, t => Assert.Null(t.TagAlbumArtist));
+        Assert.All(reset.Tracks, t => Assert.Equal("Band", t.Artist)); // auch die Künstler der Titel sind zurück
+    }
+
+    [Fact]
     public async Task Audio_file_without_an_audio_stream_is_reported_as_a_failure()
     {
         Touch(_drive, @"Musik\kaputt.mp3");
@@ -496,11 +660,12 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists;
+                DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists;
                 DROP TABLE album_lookups;
                 CREATE TABLE album_art_old (album_key TEXT PRIMARY KEY, source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded')), file TEXT NOT NULL, updated_utc TEXT NOT NULL);
                 INSERT INTO album_art_old SELECT album_key, source, file, updated_utc FROM album_art;
                 DROP TABLE album_art; ALTER TABLE album_art_old RENAME TO album_art;
+                ALTER TABLE color_settings DROP COLUMN lut; ALTER TABLE color_settings DROP COLUMN lut_strength;
                 PRAGMA user_version = 8;
                 """;
             cmd.ExecuteNonQuery();
@@ -530,7 +695,7 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
+                DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
                 DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE album_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();
