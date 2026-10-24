@@ -186,7 +186,7 @@ public sealed class PlaybackTests
     // --- Nächste Folge ---------------------------------------------------------------------------------------
 
     private static VideoRow Video(long id, long titleId, TitleKind kind, int? season, int? episode) =>
-        new(id, id, 1, $"v{id}.mkv", Missing: false, titleId, kind, "T", null, season, episode, false, "t", VideoKind.Episode, 60, null, null, null, false);
+        new(id, id, 1, $"v{id}.mkv", Missing: false, titleId, kind, "T", null, season, episode, false, "t", VideoKind.Episode, 60, null, null, null, HdrFormat.None);
 
     [Fact]
     public void Next_episode_follows_season_and_episode_order_regardless_of_list_order()

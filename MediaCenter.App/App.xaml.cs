@@ -21,9 +21,20 @@ public partial class App : Application
     {
         DispatcherUnhandledException += (_, e) =>
         {
-            MessageBox.Show(e.Exception.ToString(), "Mediacenter – Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
+            ErrorLog.Write("Oberfläche", e.Exception);
+            MessageBox.Show($"{e.Exception}{Environment.NewLine}{Environment.NewLine}Protokoll: {ErrorLog.FilePath}", "Mediacenter – Fehler", MessageBoxButton.OK, MessageBoxImage.Error);
             e.Handled = true;
             Shutdown(1);
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            if (e.ExceptionObject is Exception exception) ErrorLog.Write("Unbehandelt", exception);
+        };
+        // Fehler aus Aufgaben, auf die niemand wartet (z. B. ein Befehl an einen beendeten mpv): protokollieren; die App läuft weiter.
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            ErrorLog.Write("Hintergrundaufgabe", e.Exception);
+            e.SetObserved();
         };
     }
 
@@ -60,7 +71,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Mediacenter konnte nicht starten", MessageBoxButton.OK, MessageBoxImage.Error);
+            ErrorLog.Write("Start", ex);
+            MessageBox.Show($"{ex.Message}{Environment.NewLine}{Environment.NewLine}Protokoll: {ErrorLog.FilePath}", "Mediacenter konnte nicht starten", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }

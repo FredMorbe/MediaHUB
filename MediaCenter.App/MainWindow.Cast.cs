@@ -75,6 +75,11 @@ public partial class MainWindow
     {
         if (_playing is not { } video || _mpv is null || _casting) return;
         if (_castDevices.FirstOrDefault(d => d.Id == deviceId) is not { } device) return;
+        if (video.Disc != DiscKind.None)
+        {
+            PlayerNotice("DVDs und Blu-rays lassen sich nicht auf den Fernseher übertragen.", isError: true);
+            return;
+        }
         if (_embedding)
         {
             PlayerNotice("Das Einbetten läuft noch.", isError: false);

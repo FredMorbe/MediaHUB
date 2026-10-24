@@ -91,13 +91,33 @@ public sealed class MusicRenamePage : UserControl, IModalContent
         AutomationProperties.SetName(save, "Speichern");
         save.HorizontalAlignment = HorizontalAlignment.Left;
 
-        var stack = new StackPanel { Children = { hint, Label("Name"), nameField, Label("Künstler"), artistField, save } };
-        if (tagName is not null || tagArtist is not null)
+        // „Aus dem Dateinamen ableiten“: beim Song füllt es nur die Felder (zum Prüfen), beim Album gilt es nach Rückfrage für alle Titel.
+        var derive = PageParts.Button("Aus dem Dateinamen ableiten", "GhostButton", (_, _) =>
+        {
+            if (isTrack) DeriveIntoFields(track!, nameBox, artistBox);
+            else DeriveForAlbum();
+        }, new Thickness(10, 18, 0, 0));
+        AutomationProperties.SetName(derive, "Aus dem Dateinamen ableiten");
+        derive.ToolTip = isTrack
+            ? "Name und Künstler aus „Künstler - Titel“ im Dateinamen übernehmen"
+            : "Name und Künstler aller Titel aus „Künstler - Titel“ in ihren Dateinamen übernehmen";
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { save, derive } };
+
+        var stack = new StackPanel { Children = { hint, Label("Name"), nameField, Label("Künstler"), artistField, actions } };
+        if (isTrack)
+        {
+            var file = PageParts.Muted($"Dateiname: {System.IO.Path.GetFileName(track!.RelPath)}", 13);
+            file.Margin = new Thickness(0, 10, 0, 0);
+            file.TextWrapping = TextWrapping.Wrap;
+            stack.Children.Add(file);
+        }
+        var tracksChanged = !isTrack && album!.Tracks.Any(t => t.TagTitle is not null || t.TagArtist is not null);
+        if (tagName is not null || tagArtist is not null || tracksChanged)
         {
             var original = string.Join(" · ", new[] { tagName, tagArtist is { Length: > 0 } ? tagArtist : null }.Where(s => s is not null));
             var reset = PageParts.Button("Angaben aus den Tags wiederherstellen", "GhostButton", (_, _) => Reset(), new Thickness(0, 22, 0, 0));
             AutomationProperties.SetName(reset, "Angaben aus den Tags wiederherstellen");
-            var note = PageParts.Muted($"Aus den Tags: {original}", 13);
+            var note = PageParts.Muted(original.Length > 0 ? $"Aus den Tags: {original}" : "Einzelne Titel haben eigene Namen oder Künstler.", 13);
             note.Margin = new Thickness(0, 10, 0, 0);
             reset.Margin = new Thickness(0, 6, 0, 0);
             reset.HorizontalAlignment = HorizontalAlignment.Left;
@@ -151,6 +171,48 @@ public sealed class MusicRenamePage : UserControl, IModalContent
             }
 
             await RenameAlbumAsync(FindAlbum(), name, artist);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void DeriveIntoFields(TrackRow track, TextBox nameBox, TextBox artistBox)
+    {
+        var parts = TrackFileName.Parse(track.RelPath);
+        nameBox.Text = parts.Title;
+        if (parts.Artist is not null) artistBox.Text = parts.Artist;
+        else _shell.ShowMessage("Im Dateinamen steht kein „Künstler - Titel“: nur der Name wurde übernommen.");
+    }
+
+    /// <summary>Liest Name und Künstler jedes Titels aus seinem Dateinamen. Stehen danach alle Titel unter demselben Künstler, wechselt auch das Album zu ihm.</summary>
+    private void DeriveForAlbum()
+    {
+        if (_busy) return;
+        var album = FindAlbum();
+        var derived = album.Tracks.Select(t => (Track: t, Parts: TrackFileName.Parse(t.RelPath))).ToList();
+        var withoutArtist = derived.Count(d => d.Parts.Artist is null);
+
+        var examples = string.Join("\n", derived.Take(3).Select(d =>
+            $"{System.IO.Path.GetFileName(d.Track.RelPath)}\n    → {(d.Parts.Artist is null ? "" : d.Parts.Artist + " – ")}{d.Parts.Title}"));
+        var question = $"Name und Künstler von {derived.Count} Titeln werden aus den Dateinamen gelesen, zum Beispiel:\n\n{examples}\n\n" +
+            (withoutArtist > 0 ? $"Bei {withoutArtist} {(withoutArtist == 1 ? "Titel" : "Titeln")} steht kein „Künstler - Titel“ im Dateinamen: nur der Name wird übernommen, der Künstler bleibt.\n\n" : "") +
+            "Dateien und Tags bleiben. „Angaben aus den Tags wiederherstellen“ nimmt es zurück.";
+        if (!_shell.Confirm("Aus den Dateinamen ableiten?", question, "Ableiten")) return;
+
+        _busy = true;
+        try
+        {
+            foreach (var (track, parts) in derived) Model.Db.RenameTrack(track, parts.Title, parts.Artist);
+
+            var artists = derived.Select(d => d.Parts.Artist).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
+            var newKey = album.Key;
+            var albumMoved = artists is [{ } common] && common != _currentArtist;
+            if (albumMoved) newKey = Model.Db.RenameAlbum(album.Tracks, album.Title, artists[0]);
+            FinishAlbum(album, newKey);
+            _shell.CloseModal();
+            _shell.ShowMessage(albumMoved ? $"Titel und Album stehen jetzt unter {artists[0]}." : "Name und Künstler der Titel kommen jetzt aus den Dateinamen.");
         }
         finally
         {

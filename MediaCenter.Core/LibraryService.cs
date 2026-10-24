@@ -4,8 +4,9 @@ public sealed record ScanFailure(string Path, string Error);
 
 /// <param name="Offline">Das Laufwerk der Quelle ist nicht angeschlossen; es wurde nichts verändert.</param>
 /// <param name="Moved">Dateien, die der Scan an einem neuen Ort wiedergefunden hat; ihre Nutzerdaten sind mitgewandert (zählt nicht zu <paramref name="Added"/>).</param>
+/// <param name="Restored">Dateien, die als fehlend galten und unverändert wieder an ihrem Platz liegen (zählt zusätzlich zu <paramref name="Unchanged"/>).</param>
 public sealed record ScanResult(
-    int Added, int Updated, int Unchanged, int MarkedMissing, IReadOnlyList<ScanFailure> Failures, bool Offline = false, int Moved = 0)
+    int Added, int Updated, int Unchanged, int MarkedMissing, IReadOnlyList<ScanFailure> Failures, bool Offline = false, int Moved = 0, int Restored = 0)
 {
     public static ScanResult OfflineResult { get; } = new(0, 0, 0, 0, Array.Empty<ScanFailure>(), Offline: true);
 }
@@ -32,8 +33,6 @@ public sealed class VolumeConfirmationRequiredException(VolumeInfo volume, Volum
 /// <summary>Quellen hinzufügen, Laufwerke auflösen und Quellen scannen.</summary>
 public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMediaProbe probe)
 {
-    private static HashSet<string> VideoExtensions => MediaExtensions.Video;
-
     private static HashSet<string> AudioExtensions => MediaExtensions.Audio;
 
     /// <summary>Gleicht angeschlossene Laufwerke mit den bekannten ab und merkt sich ihren aktuellen Einhängepunkt.</summary>
@@ -112,7 +111,23 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         return results;
     }
 
+    /// <summary>Nur ein Scan zur Zeit: die automatische Aktualisierung und der Knopf „Neu scannen“ dürfen sich nicht überlappen.</summary>
+    private readonly SemaphoreSlim _scanLock = new(1, 1);
+
     public async Task<ScanResult> ScanAsync(Source source, VolumeStatus status, CancellationToken ct = default)
+    {
+        await _scanLock.WaitAsync(ct);
+        try
+        {
+            return await ScanCoreAsync(source, status, ct);
+        }
+        finally
+        {
+            _scanLock.Release();
+        }
+    }
+
+    private async Task<ScanResult> ScanCoreAsync(Source source, VolumeStatus status, CancellationToken ct)
     {
         if (!status.Connected.TryGetValue(source.VolumeId, out var volume)) return ScanResult.OfflineResult;
 
@@ -123,26 +138,43 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var movedIds = new HashSet<long>();
         var failures = new List<ScanFailure>();
-        int added = 0, updated = 0, unchanged = 0, moved = 0;
+        int added = 0, updated = 0, unchanged = 0, moved = 0, restored = 0;
 
-        foreach (var path in EnumerateFiles(source, absolute))
+        foreach (var entry in EnumerateEntries(source, absolute))
         {
             ct.ThrowIfCancellationRequested();
 
+            var path = entry.Path;
             var rel = Path.GetRelativePath(volume.RootPath, path);
             if (removed.Contains(rel)) continue; // vom Nutzer aus der Bibliothek entfernt, liegt aber noch auf der Platte
             seen.Add(rel);
-            var info = new FileInfo(path);
 
-            if (known.TryGetValue(rel, out var existing) && existing.Size == info.Length &&
-                existing.MtimeUtc == info.LastWriteTimeUtc.ToString("O"))
+            // Eine Disc als Ordner ist eine Einheit: Größe und Zeit stehen für alle ihre Dateien.
+            long length;
+            DateTime written;
+            try
             {
-                if (existing.Missing) db.SetMissing(existing.Id, false);
+                (length, written) = entry.Disc != DiscKind.None ? DiscDetector.Signature(path) : (new FileInfo(path).Length, new FileInfo(path).LastWriteTimeUtc);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failures.Add(new ScanFailure(path, ex.Message));
+                continue;
+            }
+
+            if (known.TryGetValue(rel, out var existing) && existing.Size == length &&
+                existing.MtimeUtc == written.ToString("O"))
+            {
+                if (existing.Missing)
+                {
+                    db.SetMissing(existing.Id, false);
+                    restored++;
+                }
                 if (withoutFingerprint.Contains(existing.Id))
                 {
                     try
                     {
-                        db.SetFingerprint(existing.Id, FileFingerprint.Compute(path));
+                        db.SetFingerprint(existing.Id, entry.Disc != DiscKind.None ? DiscDetector.Fingerprint(path) : FileFingerprint.Compute(path));
                     }
                     catch (IOException ex)
                     {
@@ -155,20 +187,29 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
 
             try
             {
-                var fingerprint = FileFingerprint.Compute(path);
+                var fingerprint = entry.Disc != DiscKind.None ? DiscDetector.Fingerprint(path) : FileFingerprint.Compute(path);
                 var wasKnown = known.ContainsKey(rel);
-                if (!wasKnown && FindMovedFile(fingerprint, info.Length, status) is { } before)
+                if (!wasKnown && FindMovedFile(fingerprint, length, status) is { } before)
                 {
                     db.MoveFile(before.FileId, source.VolumeId, rel);
                     movedIds.Add(before.FileId);
                     moved++;
                 }
 
-                var result = await probe.ProbeAsync(path, ct);
-                var isAudio = AudioExtensions.Contains(Path.GetExtension(path));
+                ProbeResult result;
+                if (entry.IsDisc)
+                {
+                    if (probe is not IDiscProbe discProbe) throw new NotSupportedException("Dieser Scan kann keine DVD und Blu-ray lesen.");
+                    result = (await discProbe.ProbeDiscAsync(path, entry.Disc, ct)).Result;
+                }
+                else
+                {
+                    result = await probe.ProbeAsync(path, ct);
+                }
+                var isAudio = !entry.IsDisc && AudioExtensions.Contains(Path.GetExtension(path));
                 if (isAudio && !result.HasAudio) throw new InvalidDataException("Datei enthält keinen Audiostream.");
                 if (!isAudio && result.Video is null) throw new InvalidDataException("Datei enthält keinen Videostream.");
-                var fileId = db.UpsertFile(source.VolumeId, rel, info.Length, info.LastWriteTimeUtc, result, fingerprint);
+                var fileId = db.UpsertFile(source.VolumeId, rel, length, written, result, fingerprint);
                 if (isAudio) db.ApplyTrack(fileId, TrackTags.From(result.Tags, path));
                 else db.ApplyScanned(fileId, FileNameParser.Parse(path));
                 if (wasKnown) updated++;
@@ -184,7 +225,7 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         var missing = known.Where(k => !seen.Contains(k.Key) && !k.Value.Missing && !movedIds.Contains(k.Value.Id)).Select(k => k.Value.Id).ToList();
         foreach (var id in missing) db.SetMissing(id, true);
 
-        return new ScanResult(added, updated, unchanged, missing.Count, failures, Moved: moved);
+        return new ScanResult(added, updated, unchanged, missing.Count, failures, Moved: moved, Restored: restored);
     }
 
     /// <summary>
@@ -202,14 +243,13 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         return null;
     }
 
-    private static IEnumerable<string> EnumerateFiles(Source source, string absolute)
+    private static IEnumerable<ScanEntry> EnumerateEntries(Source source, string absolute)
     {
-        if (source.Kind == SourceKind.File) return File.Exists(absolute) ? new[] { absolute } : Array.Empty<string>();
-        if (!Directory.Exists(absolute)) return Array.Empty<string>();
+        if (source.Kind == SourceKind.File)
+            return File.Exists(absolute) ? new[] { new ScanEntry(absolute, DiscKind.None, DiscDetector.IsImage(absolute)) } : Array.Empty<ScanEntry>();
+        if (!Directory.Exists(absolute)) return Array.Empty<ScanEntry>();
 
-        return Directory
-            .EnumerateFiles(absolute, "*", new EnumerationOptions { RecurseSubdirectories = true })
-            .Where(p => VideoExtensions.Contains(Path.GetExtension(p)) || AudioExtensions.Contains(Path.GetExtension(p)));
+        return DiscDetector.Enumerate(absolute);
     }
 
     /// <summary>Das Laufwerk mit dem längsten passenden Einhängepunkt.</summary>

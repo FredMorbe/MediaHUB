@@ -33,7 +33,7 @@ public partial class MainWindow
 
             // Die Prüfsumme findet genau die Fassung dieser Datei; ohne lesbare Datei bleibt es bei Titel und Jahr bzw. Staffel und Folge.
             string? hash = null;
-            if (Services.Model.PathOf(video) is { } path)
+            if (video.Disc == DiscKind.None && Services.Model.PathOf(video) is { } path) // eine Disc hat keine einzelne Datei, die sich prüfsummen ließe
             {
                 try
                 {

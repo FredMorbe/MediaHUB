@@ -125,7 +125,7 @@
                 </Border.Effect>
                 <StackPanel>
                     <TextBlock x:Name="ChapterText" FontSize="12" Foreground="#B0FFFFFF" Visibility="Collapsed" Margin="0,0,0,2" TextTrimming="CharacterEllipsis"/>
-                    <Grid>
+                    <Grid x:Name="SeekRow">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
@@ -147,6 +147,7 @@
                     <Grid Margin="0,6,0,0">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <Button x:Name="BackButton10" Style="{StaticResource PlayerTool}" Content="&#xED3C;" ToolTip="10 s zurück" AutomationProperties.Name="10 Sekunden zurück"/>
+                            <Button x:Name="ChannelPrevButton" Style="{StaticResource PlayerTool}" Content="&#xE892;" Visibility="Collapsed" ToolTip="Voriger Sender (Bild auf)" AutomationProperties.Name="Voriger Sender"/>
                             <Button x:Name="PlayPauseButton" Style="{StaticResource AccentIconButton}" Content="&#xE769;" FontSize="20" Width="54" Height="54" Margin="6,0" ToolTip="Wiedergabe / Pause (Leertaste)" AutomationProperties.Name="Wiedergabe oder Pause"/>
                             <Button x:Name="ForwardButton" Style="{StaticResource PlayerTool}" Content="&#xED3D;" ToolTip="30 s vor" AutomationProperties.Name="30 Sekunden vor"/>
                             <Button x:Name="NextButton" Style="{StaticResource PlayerTool}" Content="&#xE893;" Visibility="Collapsed" AutomationProperties.Name="Nächste Folge"/>

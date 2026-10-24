@@ -85,15 +85,6 @@ public sealed class ThemeService
             res[name + "Brush"] = brush;
         }
 
-        // Verlauf von links oben nach rechts unten; ersetzt die Brush eines Namens (die Color bleibt die der Set-Variante).
-        void Gradient(string name, params (string Color, double Offset)[] stops)
-        {
-            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            foreach (var (color, offset) in stops) brush.GradientStops.Add(new GradientStop(Hex(color), offset));
-            brush.Freeze();
-            res[name + "Brush"] = brush;
-        }
-
         if (IsDark)
         {
             Set("Bg", Hex("#070d16"));
@@ -126,25 +117,34 @@ public sealed class ThemeService
             Set("Surface", Hex("#f5f7fa"));
             Set("ModalScrim", Hex("#8c0f172a"));
         }
-        // Liquid Glass: Die Kante ist kein gleichmäßiger Rand, sondern fängt Licht an zwei gegenüberliegenden Ecken;
-        // darüber liegt ein Glanz, der oben links am hellsten ist.
+        // Navigationsleiste: dunkler als die Seite, so durchlässig, dass der weichgezeichnete Inhalt darunter durchscheint
+        if (IsDark) Set("BarTint", Hex("#A8040810"));
+        else Set("BarTint", Hex("#B8D3DAE6"));
+        // Menüs, Modale, Meldungen: Milchglas mit genug Deckkraft für Text
+        if (IsDark) Set("SheetTint", Hex("#B40b1423"));
+        else Set("SheetTint", Hex("#CCf5f7fa"));
+        // Lichtrand, Glanz und Karten-Füllung als Verläufe: die Kante fängt Licht oben links
+        void SetGradient(string name, Point start, Point end, params (string Color, double Offset)[] stops)
+        {
+            var brush = new LinearGradientBrush { StartPoint = start, EndPoint = end };
+            foreach (var (color, offset) in stops) brush.GradientStops.Add(new GradientStop(Hex(color), offset));
+            brush.Freeze();
+            res[name + "Brush"] = brush;
+        }
         if (IsDark)
         {
-            Gradient("GlassEdge", ("#78FFFFFF", 0), ("#1EFFFFFF", 0.38), ("#14FFFFFF", 0.62), ("#46FFFFFF", 1));
-            Gradient("GlassSheen", ("#3AFFFFFF", 0), ("#0EFFFFFF", 1));
-            Set("NavPill", Hex("#38FFFFFF"));
+            SetGradient("GlassRim", new Point(0, 0), new Point(1, 1), ("#70FFFFFF", 0), ("#1CFFFFFF", 0.4), ("#12FFFFFF", 0.65), ("#3CFFFFFF", 1));
+            SetGradient("GlassSheen", new Point(0, 0), new Point(0, 1), ("#20FFFFFF", 0), ("#00FFFFFF", 0.55));
+            SetGradient("GlassFill", new Point(0, 0), new Point(0, 1), ("#22FFFFFF", 0), ("#0EFFFFFF", 1));
         }
         else
         {
-            Gradient("GlassEdge", ("#380F172A", 0), ("#160F172A", 0.4), ("#160F172A", 0.6), ("#440F172A", 1));
-            Gradient("GlassSheen", ("#D0FFFFFF", 0), ("#70FFFFFF", 1));
-            Set("NavPill", Hex("#D8FFFFFF"));
+            SetGradient("GlassRim", new Point(0, 0), new Point(1, 1), ("#F2FFFFFF", 0), ("#240f172a", 0.45), ("#240f172a", 0.65), ("#3C0f172a", 1));
+            SetGradient("GlassSheen", new Point(0, 0), new Point(0, 1), ("#A0FFFFFF", 0), ("#00FFFFFF", 0.55));
+            SetGradient("GlassFill", new Point(0, 0), new Point(0, 1), ("#C8FFFFFF", 0), ("#8CFFFFFF", 1));
         }
         Set("Accent", accent);
         Set("Accent2", accent2);
-        // Kräftiger Farbschein hinter dem Glas (nur Hintergrund; AccentSoft bleibt für Auswahl-Hinterlegungen).
-        Set("AccentGlow", Color.FromArgb(IsDark ? (byte)0x5A : (byte)0x46, accent.R, accent.G, accent.B));
-        Set("Accent2Glow", Color.FromArgb(IsDark ? (byte)0x4C : (byte)0x3C, accent2.R, accent2.G, accent2.B));
         Set("AccentSoft", Color.FromArgb(IsDark ? (byte)0x22 : (byte)0x1c, accent.R, accent.G, accent.B));
         Set("AccentLine", Color.FromArgb(0x66, accent.R, accent.G, accent.B));
         Set("Accent2Soft", Color.FromArgb(IsDark ? (byte)0x22 : (byte)0x1a, accent2.R, accent2.G, accent2.B));
@@ -164,13 +164,6 @@ public sealed class ThemeService
             brush.Freeze();
             ArtTheme[name + "Brush"] = brush;
         }
-        void ArtGradient(string name, params (string Color, double Offset)[] stops)
-        {
-            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            foreach (var (color, offset) in stops) brush.GradientStops.Add(new GradientStop(Hex(color), offset));
-            brush.Freeze();
-            ArtTheme[name + "Brush"] = brush;
-        }
         var artAccent = palette.DarkAccent;
         ArtSet("Ink", Hex("#f4f7fb"));
         ArtSet("Muted", Hex("#c3cedc"));
@@ -181,9 +174,7 @@ public sealed class ThemeService
         ArtSet("AccentSoft", Color.FromArgb(0x30, artAccent.R, artAccent.G, artAccent.B));
         ArtSet("AccentLine", Color.FromArgb(0x66, artAccent.R, artAccent.G, artAccent.B));
         ArtSet("OnAccent", Luminance(artAccent) > 0.5 ? Hex("#07131f") : Colors.White);
-        ArtSet("NavPill", Hex("#38FFFFFF"));
-        ArtGradient("GlassEdge", ("#78FFFFFF", 0), ("#1EFFFFFF", 0.38), ("#14FFFFFF", 0.62), ("#46FFFFFF", 1));
-        ArtGradient("GlassSheen", ("#3AFFFFFF", 0), ("#0EFFFFFF", 1));
+        ArtSet("GlassEdge", Hex("#26e2e8f0"));
 
         Changed?.Invoke();
     }

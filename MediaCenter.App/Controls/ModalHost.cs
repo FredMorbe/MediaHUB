@@ -43,7 +43,7 @@ public interface IModalContent
 public sealed class ModalHost : Grid
 {
     private readonly Border _scrim = new();
-    private readonly Border _panel = new();
+    private readonly GlassPanel _panel = new();
     private readonly TextBlock _kicker = new();
     private readonly TextBlock _title = new();
     private readonly ContentControl _body = new() { IsTabStop = false };
@@ -66,15 +66,16 @@ public sealed class ModalHost : Grid
         };
         Children.Add(_scrim);
 
-        _panel.CornerRadius = new CornerRadius(28);
-        _panel.BorderThickness = new Thickness(1);
+        _panel.CornerRadius = new CornerRadius(22);
+        _panel.Padding = new Thickness(0);
         _panel.HorizontalAlignment = HorizontalAlignment.Center;
         _panel.VerticalAlignment = VerticalAlignment.Center;
         _panel.Focusable = true;
         _panel.FocusVisualStyle = null;
         _panel.RenderTransform = _lift;
-        _panel.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
-        _panel.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
+        // Milchglas: weichgezeichnete Seite dahinter, die Abdunkelung des Modals fehlt dort und kommt als Unterlage dazu.
+        _panel.SetResourceReference(Control.BackgroundProperty, "SheetTintBrush");
+        _panel.SetResourceReference(GlassPanel.UnderlayProperty, "ModalScrimBrush");
         _panel.Effect = new DropShadowEffect { BlurRadius = 56, ShadowDepth = 14, Direction = 270, Opacity = 0.42, Color = Colors.Black };
         KeyboardNavigation.SetTabNavigation(_panel, KeyboardNavigationMode.Cycle);
         KeyboardNavigation.SetDirectionalNavigation(_panel, KeyboardNavigationMode.Contained);
@@ -116,11 +117,18 @@ public sealed class ModalHost : Grid
         layout.Children.Add(rule);
         layout.Children.Add(_body);
         // Der Inhalt endet an den runden Ecken des Panels (ein Rahmen beschneidet seinen Inhalt nicht selbst).
-        layout.SizeChanged += (_, _) => layout.Clip = new RectangleGeometry(new Rect(0, 0, layout.ActualWidth, layout.ActualHeight), 27, 27);
-        _panel.Child = layout;
+        layout.SizeChanged += (_, _) => layout.Clip = new RectangleGeometry(new Rect(0, 0, layout.ActualWidth, layout.ActualHeight), 21, 21);
+        _panel.Content = layout;
         Children.Add(_panel);
 
         SizeChanged += (_, _) => ApplySize();
+    }
+
+    /// <summary>Ebene, die das Glas des Panels weichzeichnet: die Seite für Modale, alles darunter für Rückfragen darüber.</summary>
+    public GlassLayer GlassLayer
+    {
+        get => _panel.Layer;
+        set => _panel.Layer = value;
     }
 
     public bool IsOpen => Visibility == Visibility.Visible && !_closing;

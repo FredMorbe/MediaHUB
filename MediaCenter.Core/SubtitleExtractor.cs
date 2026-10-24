@@ -18,7 +18,7 @@ public sealed partial class SubtitleExtractor(string ffmpegPath)
         "subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text", "subviewer", "microdvd", "sami", "ttml",
     };
 
-    public static SubtitleExtractor FromEnvironment() => new(Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg");
+    public static SubtitleExtractor FromEnvironment() => new(ToolLocator.Ffmpeg().Path);
 
     public static bool IsText(string? codec) => codec is not null && TextCodecs.Contains(codec);
 

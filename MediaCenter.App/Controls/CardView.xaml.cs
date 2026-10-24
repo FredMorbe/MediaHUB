@@ -44,7 +44,7 @@ public partial class CardView : UserControl
         ToolTip = item.Title;
 
         // Der Rahmen schneidet seinen Inhalt nicht rund zu (anders als einen Hintergrund), also schneidet die Karte selbst.
-        PosterContent.SizeChanged += (_, e) => PosterContent.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 18.5, 18.5);
+        PosterContent.SizeChanged += (_, e) => PosterContent.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 10.5, 10.5);
 
         if (item.Image is { } image)
         {
@@ -54,6 +54,7 @@ public partial class CardView : UserControl
         {
             PosterArt.Background = PlaceholderBrush(item.Title);
             PlaceholderTitle.Text = item.Title;
+            FitPlaceholderTitle(item.Title);
             PlaceholderTitle.Visibility = Visibility.Visible;
         }
 
@@ -288,6 +289,18 @@ public partial class CardView : UserControl
         var left = TranslatePoint(new Point(0, 0), area).X;
         var right = area.ActualWidth - (left + ActualWidth);
         return right >= extra + 12 || right >= left;
+    }
+
+    /// <summary>Verkleinert die Schrift des Platzhalters, bis das längste Wort in eine Zeile passt; sonst bräche es mitten im Wort um.</summary>
+    private void FitPlaceholderTitle(string title)
+    {
+        var available = PosterArt.Width - PlaceholderTitle.Margin.Left - PlaceholderTitle.Margin.Right;
+        var typeface = new Typeface(PlaceholderTitle.FontFamily, PlaceholderTitle.FontStyle, PlaceholderTitle.FontWeight, PlaceholderTitle.FontStretch);
+        var size = PlaceholderTitle.FontSize;
+        var widest = title.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Select(word => new FormattedText(word, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, size, Brushes.White, 1).Width)
+            .DefaultIfEmpty(0).Max();
+        if (widest > available) PlaceholderTitle.FontSize = Math.Max(14, Math.Floor(size * available / widest));
     }
 
     /// <summary>Ruhiger Verlauf, dessen Farbton sich aus dem Titel ergibt (stabil über Starts, anders als string.GetHashCode).</summary>

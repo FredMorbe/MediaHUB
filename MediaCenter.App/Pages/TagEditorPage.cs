@@ -61,7 +61,7 @@ public sealed class TagEditorPage : UserControl, IModalContent
         shell.OpenModal("Tags ändern", album.Title, new TagEditorPage(shell, album.Tracks, isAlbum: true), ModalSize.Medium);
     }
 
-    private static string Known(string? artist) => artist is null || artist == MusicIndex.UnknownArtist ? "" : artist;
+    private static string Known(string? artist) => artist is null || artist is MusicIndex.UnknownArtist or MusicIndex.VariousArtists ? "" : artist;
 
     private TagEditorPage(IShell shell, IReadOnlyList<TrackRow> tracks, bool isAlbum)
     {

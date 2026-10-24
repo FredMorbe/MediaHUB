@@ -69,6 +69,28 @@ public sealed class AppSettings
     /// <summary>Schrift, Größe, Farben und Hintergrund der Untertitel; gilt für alle Videos (Einstellungen → Wiedergabe oder Anpassen-Fenster im Player).</summary>
     public SubtitleStyle SubtitleStyle { get; set; } = SubtitleStyle.Default;
 
+    /// <summary>Vom Nutzer geänderte Tasten des Players: Name der <see cref="PlayerAction"/> → Tastennamen (<see cref="System.Windows.Input.Key"/>); fehlende Aktionen behalten ihre Standardtasten. Beim Ändern wird das ganze Wörterbuch ersetzt.</summary>
+    public Dictionary<string, string[]> KeyBindings { get; set; } = new();
+
+    /// <summary>Heimnetz-Server: Weboberfläche und Fernbedienung fürs Handy (<see cref="RemoteServer"/>). Aus, bis der Nutzer ihn einschaltet.</summary>
+    public bool HomeServer { get; set; }
+
+    /// <summary>Anschluss (Port) des Heimnetz-Servers.</summary>
+    public int HomeServerPort { get; set; } = 8484;
+
+    /// <summary>true: im ganzen Heimnetz erreichbar; false: nur von diesem PC (zum Ausprobieren).</summary>
+    public bool HomeServerLan { get; set; } = true;
+
+    /// <summary>Sendepläne der Serien bei TVmaze abfragen (Kalender, Hinweis auf neue Folgen). Gesendet werden Serientitel und Jahr.</summary>
+    public bool UpcomingEpisodes { get; set; } = true;
+
+    /// <summary>Die Ordner der Quellen beobachten und die Bibliothek bei neuen, entfernten oder umbenannten Dateien von selbst aktualisieren (<see cref="LibraryWatch"/>).</summary>
+    public bool WatchFolders { get; set; } = true;
+
+    /// <summary>Ob HDR-Videos als HDR an den Bildschirm gehen (Standard: wenn Windows-HDR an ist) oder immer nach SDR umgerechnet werden. Gilt ab der nächsten Wiedergabe.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public HdrOutput Hdr { get; set; } = HdrOutput.Auto;
+
     /// <summary>Nach einer Folge die nächste der Serie automatisch starten (mit Countdown).</summary>
     public bool AutoPlayNext { get; set; } = true;
 
@@ -135,6 +157,15 @@ public sealed class AppSettings
             settings.SubtitleStyle.Validated();
             Crossfade.Validated(settings.AudioCrossfadeSeconds);
             Equalizer.Validated(settings.EqualizerGains);
+            if (settings.HomeServerPort is < 1024 or > 65535)
+                throw new ArgumentException($"HomeServerPort {settings.HomeServerPort} ist ungültig (1024 bis 65535).");
+            settings.KeyBindings ??= new();
+            PlayerKeys.Resolve(settings.KeyBindings);
+            foreach (var key in settings.KeyBindings.Values.SelectMany(k => k))
+            {
+                if (!Enum.TryParse<System.Windows.Input.Key>(key, out var parsed) || !Enum.IsDefined(parsed))
+                    throw new ArgumentException($"Die Taste „{key}“ in KeyBindings gibt es nicht.");
+            }
             if (settings.GpuMode is not (GpuAuto or GpuOn or GpuOff))
                 throw new ArgumentException($"GpuMode „{settings.GpuMode}“ ist unbekannt (auto, on oder off).");
             if (settings.GpuAutoResult is not (null or "ok" or "failed"))

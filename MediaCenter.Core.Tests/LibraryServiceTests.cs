@@ -50,6 +50,22 @@ public sealed class LibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_file_that_comes_back_unchanged_is_counted_as_restored()
+    {
+        await AddDriveAFolders();
+        var path = Path.Combine(_driveA, @"Filme\Heat.mkv");
+        File.Move(path, path + ".bak");
+        Assert.Equal(1, (await _service.RescanAllAsync()).Single().Result.MarkedMissing);
+
+        File.Move(path + ".bak", path);
+        var result = (await _service.RescanAllAsync()).Single().Result;
+
+        Assert.Equal(1, result.Restored);
+        Assert.Equal(0, result.MarkedMissing);
+        Assert.Equal(0, (await _service.RescanAllAsync()).Single().Result.Restored);
+    }
+
+    [Fact]
     public async Task Rescan_never_overwrites_user_data()
     {
         await AddDriveAFolders();

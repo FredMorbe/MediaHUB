@@ -78,6 +78,13 @@ public sealed class LibraryPage : UserControl
         var refresh = PageParts.LibraryRefreshButton(_shell);
         refresh.Margin = new Thickness(8, 0, 0, 8);
         if (!_model.Profile.Kids) actions.Children.Add(refresh);
+        if (kind == TitleKind.Series && !_model.Profile.Kids)
+        {
+            var calendar = PageParts.Compact(PageParts.Button("Kalender", "GhostButton", (_, _) => _shell.Open(() => new CalendarPage(_shell)), new Thickness(8, 0, 0, 8)));
+            calendar.VerticalAlignment = VerticalAlignment.Top;
+            System.Windows.Automation.AutomationProperties.SetName(calendar, "Kalender");
+            actions.Children.Add(calendar);
+        }
         if (kind == TitleKind.Movie && !_model.Profile.Kids)
         {
             var collections = PageParts.Compact(PageParts.Button("Sammlungen", "GhostButton", (_, _) => _shell.Open(() => new CollectionsPage(_shell)), new Thickness(8, 0, 0, 8)));

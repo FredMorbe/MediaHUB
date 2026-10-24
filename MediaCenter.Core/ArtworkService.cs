@@ -14,9 +14,23 @@ public sealed record InfoRefreshResult(bool Found, string? Problem);
 /// <param name="Albums">Anbieter für Album-Cover in der Reihenfolge der Anfrage; der nächste wird nur gefragt, wenn der vorige nichts fand oder ausfiel.</param>
 /// <param name="SeriesText">Quelle für die Infotexte von Serien (null = keine); wie die Poster-Quellen nur gefragt, wenn <see cref="ArtworkService.Online"/> gesetzt ist.</param>
 /// <param name="MovieText">Quelle für die Infotexte von Filmen (null = keine).</param>
+/// <param name="SeriesRich">Dienst mit Poster, Infotexten und Hintergrund für Serien (TMDB); wird vor <see cref="Series"/> und <see cref="SeriesText"/> gefragt, die nur einspringen, wenn er nichts findet.</param>
+/// <param name="MovieRich">Dasselbe für Filme.</param>
 public sealed record OnlineArtwork(
     IPosterSource? Series, IPosterSource? Movies, RemoteImages Images, IReadOnlyList<IAlbumCoverSource>? Albums = null,
-    ITitleInfoSource? SeriesText = null, ITitleInfoSource? MovieText = null);
+    ITitleInfoSource? SeriesText = null, ITitleInfoSource? MovieText = null,
+    IRichTitleSource? SeriesRich = null, IRichTitleSource? MovieRich = null)
+{
+    internal IRichTitleSource? RichFor(TitleKind kind) => kind == TitleKind.Series ? SeriesRich : MovieRich;
+
+    /// <summary>Poster-Quellen eines Titels in der Reihenfolge der Anfrage.</summary>
+    internal IReadOnlyList<IPosterSource> PosterSourcesFor(TitleKind kind) =>
+        new IPosterSource?[] { RichFor(kind), kind == TitleKind.Series ? Series : Movies }.OfType<IPosterSource>().ToList();
+
+    /// <summary>Quellen für Infotexte eines Titels in der Reihenfolge der Anfrage.</summary>
+    internal IReadOnlyList<ITitleInfoSource> InfoSourcesFor(TitleKind kind) =>
+        new ITitleInfoSource?[] { RichFor(kind), kind == TitleKind.Series ? SeriesText : MovieText }.OfType<ITitleInfoSource>().ToList();
+}
 
 /// <summary>
 /// Beschafft Cover. Reihenfolge je Platz: eigenes Bild → Bild im Ordner → eingebettet → Poster aus dem Internet → Standbild.
@@ -77,7 +91,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
 
             var reachable = db.GetTitleVideos(title.Id)
                 .Select(v => (Video: v, Path: v.Missing ? null : status.ResolvePath(v.VolumeId, v.RelPath)))
-                .Where(x => x.Path is not null && File.Exists(x.Path))
+                .Where(x => x.Path is not null && (File.Exists(x.Path) || (x.Video.Disc != DiscKind.None && Directory.Exists(x.Path)))) // eine Disc kann ein Ordner sein
                 .Select(x => (x.Video, Path: x.Path!))
                 .ToList();
             if (reachable.Count == 0)
@@ -89,6 +103,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
             try
             {
                 var made = await RefreshTitleAsync(title, reachable, force, online, failures, ct);
+                if (await TryUpgradeBackdropAsync(title, force, online, failures, ct)) made++;
                 made += await RefreshEpisodeThumbsAsync(title, reachable, force, ct, failures);
                 if (made == 0) skipped++;
                 created += made;
@@ -110,14 +125,17 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
         if (!needPoster && !needLandscape) return 0;
 
         var paths = reachable.Select(r => r.Path).ToList();
-        var sidecar = title.Kind == TitleKind.Movie ? SidecarFinder.ForMovie(paths[0]) : SidecarFinder.ForSeries(paths);
+        // Poster neben einer Disc: bei einem Disc-Ordner liegen sie im Ordner selbst, nicht daneben (daneben läge das Poster eines anderen Films).
+        var sidecarPaths = reachable.Select(r => r.Video.Disc != DiscKind.None && Directory.Exists(r.Path) ? Path.Combine(r.Path, "disc") : r.Path).ToList();
+        var sidecar = title.Kind == TitleKind.Movie ? SidecarFinder.ForMovie(sidecarPaths[0]) : SidecarFinder.ForSeries(sidecarPaths);
         var created = 0;
 
         // Eingebettete Bilder nur auslesen, wenn ein Platz noch offen ist.
         (StreamInfo? Poster, StreamInfo? Landscape)? embedded = null;
         async Task<(StreamInfo? Poster, StreamInfo? Landscape)> Embedded()
         {
-            if (embedded is null) embedded = EmbeddedArtwork.Choose(await probe.ProbeAsync(paths[0], ct));
+            // Eine Disc hat keine eingebetteten Bilder, und ffprobe liest sie nicht wie eine Datei.
+            if (embedded is null) embedded = reachable[0].Video.Disc != DiscKind.None ? (null, null) : EmbeddedArtwork.Choose(await probe.ProbeAsync(paths[0], ct));
             return embedded.Value;
         }
 
@@ -156,10 +174,14 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
                 await images.ExtractStreamImageAsync(paths[0], picture.Index, Absolute(file), BackdropSize.W, BackdropSize.H, ct);
                 db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape, ArtworkSource.Embedded, file);
             }
+            else if (await TryOnlineBackdropAsync(title, file, force, online, failures, ct))
+            {
+                // Hintergrundbild aus dem Internet; ohne Treffer bleibt es beim Standbild.
+            }
             else
             {
                 var (video, path) = reachable[0];
-                await images.GrabFrameAsync(path, FramePosition(video.DurationSeconds), Absolute(file), BackdropSize.W, BackdropSize.H, ct);
+                await images.GrabFrameAsync(DiscInput.ForFfmpeg(video.Disc, path), FramePosition(video.DurationSeconds), Absolute(file), BackdropSize.W, BackdropSize.H, ct);
                 db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape, ArtworkSource.Frame, file);
             }
             created++;
@@ -168,62 +190,61 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     }
 
     /// <summary>
-    /// Sucht das Poster eines Titels im Internet (Serien bei TVmaze, Filme bei OMDb). Fehler stoppen den Durchlauf nicht: fällt ein
-    /// Anbieter aus (Netz weg, falscher Schlüssel, Tageslimit), steht einmal eine Meldung in den Fehlern und er wird nicht weiter
-    /// gefragt; ein Fehler bei einem Titel betrifft nur diesen.
+    /// Sucht das Poster eines Titels im Internet: zuerst bei TMDB (wenn ein Schlüssel da ist), sonst bei TVmaze (Serien) bzw. OMDb (Filme).
+    /// Fehler stoppen den Durchlauf nicht: fällt ein Anbieter aus (Netz weg, falscher Schlüssel, Tageslimit), steht einmal eine Meldung
+    /// in den Fehlern und er wird nicht weiter gefragt (die anderen schon); ein Fehler bei einem Titel betrifft nur diesen.
     /// </summary>
     private async Task<bool> TryOnlinePosterAsync(TitleRow title, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
     {
         if (Online is not { } online) return false;
-        if ((title.Kind == TitleKind.Series ? online.Series : online.Movies) is not { } finder || run.Unavailable.Contains(finder.Provider)) return false;
 
-        var provider = finder.Provider;
-        var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
-        if (!force && db.GetOnlineLookup(title.Id, provider) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
+        foreach (var finder in online.PosterSourcesFor(title.Kind))
         {
-            return false;
-        }
+            if (run.Unavailable.Contains(finder.Provider)) continue;
 
-        try
-        {
-            var poster = await finder.FindAsync(title.Name, title.Year, ct);
-            if (poster is null)
+            var provider = finder.Provider;
+            var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
+            if (!force && db.GetOnlineLookup(title.Id, provider) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
             {
-                db.SetOnlineLookup(title.Id, provider, query, found: false);
-                return false;
+                continue;
             }
 
-            await online.Images.DownloadAsync(poster.ImageUrl, file, PosterSize.W, PosterSize.H, ct);
-            db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Poster, ArtworkSource.Online, file);
-            db.SetOnlineLookup(title.Id, provider, query, found: true);
-            return true;
+            try
+            {
+                var poster = await finder.FindAsync(title.Name, title.Year, ct);
+                if (poster is null)
+                {
+                    db.SetOnlineLookup(title.Id, provider, query, found: false);
+                    continue;
+                }
+
+                await online.Images.DownloadAsync(poster.ImageUrl, file, PosterSize.W, PosterSize.H, ct);
+                db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Poster, ArtworkSource.Online, file);
+                db.SetOnlineLookup(title.Id, provider, query, found: true);
+                return true;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
+            {
+                run.Unavailable.Add(provider);
+                failures.Add(new ArtworkFailure($"Online-Cover ({provider})", $"nicht verfügbar: {ex.Message}"));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failures.Add(new ArtworkFailure(title.Name, $"Online-Poster nicht übernommen: {ex.Message}"));
+            }
         }
-        catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
-        {
-            run.Unavailable.Add(provider);
-            failures.Add(new ArtworkFailure($"Online-Cover ({provider})", $"nicht verfügbar: {ex.Message}"));
-            return false;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            failures.Add(new ArtworkFailure(title.Name, $"Online-Poster nicht übernommen: {ex.Message}"));
-            return false;
-        }
+        return false;
     }
 
     /// <summary>
-    /// Holt Handlung, Wertung, Besetzung (und bei Serien die Folgentexte) eines Titels aus dem Internet. Ein Titel mit Infotexten wird nur mit
-    /// <paramref name="force"/> neu gefragt. Ergebnislose Suchen und Ausfälle behandelt es wie <see cref="TryOnlinePosterAsync"/>; ein Ausfall des
-    /// Dienstes gilt dabei für Poster und Infotexte zugleich, denn es ist derselbe Dienst.
+    /// Holt das Hintergrundbild eines Titels von TMDB. Sonst wie <see cref="TryOnlinePosterAsync"/>: ohne Treffer wird erst nach zwei Wochen neu gefragt
+    /// (getrennt von der Posteranfrage an denselben Dienst), ein Ausfall des Dienstes gilt für alles, was er liefert.
     /// </summary>
-    private async Task<bool> TryOnlineInfoAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct, bool replaceUserTexts = false)
+    private async Task<bool> TryOnlineBackdropAsync(TitleRow title, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
     {
-        if (Online is not { } online) return false;
-        if ((title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is not { } finder || run.Unavailable.Contains(finder.Provider)) return false;
-        var known = db.GetTitleInfo(title.Id);
-        if (known is not null && (!force || (known.UserEdited && !replaceUserTexts))) return false; // selbst geschriebene Texte bleiben
+        if (Online is not { } online || online.RichFor(title.Kind) is not { } finder || run.Unavailable.Contains(finder.Provider)) return false;
 
-        var lookupKey = $"info:{finder.Provider}"; // getrennt von der Posteranfrage an denselben Dienst
+        var lookupKey = $"backdrop:{finder.Provider}";
         var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
         if (!force && db.GetOnlineLookup(title.Id, lookupKey) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
         {
@@ -232,28 +253,119 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
 
         try
         {
-            var info = await finder.FindInfoAsync(title.Name, title.Year, ct);
-            if (info is null || info.IsEmpty)
+            var backdrop = await finder.FindBackdropAsync(title.Name, title.Year, ct);
+            if (backdrop is null)
             {
                 db.SetOnlineLookup(title.Id, lookupKey, query, found: false);
                 return false;
             }
 
-            db.SetTitleInfo(title.Id, finder.Provider, info);
+            await online.Images.DownloadAsync(backdrop.ImageUrl, file, BackdropSize.W, BackdropSize.H, ct);
+            db.SetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape, ArtworkSource.Online, file);
             db.SetOnlineLookup(title.Id, lookupKey, query, found: true);
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
         {
             run.Unavailable.Add(finder.Provider);
-            failures.Add(new ArtworkFailure($"Online-Infotexte ({finder.Provider})", $"nicht verfügbar: {ex.Message}"));
+            failures.Add(new ArtworkFailure($"Online-Hintergründe ({finder.Provider})", $"nicht verfügbar: {ex.Message}"));
             return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            failures.Add(new ArtworkFailure(title.Name, $"Online-Infotexte nicht übernommen: {ex.Message}"));
+            failures.Add(new ArtworkFailure(title.Name, $"Online-Hintergrund nicht übernommen: {ex.Message}"));
             return false;
         }
+    }
+
+    /// <summary>
+    /// Ersetzt ein Standbild als Hintergrund durch das Bild aus dem Internet, sobald es einen Dienst dafür gibt. Bilder aus dem Ordner, aus der Datei
+    /// und selbst gewählte bleiben, ebenso schon geholte.
+    /// </summary>
+    private async Task<bool> TryUpgradeBackdropAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    {
+        if (db.GetArtwork(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape) is not { Source: ArtworkSource.Frame }) return false;
+        return await TryOnlineBackdropAsync(title, CacheFile(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape), force, run, failures, ct);
+    }
+
+    /// <summary>
+    /// Holt Handlung, Wertung, Besetzung (und bei Serien die Folgentexte) eines Titels aus dem Internet, zuerst bei TMDB (deutsch), sonst bei
+    /// TVmaze bzw. OMDb (englisch); fehlt nur die Handlung, ergänzt der nächste Dienst sie. Ein Titel mit Infotexten wird nur mit
+    /// <paramref name="force"/> neu gefragt; Texte von OMDb und TVmaze ersetzt aber auch ohne force der erste Treffer bei TMDB, sobald TMDB zur Verfügung steht.
+    /// Ergebnislose Suchen und Ausfälle behandelt es wie <see cref="TryOnlinePosterAsync"/>; ein Ausfall des Dienstes gilt dabei für Poster und Infotexte
+    /// zugleich, denn es ist derselbe Dienst.
+    /// </summary>
+    private async Task<bool> TryOnlineInfoAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct, bool replaceUserTexts = false)
+    {
+        if (Online is not { } online) return false;
+        var finders = online.InfoSourcesFor(title.Kind);
+        if (finders.Count == 0) return false;
+
+        var known = db.GetTitleInfo(title.Id);
+        if (known is not null)
+        {
+            if (known.UserEdited && !replaceUserTexts) return false; // selbst geschriebene Texte bleiben
+            if (!force)
+            {
+                // Schon Texte da: nur die englischen von OMDb/TVmaze gegen die deutschen von TMDB tauschen.
+                if (online.RichFor(title.Kind) is not { } rich || known.Provider == rich.Provider) return false;
+                finders = [rich];
+            }
+        }
+
+        OnlineTitleInfo? result = null;
+        string? resultProvider = null;
+        foreach (var finder in finders)
+        {
+            if (run.Unavailable.Contains(finder.Provider)) continue;
+
+            var lookupKey = $"info:{finder.Provider}"; // getrennt von der Posteranfrage an denselben Dienst
+            var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
+            if (!force && db.GetOnlineLookup(title.Id, lookupKey) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
+            {
+                continue;
+            }
+
+            try
+            {
+                var info = await finder.FindInfoAsync(title.Name, title.Year, ct);
+                if (info is null || info.IsEmpty)
+                {
+                    db.SetOnlineLookup(title.Id, lookupKey, query, found: false);
+                    continue;
+                }
+                db.SetOnlineLookup(title.Id, lookupKey, query, found: true);
+
+                if (result is null)
+                {
+                    result = info;
+                    resultProvider = finder.Provider;
+                }
+                else
+                {
+                    result = result with { Plot = info.Plot }; // der erste Dienst hatte keine Handlung, dieser hat sie
+                }
+                if (result.Plot is not null) break;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
+            {
+                run.Unavailable.Add(finder.Provider);
+                failures.Add(new ArtworkFailure($"Online-Infotexte ({finder.Provider})", $"nicht verfügbar: {ex.Message}"));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failures.Add(new ArtworkFailure(title.Name, $"Online-Infotexte nicht übernommen: {ex.Message}"));
+            }
+        }
+        if (result is null || resultProvider is null) return false;
+
+        // Wer Texte bei TMDB nachholt, verliert die bisherigen nicht, wenn TMDB etwas davon nicht kennt (deutsche Handlung fehlt oft bei kleinen Titeln).
+        if (known is not null)
+        {
+            result = result with { Plot = result.Plot ?? known.Plot, Director = result.Director ?? known.Director, Cast = result.Cast ?? known.Cast };
+        }
+        db.SetTitleInfo(title.Id, resultProvider, result);
+        return true;
     }
 
     /// <summary>
@@ -264,10 +376,10 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     public async Task<InfoRefreshResult> RefreshInfoAsync(long titleId, CancellationToken ct = default)
     {
         var title = db.GetTitles().FirstOrDefault(t => t.Id == titleId) ?? throw new InvalidOperationException($"Titel {titleId} existiert nicht (mehr).");
-        if (Online is not { } online || (title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is null)
+        if (Online is not { } online || online.InfoSourcesFor(title.Kind).Count == 0)
         {
             return new InfoRefreshResult(false, title.Kind == TitleKind.Movie
-                ? "Für Filme fehlt der OMDb-Schlüssel (Einstellungen → Bibliothek) oder „Cover aus dem Internet“ ist aus."
+                ? "Für Filme fehlt der TMDB- oder OMDb-Schlüssel (Einstellungen → Bibliothek) oder „Cover aus dem Internet“ ist aus."
                 : "„Cover aus dem Internet“ ist in den Einstellungen aus.");
         }
 
@@ -290,7 +402,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
             try
             {
                 var file = CacheFile(ArtworkOwner.Video, video.VideoId, ArtworkKind.Landscape);
-                await images.GrabFrameAsync(path, FramePosition(video.DurationSeconds), Absolute(file), ThumbSize.W, ThumbSize.H, ct);
+                await images.GrabFrameAsync(DiscInput.ForFfmpeg(video.Disc, path), FramePosition(video.DurationSeconds), Absolute(file), ThumbSize.W, ThumbSize.H, ct);
                 db.SetArtwork(ArtworkOwner.Video, video.VideoId, ArtworkKind.Landscape, ArtworkSource.Frame, file);
                 created++;
             }
@@ -417,7 +529,7 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     private async Task<bool> TryOnlineAlbumCoverAsync(AlbumInfo album, string file, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
     {
         if (Online is not { Albums: { } finders } online) return false;
-        if (album.Artist == MusicIndex.UnknownArtist || album.Title == MusicIndex.UnknownAlbum) return false;
+        if (album.Artist is MusicIndex.UnknownArtist or MusicIndex.VariousArtists || album.Title == MusicIndex.UnknownAlbum) return false;
 
         foreach (var finder in finders)
         {

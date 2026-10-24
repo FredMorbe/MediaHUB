@@ -38,13 +38,13 @@ internal static class ContextPopup
         }
 
         var scroll = new ScrollViewer { Content = list, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var frame = new Border
+        // Milchglas über allem (Seite, Navigation, Modale): das Popup ist ein eigenes Fenster, das Glas liest die Ebene dahinter über Bildschirmkoordinaten.
+        var frame = new GlassPanel
         {
-            MinWidth = 200, CornerRadius = new CornerRadius(14), BorderThickness = new Thickness(1), Padding = new Thickness(6), Margin = new Thickness(14), Child = scroll,
+            Layer = GlassLayer.Stage, MinWidth = 200, CornerRadius = new CornerRadius(14), Padding = new Thickness(6), Margin = new Thickness(14), Content = scroll,
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 28, ShadowDepth = 8, Direction = 270, Opacity = 0.38, Color = System.Windows.Media.Colors.Black },
         };
-        frame.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
-        frame.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
+        frame.SetResourceReference(Control.BackgroundProperty, "SheetTintBrush");
         popup.Child = frame;
         popup.Closed += (_, _) => popup.Child = null;
         popup.IsOpen = true;

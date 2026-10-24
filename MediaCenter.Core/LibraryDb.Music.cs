@@ -23,20 +23,32 @@ public sealed partial class LibraryDb
         var trackArtists = ListTrackArtists();
         var albumNames = ListAlbumNames();
         var albumArtists = ListAlbumArtists();
-        var rows = new List<TrackRow>();
-        using var cmd = Command("""
+        var tagRows = new List<TrackRow>();
+        using (var cmd = Command("""
             SELECT t.id, f.id, f.volume_id, f.rel_path, f.missing,
                    t.title, t.artist, t.album_artist, t.album, t.track_no, t.disc_no, t.year, t.genre, f.duration_sec
             FROM tracks t JOIN files f ON f.id = t.file_id
             ORDER BY t.id
-            """);
-        using var r = cmd.ExecuteReader();
-        while (r.Read())
+            """))
+        using (var r = cmd.ExecuteReader())
         {
-            var raw = new TrackRow(
-                r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetString(3), r.GetInt32(4) == 1,
-                r.GetString(5), r.GetStringOrNull(6), r.GetStringOrNull(7), r.GetStringOrNull(8),
-                r.GetInt32OrNull(9), r.GetInt32OrNull(10), r.GetInt32OrNull(11), r.GetStringOrNull(12), r.GetDoubleOrNull(13));
+            while (r.Read())
+            {
+                tagRows.Add(new TrackRow(
+                    r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetString(3), r.GetInt32(4) == 1,
+                    r.GetString(5), r.GetStringOrNull(6), r.GetStringOrNull(7), r.GetStringOrNull(8),
+                    r.GetInt32OrNull(9), r.GetInt32OrNull(10), r.GetInt32OrNull(11), r.GetStringOrNull(12), r.GetDoubleOrNull(13)));
+            }
+        }
+
+        // Ein Ordner mit Titeln verschiedener Künstler unter einem Albumnamen (Playlist aus YouTube, Sampler) bleibt ein Album.
+        var compilations = MusicIndex.CompilationArtists(tagRows);
+        var rows = new List<TrackRow>();
+        foreach (var tagRow in tagRows)
+        {
+            var raw = compilations.TryGetValue(MusicIndex.CompilationKey(tagRow), out var compilationArtist) && string.IsNullOrWhiteSpace(tagRow.AlbumArtist)
+                ? tagRow with { AlbumArtist = compilationArtist }
+                : tagRow;
             var tagKey = MusicIndex.AlbumKeyOf(raw);
             var tagGroupArtist = MusicIndex.ArtistOf(raw);
             var row = raw with { TagAlbumKey = tagKey };
@@ -185,7 +197,11 @@ public sealed partial class LibraryDb
                 Run("DELETE FROM album_names WHERE album_key = $key", ("$key", key));
                 Run("DELETE FROM album_artists WHERE album_key = $key", ("$key", key));
             }
-            foreach (var track in tracks) Run("DELETE FROM track_artists WHERE track_id = $id", ("$id", track.TrackId));
+            foreach (var track in tracks)
+            {
+                Run("DELETE FROM track_artists WHERE track_id = $id", ("$id", track.TrackId));
+                Run("DELETE FROM track_names WHERE track_id = $id", ("$id", track.TrackId));
+            }
             var newKey = MusicIndex.TagAlbumKeyOf(first);
             MoveAlbumArt(MusicIndex.AlbumKeyOf(first), newKey);
             return newKey;

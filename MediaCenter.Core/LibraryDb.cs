@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 19;
+    private const int SchemaVersion = 23;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 18))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 18 or 19 or 20 or 21 or 22))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -461,6 +461,76 @@ public sealed partial class LibraryDb : IDisposable
                 ALTER TABLE podcast_progress_new RENAME TO podcast_progress;
                 CREATE INDEX podcast_progress_episode ON podcast_progress(episode_id);
                 """, ("$now", Utc(DateTime.UtcNow)));
+            // Schema 20: Trailer (YouTube-Kennung) neben den Infotexten; abgeleitete Daten, ein Durchlauf mit force holt sie.
+            if (version < 20) Run("ALTER TABLE title_info ADD COLUMN trailer TEXT;");
+            // Schema 21: Live-TV. Senderlisten (M3U), ihre Sender samt Favoriten und der Programmführer (XMLTV). Sender und Führer lassen sich neu laden,
+            // der Favorit hängt an der Kennung des Senders. name_key ist der Name ohne Akzente, Satzzeichen und Großschreibung für die Suche.
+            if (version < 21) Run("""
+                CREATE TABLE live_sources (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    location TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    epg_location TEXT,
+                    refreshed_utc TEXT,
+                    guide_refreshed_utc TEXT,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE live_channels (
+                    id INTEGER PRIMARY KEY,
+                    source_id INTEGER NOT NULL REFERENCES live_sources(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    name_key TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    group_name TEXT,
+                    tvg_id TEXT,
+                    epg_id TEXT,
+                    logo_url TEXT,
+                    number INTEGER,
+                    position INTEGER NOT NULL,
+                    favorite INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX live_channels_source ON live_channels(source_id, position);
+                CREATE INDEX live_channels_favorite ON live_channels(favorite) WHERE favorite = 1;
+
+                CREATE TABLE live_epg (
+                    source_id INTEGER NOT NULL REFERENCES live_sources(id) ON DELETE CASCADE,
+                    epg_id TEXT NOT NULL,
+                    start_utc TEXT NOT NULL,
+                    stop_utc TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT
+                );
+                CREATE INDEX live_epg_lookup ON live_epg(source_id, epg_id, start_utc);
+                """);
+            // Schema 22: Sendeplan der Serien von TVmaze (Kalender, „neue Folge“). Abgeleitete Daten; tvmaze_id NULL = TVmaze kennt die Serie nicht.
+            if (version < 22) Run("""
+                CREATE TABLE series_schedule (
+                    title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE,
+                    tvmaze_id INTEGER,
+                    status TEXT,
+                    checked_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE episode_air (
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    season INTEGER NOT NULL,
+                    episode INTEGER NOT NULL,
+                    air_utc TEXT NOT NULL,
+                    has_time INTEGER NOT NULL,
+                    name TEXT,
+                    notified INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (title_id, season, episode)
+                );
+                CREATE INDEX episode_air_date ON episode_air(air_utc);
+                """);
+            // Schema 23: Welche Videos schon an Trakt gegangen sind (Abgleich „gesehen“).
+            if (version < 23) Run("""
+                CREATE TABLE trakt_pushed (
+                    video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+                    pushed_utc TEXT NOT NULL
+                );
+                """);
             Run($"PRAGMA user_version = {SchemaVersion};");
         });
     }

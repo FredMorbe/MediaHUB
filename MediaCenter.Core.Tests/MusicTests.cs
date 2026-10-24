@@ -39,6 +39,41 @@ public sealed class TrackTagsTests
     }
 }
 
+public sealed class TrackFileNameTests
+{
+    [Theory]
+    [InlineData("[HD 1080p] 少女時代 Girls' Generation - Day By Day (Daum Screen Saver).mp4", "少女時代 Girls' Generation", "Day By Day (Daum Screen Saver)")]
+    [InlineData("Daft Punk - One More Time (Official Video).mp3", "Daft Punk", "One More Time")]
+    [InlineData("07 - Portishead - Roads.flac", "Portishead", "Roads")]
+    [InlineData("Daft_Punk_-_One_More_Time.mp3", "Daft Punk", "One More Time")]
+    [InlineData("Jay-Z - 99 Problems [Lyrics].mp3", "Jay-Z", "99 Problems")]
+    [InlineData("50 Cent - In da Club.mp3", "50 Cent", "In da Club")]
+    [InlineData("Artist – Title – Live.mp3", "Artist", "Title – Live")]
+    [InlineData("【MV】 IU - Good Day 【4K】.mp4", "IU", "Good Day")]
+    public void Artist_and_title_are_read_from_artist_dash_title(string file, string artist, string title)
+    {
+        var parts = TrackFileName.Parse(@"D:\Musik\Past Times\" + file);
+
+        Assert.Equal(new FileNameParts(artist, title), parts);
+    }
+
+    [Theory]
+    [InlineData("07 - Roads.mp3", "Roads")]
+    [InlineData("7 Nation Army.mp3", "7 Nation Army")]
+    [InlineData("3 Doors Down.mp3", "3 Doors Down")]
+    [InlineData("Jay-Z.mp3", "Jay-Z")]
+    [InlineData("Artist - .mp3", "Artist -")]
+    [InlineData("(Official Video).mp3", "(Official Video)")]
+    [InlineData("Roads (Remastered 2009).mp3", "Roads (Remastered 2009)")]
+    public void Without_artist_dash_title_only_the_title_is_cleaned(string file, string title)
+    {
+        var parts = TrackFileName.Parse(@"D:\Musik\" + file);
+
+        Assert.Null(parts.Artist);
+        Assert.Equal(title, parts.Title);
+    }
+}
+
 public sealed class FfprobeTagTests
 {
     [Fact]
@@ -98,6 +133,28 @@ public sealed class MusicIndexTests
         Assert.Equal(2, albums.Count);
         Assert.Equal(2, albums.Single(a => a.Artist == "Various Artists").Tracks.Count);
         Assert.Equal(2, albums.Single(a => a.Title.StartsWith("Live", StringComparison.OrdinalIgnoreCase)).Tracks.Count);
+    }
+
+    [Fact]
+    public void Folder_with_one_album_name_and_several_artists_is_a_compilation_unless_one_artist_clearly_leads()
+    {
+        TrackRow InFolder(long id, string folder, string artist, string album = "Past Times", string? albumArtist = null) =>
+            Track(id, "t", artist, albumArtist, album, null) with { RelPath = $@"{folder}\t{id}.mp3" };
+
+        var tracks = new[]
+        {
+            InFolder(1, "Playlist", "2Pac - Topic"), InFolder(2, "Playlist", "Dido"), InFolder(3, "Playlist", "B.o.B"),
+            InFolder(4, "Band", "Band"), InFolder(5, "Band", "Band"), InFolder(6, "Band", "Band"), InFolder(7, "Band", "Band feat. Gast"),
+            InFolder(8, "Allein", "Solo"),
+            InFolder(9, "Sampler", "Eins", albumArtist: "Various Artists"), InFolder(10, "Sampler", "Zwei", albumArtist: "Various Artists"),
+            InFolder(11, "Zwei Alben", "Eins", album: "A"), InFolder(12, "Zwei Alben", "Zwei", album: "B"),
+        };
+
+        var found = MusicIndex.CompilationArtists(tracks);
+
+        Assert.Equal(2, found.Count);
+        Assert.Equal(MusicIndex.VariousArtists, found[MusicIndex.CompilationKey(tracks[0])]);
+        Assert.Equal("Band", found[MusicIndex.CompilationKey(tracks[3])]);
     }
 
     [Fact]
@@ -179,6 +236,37 @@ public sealed class MusicLibraryTests : IDisposable
         Assert.All(tracks, t => Assert.Equal("Band", t.Artist));
         Assert.Equal(200, tracks[0].DurationSeconds);
         Assert.Single(_db.ListVideos()); // nur der Film
+    }
+
+    [Fact]
+    public async Task Playlist_folder_with_many_artists_stays_one_album_that_can_be_renamed_and_reset()
+    {
+        Touch(_drive, @"Musik\Past Times\eins.mp3");
+        Touch(_drive, @"Musik\Past Times\zwei.mp3");
+        Touch(_drive, @"Musik\Past Times\drei.mp3");
+        var artists = new Dictionary<string, string> { ["eins"] = "2Pac - Topic", ["zwei"] = "Dido", ["drei"] = "B.o.B" };
+        _probe.Respond = path => new ProbeResult(200, "mp3", AudioProbe(path).Streams, new Dictionary<string, string>
+        {
+            ["title"] = Path.GetFileNameWithoutExtension(path), ["artist"] = artists[Path.GetFileNameWithoutExtension(path)], ["album"] = "Past Times",
+        });
+        await _library.AddFolderAsync(_drive);
+
+        var album = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+
+        Assert.Equal("Past Times", album.Title);
+        Assert.Equal(MusicIndex.VariousArtists, album.Artist);
+        Assert.Equal(3, album.Tracks.Count);
+        Assert.Equal(new[] { "2Pac - Topic", "B.o.B", "Dido" }, album.Tracks.Select(t => t.Artist!).OrderBy(a => a));
+
+        var newKey = _db.RenameAlbum(album.Tracks, "Alte Zeiten", "Sampler");
+        var renamed = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(newKey, renamed.Key);
+        Assert.Equal(("Alte Zeiten", "Sampler"), (renamed.Title, renamed.Artist));
+
+        _db.ResetAlbum(renamed.Tracks);
+        var reset = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.Equal(("Past Times", MusicIndex.VariousArtists), (reset.Title, reset.Artist));
+        Assert.Equal(new[] { "2Pac - Topic", "B.o.B", "Dido" }, reset.Tracks.Select(t => t.Artist!).OrderBy(a => a));
     }
 
     [Fact]
@@ -357,9 +445,11 @@ public sealed class MusicLibraryTests : IDisposable
         Assert.Equal(3, withThird.Tracks.Count);
         Assert.Equal("Die Band", withThird.Artist);
 
-        var resetKey = _db.ResetAlbum(withThird.Tracks);
+        _db.RenameTrack(withThird.Tracks[0], "Eigener Name");
+        var resetKey = _db.ResetAlbum(MusicIndex.BuildAlbums(_db.ListTracks()).Single().Tracks);
 
         var reset = MusicIndex.BuildAlbums(_db.ListTracks()).Single();
+        Assert.All(reset.Tracks, t => Assert.NotEqual("Eigener Name", t.Title)); // auch die Namen der Titel sind zurück
         Assert.Equal(oldKey, resetKey);
         Assert.Equal("Band", reset.Artist);
         Assert.Equal("album-alt.jpg", _db.GetAlbumArt(oldKey));
@@ -660,7 +750,7 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                CREATE TABLE playback_old (video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE, position_sec REAL NOT NULL, watched INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO playback_old SELECT video_id, position_sec, watched, updated_utc FROM playback WHERE profile_id = 1; DROP TABLE playback; ALTER TABLE playback_old RENAME TO playback; CREATE TABLE watchlist_old (title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE, added_utc TEXT NOT NULL); INSERT INTO watchlist_old SELECT title_id, added_utc FROM watchlist WHERE profile_id = 1; DROP TABLE watchlist; ALTER TABLE watchlist_old RENAME TO watchlist; CREATE TABLE podcast_progress_old (episode_id INTEGER PRIMARY KEY REFERENCES podcast_episodes(id) ON DELETE CASCADE, position_sec REAL NOT NULL, played INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO podcast_progress_old SELECT episode_id, position_sec, played, updated_utc FROM podcast_progress WHERE profile_id = 1; DROP TABLE podcast_progress; ALTER TABLE podcast_progress_old RENAME TO podcast_progress; DROP TABLE kids_titles; DROP TABLE profiles; DROP INDEX files_fingerprint; ALTER TABLE files DROP COLUMN fingerprint; DROP TABLE collection_titles; DROP TABLE collections; DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists;
+                CREATE TABLE playback_old (video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE, position_sec REAL NOT NULL, watched INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO playback_old SELECT video_id, position_sec, watched, updated_utc FROM playback WHERE profile_id = 1; DROP TABLE playback; ALTER TABLE playback_old RENAME TO playback; CREATE TABLE watchlist_old (title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE, added_utc TEXT NOT NULL); INSERT INTO watchlist_old SELECT title_id, added_utc FROM watchlist WHERE profile_id = 1; DROP TABLE watchlist; ALTER TABLE watchlist_old RENAME TO watchlist; CREATE TABLE podcast_progress_old (episode_id INTEGER PRIMARY KEY REFERENCES podcast_episodes(id) ON DELETE CASCADE, position_sec REAL NOT NULL, played INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO podcast_progress_old SELECT episode_id, position_sec, played, updated_utc FROM podcast_progress WHERE profile_id = 1; DROP TABLE podcast_progress; ALTER TABLE podcast_progress_old RENAME TO podcast_progress; DROP TABLE trakt_pushed; DROP TABLE episode_air; DROP TABLE series_schedule; DROP TABLE live_epg; DROP TABLE live_channels; DROP TABLE live_sources; DROP TABLE kids_titles; DROP TABLE profiles; DROP INDEX files_fingerprint; ALTER TABLE files DROP COLUMN fingerprint; DROP TABLE collection_titles; DROP TABLE collections; DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists;
                 DROP TABLE album_lookups;
                 CREATE TABLE album_art_old (album_key TEXT PRIMARY KEY, source TEXT NOT NULL CHECK (source IN ('sidecar', 'embedded')), file TEXT NOT NULL, updated_utc TEXT NOT NULL);
                 INSERT INTO album_art_old SELECT album_key, source, file, updated_utc FROM album_art;
@@ -695,7 +785,7 @@ public sealed class MusicLibraryTests : IDisposable
             connection.Open();
             using var cmd = connection.CreateCommand();
             cmd.CommandText = """
-                CREATE TABLE playback_old (video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE, position_sec REAL NOT NULL, watched INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO playback_old SELECT video_id, position_sec, watched, updated_utc FROM playback WHERE profile_id = 1; DROP TABLE playback; ALTER TABLE playback_old RENAME TO playback; CREATE TABLE watchlist_old (title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE, added_utc TEXT NOT NULL); INSERT INTO watchlist_old SELECT title_id, added_utc FROM watchlist WHERE profile_id = 1; DROP TABLE watchlist; ALTER TABLE watchlist_old RENAME TO watchlist; CREATE TABLE podcast_progress_old (episode_id INTEGER PRIMARY KEY REFERENCES podcast_episodes(id) ON DELETE CASCADE, position_sec REAL NOT NULL, played INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO podcast_progress_old SELECT episode_id, position_sec, played, updated_utc FROM podcast_progress WHERE profile_id = 1; DROP TABLE podcast_progress; ALTER TABLE podcast_progress_old RENAME TO podcast_progress; DROP TABLE kids_titles; DROP TABLE profiles; DROP INDEX files_fingerprint; ALTER TABLE files DROP COLUMN fingerprint; DROP TABLE collection_titles; DROP TABLE collections; DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
+                CREATE TABLE playback_old (video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE, position_sec REAL NOT NULL, watched INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO playback_old SELECT video_id, position_sec, watched, updated_utc FROM playback WHERE profile_id = 1; DROP TABLE playback; ALTER TABLE playback_old RENAME TO playback; CREATE TABLE watchlist_old (title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE, added_utc TEXT NOT NULL); INSERT INTO watchlist_old SELECT title_id, added_utc FROM watchlist WHERE profile_id = 1; DROP TABLE watchlist; ALTER TABLE watchlist_old RENAME TO watchlist; CREATE TABLE podcast_progress_old (episode_id INTEGER PRIMARY KEY REFERENCES podcast_episodes(id) ON DELETE CASCADE, position_sec REAL NOT NULL, played INTEGER NOT NULL, updated_utc TEXT NOT NULL); INSERT INTO podcast_progress_old SELECT episode_id, position_sec, played, updated_utc FROM podcast_progress WHERE profile_id = 1; DROP TABLE podcast_progress; ALTER TABLE podcast_progress_old RENAME TO podcast_progress; DROP TABLE trakt_pushed; DROP TABLE episode_air; DROP TABLE series_schedule; DROP TABLE live_epg; DROP TABLE live_channels; DROP TABLE live_sources; DROP TABLE kids_titles; DROP TABLE profiles; DROP INDEX files_fingerprint; ALTER TABLE files DROP COLUMN fingerprint; DROP TABLE collection_titles; DROP TABLE collections; DROP TABLE episode_info; DROP TABLE title_info; DROP TABLE album_artists; DROP TABLE track_artists; DROP TABLE album_names; DROP TABLE track_names; DROP TABLE watchlist; DROP TABLE playlist_items; DROP TABLE playlists; DROP TABLE tracks; DROP TABLE album_art; DROP TABLE radio_stations; DROP TABLE podcast_progress;
                 DROP TABLE podcast_episodes; DROP TABLE podcasts; DROP TABLE removed_files; DROP TABLE online_lookups; DROP TABLE album_lookups; DROP TABLE color_settings; DROP TABLE subtitle_settings; PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();

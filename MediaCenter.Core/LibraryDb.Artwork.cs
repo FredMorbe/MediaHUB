@@ -83,7 +83,7 @@ public sealed partial class LibraryDb
     {
         var rows = new List<TitleVideo>();
         using var cmd = Command("""
-            SELECT v.id, f.volume_id, f.rel_path, f.missing, f.duration_sec, v.season, v.episode
+            SELECT v.id, f.volume_id, f.rel_path, f.missing, f.duration_sec, v.season, v.episode, f.container
             FROM videos v JOIN files f ON f.id = v.file_id
             WHERE v.title_id = $id
             ORDER BY v.season, v.episode, f.rel_path
@@ -92,7 +92,7 @@ public sealed partial class LibraryDb
         while (r.Read())
         {
             rows.Add(new TitleVideo(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetInt32(3) == 1,
-                r.GetDoubleOrNull(4), r.GetInt32OrNull(5), r.GetInt32OrNull(6)));
+                r.GetDoubleOrNull(4), r.GetInt32OrNull(5), r.GetInt32OrNull(6), DiscDetector.FromContainer(r.GetStringOrNull(7))));
         }
         return rows;
     }
@@ -102,7 +102,7 @@ public sealed partial class LibraryDb
     {
         var rows = new List<TitleVideo>();
         using var cmd = Command("""
-            SELECT v.id, f.volume_id, f.rel_path, f.missing, f.duration_sec, v.season, v.episode
+            SELECT v.id, f.volume_id, f.rel_path, f.missing, f.duration_sec, v.season, v.episode, f.container
             FROM videos v JOIN files f ON f.id = v.file_id
             ORDER BY v.id
             """);
@@ -110,7 +110,7 @@ public sealed partial class LibraryDb
         while (r.Read())
         {
             rows.Add(new TitleVideo(r.GetInt64(0), r.GetInt64(1), r.GetString(2), r.GetInt32(3) == 1,
-                r.GetDoubleOrNull(4), r.GetInt32OrNull(5), r.GetInt32OrNull(6)));
+                r.GetDoubleOrNull(4), r.GetInt32OrNull(5), r.GetInt32OrNull(6), DiscDetector.FromContainer(r.GetStringOrNull(7))));
         }
         return rows;
     }

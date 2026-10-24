@@ -2,9 +2,9 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:c="clr-namespace:MediaCenter.App.Controls">
-    <!-- Schwebende Glas-Insel (Liquid Glass): links Titel, in der Mitte Steuerung mit Zeitleiste, rechts Lautstärke -->
-    <c:GlassPanel Height="72" Margin="24,0,24,16" Padding="0" CornerRadius="36">
-        <Grid Margin="22,0">
+    <!-- Durchgehende Leiste wie bei Spotify: links Titel, in der Mitte Steuerung mit Zeitleiste, rechts Lautstärke -->
+    <c:GlassPanel Height="72" Style="{StaticResource DockGlass}">
+        <Grid Margin="16,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="3*" MinWidth="200"/>
                 <ColumnDefinition Width="4*"/>
@@ -16,7 +16,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Border x:Name="CoverBox" Width="48" Height="48" CornerRadius="12" Background="{DynamicResource CardBgBrush}">
+                <Border x:Name="CoverBox" Width="48" Height="48" CornerRadius="4" Background="{DynamicResource CardBgBrush}">
                     <TextBlock x:Name="CoverGlyph" Text="&#xE8D6;" FontFamily="{StaticResource IconFont}" FontSize="22"
                                Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>

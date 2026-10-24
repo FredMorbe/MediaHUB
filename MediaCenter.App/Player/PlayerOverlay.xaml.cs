@@ -10,8 +10,9 @@ using MediaCenter.Core;
 
 namespace MediaCenter.App.Player;
 
-/// <summary>Eine Folge im Folgenmenü des Players.</summary>
-public sealed record EpisodeChoice(long VideoId, int? Season, string Label, bool Watched, bool Reachable);
+/// <summary>Eine Folge im Folgenmenü des Players; bei Live-TV ein Sender (<paramref name="VideoId"/> ist dann die Sender-Id, <paramref name="Season"/> die Nummer der Gruppe).</summary>
+/// <param name="GroupLabel">Überschrift der Gruppe im Menü; ohne sie heißt sie „Staffel n“.</param>
+public sealed record EpisodeChoice(long VideoId, int? Season, string Label, bool Watched, bool Reachable, string? GroupLabel = null);
 
 /// <summary>Ein Fernseher im Menü „Übertragen“.</summary>
 public sealed record CastChoice(string Id, string Name, string Model);
@@ -105,6 +106,9 @@ public partial class PlayerOverlay : Window
     /// <summary>Nächste Folge sofort starten (Schaltfläche oder Countdown-Karte).</summary>
     public event Action? NextClicked;
 
+    /// <summary>Live-TV: voriger Sender.</summary>
+    public event Action? PreviousChannelClicked;
+
     /// <summary>Automatischer Start der nächsten Folge abgebrochen.</summary>
     public event Action? NextCancelled;
 
@@ -168,6 +172,7 @@ public partial class PlayerOverlay : Window
         BusyBar.SetResourceReference(Control.ForegroundProperty, "AccentBrush");
         BusyBar.Background = new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
         NextButton.Click += (_, _) => NextClicked?.Invoke();
+        ChannelPrevButton.Click += (_, _) => PreviousChannelClicked?.Invoke();
         NextNowButton.Click += (_, _) => NextClicked?.Invoke();
         NextCancelButton.Click += (_, _) => NextCancelled?.Invoke();
         EpisodesButton.Click += (_, _) => ToggleMenu("episodes");
@@ -297,7 +302,7 @@ public partial class PlayerOverlay : Window
     public void SetPosition(double seconds)
     {
         PositionText.Text = Format(seconds);
-        CompactTime.Text = $"{Format(seconds)} / {DurationText.Text}";
+        if (SeekRow.Visibility == Visibility.Visible) CompactTime.Text = $"{Format(seconds)} / {DurationText.Text}";
         if (!_seeking) SeekSlider.Value = seconds;
         _lastPosition = seconds;
         RefreshChapterText();
@@ -453,6 +458,24 @@ public partial class PlayerOverlay : Window
         AudioButton.IsEnabled = tracks.Any(t => t.Type == "audio");
         // Das Untertitelmenü ist immer da: auch ohne Untertitel kann man darüber eine Datei laden.
         if (_menuType is not null) BuildMenu(_menuType);
+    }
+
+    /// <summary>
+    /// Live-TV: keine Zeitleiste, Sender statt Folgen und Staffeln, vorher/nachher als Senderwechsel; kein Übertragen auf den Fernseher. Das Sendermenü füllt <see cref="SetEpisodes"/>.
+    /// </summary>
+    public void SetLive(bool live)
+    {
+        SeekRow.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        BackButton10.Visibility = ForwardButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        CastButton.Visibility = IntroSkipButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        ChannelPrevButton.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+        NextButton.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+        NextButton.ToolTip = live ? "Nächster Sender (Bild ab)" : null;
+        System.Windows.Automation.AutomationProperties.SetName(NextButton, live ? "Nächster Sender" : "Nächste Folge");
+        EpisodesButton.ToolTip = live ? "Sender wählen" : "Folge der Serie wählen";
+        System.Windows.Automation.AutomationProperties.SetName(EpisodesButton, live ? "Sender" : "Folgen");
+        CompactTime.Text = live ? "Live" : "";
+        if (live) HideNextCountdown();
     }
 
     /// <summary>Zeigt die Schaltfläche für die nächste Folge; null blendet sie aus (letzte Folge, Film, Folge nicht erreichbar).</summary>
@@ -728,7 +751,7 @@ public partial class PlayerOverlay : Window
         {
             var header = new TextBlock
             {
-                Text = season.Key is { } number ? $"Staffel {number}" : "Folgen",
+                Text = season.First().GroupLabel ?? (season.Key is { } number ? $"Staffel {number}" : "Folgen"),
                 FontSize = 13,
                 Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)),
                 Margin = new Thickness(8, 8, 0, 4),
@@ -749,7 +772,7 @@ public partial class PlayerOverlay : Window
                 };
                 button.SetResourceReference(StyleProperty, "Chip");
                 button.Margin = new Thickness(0, 0, 0, 4);
-                System.Windows.Automation.AutomationProperties.SetName(button, $"{(episode.Season is { } s ? $"Staffel {s} " : "")}{episode.Label}");
+                System.Windows.Automation.AutomationProperties.SetName(button, $"{(episode.GroupLabel is null && episode.Season is { } s ? $"Staffel {s} " : "")}{episode.Label}");
                 button.Checked += (_, _) =>
                 {
                     if (_building) return;

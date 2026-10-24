@@ -29,6 +29,23 @@ public interface IMovieInfoSource
     Task<MovieInfo?> LookupAsync(string title, int? year, CancellationToken ct = default);
 }
 
+/// <summary>Findet das Hintergrundbild (Querformat) eines Titels im Internet. Gibt null zurück, wenn es keinen sicheren Treffer gibt.</summary>
+public interface IBackdropSource
+{
+    /// <summary>Kennung des Anbieters; unter ihr merkt sich die Datenbank ergebnislose Suchen.</summary>
+    string Provider { get; }
+
+    /// <exception cref="PosterSourceUnavailableException">Der Dienst lehnt ab (falscher Schlüssel, Tageslimit).</exception>
+    Task<OnlinePoster?> FindBackdropAsync(string title, int? year, CancellationToken ct = default);
+}
+
+/// <summary>Ein Dienst, der für einen Titel Poster, Infotexte und Hintergrundbild liefert (TMDB); er hat Vorrang vor den einfachen Quellen.</summary>
+public interface IRichTitleSource : IPosterSource, ITitleInfoSource, IBackdropSource
+{
+    /// <summary>Beide Schnittstellen nennen dieselbe Kennung.</summary>
+    new string Provider { get; }
+}
+
 /// <summary>Der Dienst ist erreichbar, nimmt aber keine Anfragen an (ungültiger Schlüssel, Tageslimit erreicht).</summary>
 public sealed class PosterSourceUnavailableException(string message) : Exception(message);
 

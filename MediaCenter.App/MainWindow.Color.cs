@@ -49,6 +49,8 @@ public partial class MainWindow
             }
             await _mpv.CommandAsync("set", "glsl-shaders", string.Join(';', shaders));
         }
+
+        await ApplyHdrPolicyAsync(color); // LUT und Filter sind für SDR gebaut: mit ihnen wird HDR nicht durchgereicht
     }
 
     private ColorSettings _color = ColorSettings.Default;
@@ -71,6 +73,7 @@ public partial class MainWindow
             _colorSaveTimer.Start();
         }
         _appliedColor = null;
+        ResetHdrState();
         _overlay.SetColor(_color);
         return ApplyColorAsync(_color);
     }

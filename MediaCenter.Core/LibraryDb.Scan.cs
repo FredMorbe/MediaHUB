@@ -101,7 +101,7 @@ public sealed partial class LibraryDb
             """,
             ("$vol", volumeId), ("$rel", relPath), ("$size", size), ("$mtime", Utc(mtimeUtc)),
             ("$duration", probe.DurationSeconds), ("$container", probe.Container),
-            ("$width", video?.Width), ("$height", video?.Height), ("$codec", video?.Codec), ("$hdr", probe.IsHdr ? 1 : 0), ("$fingerprint", fingerprint));
+            ("$width", video?.Width), ("$height", video?.Height), ("$codec", video?.Codec), ("$hdr", (int)probe.Hdr), ("$fingerprint", fingerprint));
 
         Run("DELETE FROM streams WHERE file_id = $file", ("$file", fileId));
         foreach (var s in probe.Streams)
@@ -337,7 +337,7 @@ public sealed partial class LibraryDb
             SELECT v.id, f.id, f.volume_id, f.rel_path, f.missing,
                    v.title_id, t.kind, t.name, t.year, v.season, v.episode, v.locked,
                    v.parsed_title, v.parsed_kind,
-                   f.duration_sec, f.width, f.height, f.video_codec, f.is_hdr
+                   f.duration_sec, f.width, f.height, f.video_codec, f.is_hdr, f.container
             FROM videos v
             JOIN files f ON f.id = v.file_id
             LEFT JOIN titles t ON t.id = v.title_id
@@ -352,7 +352,7 @@ public sealed partial class LibraryDb
                 r.GetStringOrNull(6) is { } kind ? (kind == "movie" ? TitleKind.Movie : TitleKind.Series) : null,
                 r.GetStringOrNull(7), r.GetInt32OrNull(8), r.GetInt32OrNull(9), r.GetInt32OrNull(10), r.GetInt32(11) == 1,
                 r.GetString(12), r.GetString(13) == "movie" ? VideoKind.Movie : VideoKind.Episode,
-                r.GetDoubleOrNull(14), r.GetInt32OrNull(15), r.GetInt32OrNull(16), r.GetStringOrNull(17), r.GetInt32(18) == 1));
+                r.GetDoubleOrNull(14), r.GetInt32OrNull(15), r.GetInt32OrNull(16), r.GetStringOrNull(17), HdrFormats.FromStored(r.GetInt32(18)), DiscDetector.FromContainer(r.GetStringOrNull(19))));
         }
         return rows;
     }

@@ -8,7 +8,7 @@ internal static class Rows
     public static VideoRow Video(long id, long? titleId, TitleKind? kind = null, string? name = null, int? season = null, int? episode = null,
         double? duration = 3600, long fileId = 0) =>
         new(id, fileId == 0 ? id : fileId, 1, $"v{id}.mkv", false, titleId, kind, name, null, season, episode, false,
-            name ?? "x", season is null ? VideoKind.Movie : VideoKind.Episode, duration, 1920, 1080, "h264", false);
+            name ?? "x", season is null ? VideoKind.Movie : VideoKind.Episode, duration, 1920, 1080, "h264", HdrFormat.None);
 
     public static PlaybackState Played(double position, bool watched, string whenUtc) => new(position, watched, whenUtc);
 }

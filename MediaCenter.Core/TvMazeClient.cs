@@ -67,6 +67,60 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
         return info.IsEmpty ? null : info;
     }
 
+    /// <summary>Folgen mit Sendetermin laufen als Liste einer Serie bis zu dieser Größe; die längsten Serien (Seifenopern) haben Tausende Folgen.</summary>
+    private const long MaxScheduleBytes = 12_000_000;
+
+    /// <summary>
+    /// Der Sendeplan einer Serie: Status (Running, Ended …) und alle Folgen mit Sendetermin. Kennt der Aufrufer die TVmaze-Kennung schon
+    /// (<paramref name="knownId"/>, aus dem letzten Abruf), entfällt die Suche; sonst gelten die Treffer-Regeln wie bei Postern.
+    /// null, wenn TVmaze die Serie nicht sicher kennt.
+    /// </summary>
+    public async Task<ShowSchedule?> FindScheduleAsync(string title, int? year, int? knownId = null, CancellationToken ct = default)
+    {
+        string? name = null;
+        var id = knownId;
+        if (id is null)
+        {
+            if (await FindShowAsync(title, year, requireImage: false, ct) is not { } show) return null;
+            id = show.Id;
+            name = show.Name;
+        }
+
+        using var doc = await GetJsonAsync($"https://api.tvmaze.com/shows/{id}?embed%5B%5D=episodes", ct, MaxScheduleBytes);
+        var root = doc.RootElement;
+        var status = Text(root, "status");
+        name ??= Text(root, "name") ?? title;
+
+        var episodes = new List<ScheduledEpisode>();
+        if (root.TryGetProperty("_embedded", out var embedded) && embedded.ValueKind == JsonValueKind.Object
+            && embedded.TryGetProperty("episodes", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                // Sonderfolgen haben keine Nummer; ohne Sendetermin (TVmaze kennt ihn noch nicht) gibt es nichts anzuzeigen.
+                if (!item.TryGetProperty("season", out var s) || s.ValueKind != JsonValueKind.Number) continue;
+                if (!item.TryGetProperty("number", out var n) || n.ValueKind != JsonValueKind.Number) continue;
+                if (ParseAir(Text(item, "airstamp"), Text(item, "airdate")) is not { } air) continue;
+                episodes.Add(new ScheduledEpisode(s.GetInt32(), n.GetInt32(), Text(item, "name"), air.Utc, air.HasTime));
+            }
+        }
+        return new ShowSchedule(id.Value, name, status, episodes);
+    }
+
+    /// <summary>Sendetermin aus „airstamp“ (mit Uhrzeit und Zeitzone); fehlt der, gilt „airdate“ als Datum ohne Uhrzeit.</summary>
+    internal static (DateTime Utc, bool HasTime)? ParseAir(string? airstamp, string? airdate)
+    {
+        if (airstamp is not null && DateTimeOffset.TryParse(airstamp, CultureInfo.InvariantCulture, DateTimeStyles.None, out var stamp))
+        {
+            return (stamp.UtcDateTime, true);
+        }
+        if (airdate is not null && DateTime.TryParseExact(airdate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date))
+        {
+            return (date, false);
+        }
+        return null;
+    }
+
     /// <summary>So viele Schauspieler werden gespeichert (die Suche nach Schauspielern findet nur, wen sie kennt); die Seite zeigt die ersten.</summary>
     private const int MaxCast = 20;
 
@@ -106,7 +160,7 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
 
     private static bool YearFits(int? showYear, int? wantedYear) => wantedYear is null || showYear == wantedYear;
 
-    private async Task<JsonDocument> GetJsonAsync(string url, CancellationToken ct)
+    private async Task<JsonDocument> GetJsonAsync(string url, CancellationToken ct, long maxBytes = MaxJsonBytes)
     {
         await _gate.WaitAsync(ct);
         try
@@ -130,7 +184,7 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
                     throw new HttpRequestException($"api.tvmaze.com antwortete mit {(int)response.StatusCode} {response.ReasonPhrase}.");
                 }
 
-                var bytes = await HttpFetch.ReadLimitedAsync(response, new Uri(url), MaxJsonBytes, ct);
+                var bytes = await HttpFetch.ReadLimitedAsync(response, new Uri(url), maxBytes, ct);
                 return JsonDocument.Parse(bytes);
             }
         }

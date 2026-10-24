@@ -10,6 +10,67 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.0", "25.10.2026", new[]
+        {
+            "Bibliothek aktualisiert sich selbst: Neue, entfernte und umbenannte Dateien in den Ordnern unter „Laufwerke“ nimmt die App nach einer Ruhepause von 8 Sekunden auf (Meldung „Bibliothek aktualisiert: …“); beim Start und bei einem angeschlossenen Laufwerk gleicht sie alles einmal ab. Während ein Video läuft oder ein Fenster offen ist, wartet sie. Eine noch kopierte Datei wird später nochmal versucht. Einstellungen → Bibliothek → „Ordner überwachen“.",
+            "Controller: Xbox- und PlayStation-Controller (DualSense, DualShock 4; USB und Bluetooth) steuern Player und Bibliothek. Im Player: Kreuz/Kreis/Quadrat/Dreieck, Kreuztasten, Schultertasten und Trigger für Pause, Springen, Lautstärke, Kapitel/Sender, Untertitel und Tonspur. In der Bibliothek bewegen Kreuz und linker Stick die Auswahl, Kreuz öffnet, Kreis geht zurück, L1/R1 wechseln den Reiter. Die App reagiert nur, solange ihr Fenster vorn liegt. Einstellungen → Steuerung zeigt Geräte, Belegung und eine Live-Anzeige gedrückter Tasten.",
+            "Tasten ändern: Einstellungen → Steuerung → „Tasten im Player“: Für jede Aktion (Pause, Springen, Lautstärke, Untertitel wechseln, Tonspur wechseln …) lässt sich die Taste frei wählen; Doppelbelegungen werden abgelehnt. Neu: Tasten U (Untertitel wechseln) und T (Tonspur wechseln).",
+            "Kalender: Unter Serien → „Kalender“ steht, welche Folgen deiner Serien in den nächsten Wochen laufen und welche neu erschienenen noch nicht in der Bibliothek liegen (Sendepläne von TVmaze; beim Start kommt dazu ein Hinweis). Einstellungen → Bibliothek → „Kommende Folgen“.",
+            "Trakt: „Gesehen“ lässt sich mit trakt.tv abgleichen (Einstellungen → Bibliothek → Trakt; eigene Trakt-App und Anmeldung per Code ohne Passwort in der App). Trakt-Titel gelten hier als gesehen, hier Gesehenes wird dort eingetragen; Zuordnung über Titel und Jahr. Nicht gegen ein echtes Konto geprüft.",
+            "DVD und Blu-ray: Ordner mit VIDEO_TS oder BDMV und ISO-Abbilder erscheinen als Film (Disc-Marke auf der Filmseite) und spielen den Hauptfilm mit Kapiteln, Ton- und Untertitelspuren. Nur unverschlüsselte Discs und Abbilder; Menüs der Disc zeigt die App nicht. Discs lassen sich nicht umbenennen, übertragen oder im Handy ansehen. Nicht mit echten Discs geprüft.",
+            "Heimnetz-Server und Handy-Oberfläche: Einstellungen → Steuerung → „Heimnetz-Server“ (aus, bis du ihn einschaltest). Im Browser des Handys: Fernbedienung für Player und App, Bibliothek mit Suche und Postern, Filme und Folgen auf dem PC abspielen oder direkt im Handy ansehen (MP4 unverändert, sonst von ffmpeg umgewandelt, HDR nach SDR). Zugang mit PIN, Geräte lassen sich abmelden; unverschlüsselt (HTTP), nur fürs eigene Heimnetz. Zum Startbildschirm hinzufügen macht daraus eine App.",
+            "Technik: Datenbank-Schema 23 (Sendepläne, Trakt-Markierungen); neu im Programm: ASP.NET-Core-Laufzeit für den Server.",
+        }),
+        new ChangelogEntry("0.16.1", "25.10.2026", new[]
+        {
+            "Musik: Ein Ordner, dessen Titel denselben Albumnamen tragen, aber von verschiedenen Künstlern sind (Playlist von YouTube, Sampler), bleibt ein Album, statt in ein Album je Künstler zu zerfallen. Als Künstler des Albums steht „Verschiedene Interpreten“, es sei denn, einem Künstler gehören mindestens drei Viertel der Titel. Ein Album-Künstler-Tag in den Dateien hat weiter Vorrang. Für solche Sammelalben sucht die App kein Cover im Internet; Ordnerbild und eingebettete Bilder gelten wie bisher.",
+            "Musik: „Angaben aus den Tags wiederherstellen“ beim Album setzt auch die Namen einzelner Songs zurück.",
+            "Hinweis: Eigene Namen und Cover, die du bisher an einem der zerfallenen Einzel-Alben gesetzt hast, gehören zum alten Schlüssel (Künstler + Album) und erscheinen am Sammelalbum nicht mehr.",
+        }),
+        new ChangelogEntry("0.16.0", "25.10.2026", new[]
+        {
+            "HDR: Die App erkennt HDR10, HDR10+, HLG und Dolby Vision (auch Profil 5 ohne HDR10-Grundbild) und zeigt die Art auf der Filmseite und bei den Duplikaten statt nur „HDR“. Dateien aus älteren Scans zeigen weiter „HDR“, bis sie sich ändern und neu gelesen werden.",
+            "Wiedergabe: Ist Windows-HDR für den Bildschirm an (Einstellungen → System → Bildschirm → HDR verwenden), gibt der Player HDR-Videos als HDR aus; sonst rechnet er sie in normale Farben um. Beim Start sagt ein Hinweis, was passiert („HDR10: HDR-Ausgabe“ oder „… in SDR umgerechnet“).",
+            "Einstellungen → Wiedergabe → „HDR-Bild“: „Automatisch“ (Standard) oder „Immer SDR“, wenn HDR auf dem Bildschirm zu dunkel oder falsch aussieht. Die Zeile sagt auch, ob Windows-HDR an diesem Bildschirm gerade an ist.",
+            "LUTs und Farbfilter (Weißabgleich, Schärfe, Invertieren) sind für SDR gebaut: Mit ihnen läuft das Video in SDR, ein Hinweis nennt den Grund. Helligkeit, Kontrast, Sättigung, Farbton und Gamma wirken auch bei HDR.",
+            "Geprüft mit HDR10- und HLG-Testvideos: Erkennung, Umrechnung nach SDR und bei eingeschaltetem Windows-HDR die Ausgabe als PQ/BT.2020 (mpv-Eigenschaften, Hinweis im Player). Nicht geprüft: Dolby-Vision-Dateien und der Wechsel des Fensters zwischen Bildschirmen mit und ohne HDR.",
+        }),
+        new ChangelogEntry("0.15.1", "25.10.2026", new[]
+        {
+            "Musik: Im Fenster „Bearbeiten …“ liest der Knopf „Aus dem Dateinamen ableiten“ Name und Künstler aus „Künstler - Titel“ im Dateinamen. Beim Song füllt er die Felder (zum Prüfen vor dem Speichern), beim Album gilt er nach Rückfrage für alle Titel; stehen danach alle unter demselben Künstler, wechselt auch das Album zu ihm. Zahl am Anfang, „[HD 1080p]“ und „(Official Video)“ am Ende fallen weg. Dateien und Tags bleiben, „Angaben aus den Tags wiederherstellen“ nimmt es zurück.",
+        }),
+        new ChangelogEntry("0.15.0", "24.10.2026", new[]
+        {
+            "Live-TV: Neuer Reiter „Live-TV“. Senderlisten im M3U-Format (IPTV) lassen sich per Web-Adresse oder Datei (auch .gz) hinzufügen; die App liefert keine Sender mit. Sender mit Logo, Gruppen, Favoriten (★) und Suche (ohne Rücksicht auf Groß-/Kleinschreibung, Akzente und Leerzeichen); lange Listen erscheinen seitenweise.",
+            "Programmführer (XMLTV, auch .gz): Nennt die Liste einen, lädt die App ihn mit, sonst lässt er sich bei der Liste eintragen („Programmführer …“). Zugeordnet wird über die „tvg-id“, sonst über den Sendernamen (ohne „HD“ und Länderkürzel). Die Liste zeigt „Jetzt“ und „Danach“, der Player hält beides im Titel aktuell.",
+            "Im Player: Live-Modus ohne Zeitleiste; Bild auf/ab und die Knöpfe wechseln zwischen den Sendern der Ansicht, das Sendermenü ersetzt das Folgenmenü. Reißt ein Stream ab, öffnet ihn die App bis zu dreimal neu. Zugriff aus den Medientasten von Windows möglich. Kein Übertragen auf den Fernseher bei Live-TV.",
+            "Sicherheit: Nur Adressen, die mpv aus dem Netz abspielt (http, https, rtmp, rtsp, udp, rtp, srt), werden übernommen; file:, edl: und Ähnliches fliegen raus, ebenso Logos auf lokale Dateien. Adressen mit Zugangsdaten stehen nie in Meldungen oder Listen; sie liegen in der Bibliothek (und damit in Sicherungen). Programmführer: keine DTD, Entpacken begrenzt. Im Kinderprofil nicht verfügbar.",
+            "Technik: Datenbank-Schema 21 (Tabellen live_sources, live_channels, live_epg).",
+        }),
+        new ChangelogEntry("0.14.0", "24.10.2026", new[]
+        {
+            "TMDB: Mit einem TMDB-Schlüssel (Einstellungen → Bibliothek → „TMDB-Schlüssel“, API-Schlüssel oder Read Access Token, oder die Umgebungsvariable MEDIACENTER_TMDB_KEY) fragt die App zuerst themoviedb.org. TVmaze und OMDb springen ein, wo TMDB nichts findet.",
+            "Deutsche Infotexte: Handlung, Besetzung, Regie und bei Serien die Folgentitel und -texte kommen von TMDB auf Deutsch. Texte von OMDb und TVmaze ersetzt der nächste „Fehlende Cover suchen“-Durchlauf (selbst geschriebene Texte bleiben). Fehlt TMDB die deutsche Handlung, bleibt die bisherige oder die englische stehen.",
+            "Hintergrundbilder: Titel ohne eigenes Querformat-Bild bekommen das Hintergrundbild von TMDB statt eines Standbilds; Bilder aus dem Ordner, aus der Datei und selbst gewählte bleiben.",
+            "Trailer: Auf der Seite eines Films oder einer Serie öffnet der Knopf „Trailer“ den (deutschen, sonst englischen) Trailer bei YouTube im Browser. Erst der Klick geht an YouTube.",
+            "Poster: TMDB liefert, wo vorhanden, das deutsche Poster; deutsche Titel finden sich dort auch über den Originaltitel.",
+            "Über: Quellenangabe für TMDB („nicht von TMDB unterstützt oder zertifiziert“). Hinweis: TMDB ist nur für nicht-kommerzielle Nutzung kostenlos.",
+            "Technik: Datenbank-Schema 20 (Trailer-Spalte in title_info).",
+        }),
+        new ChangelogEntry("0.13.1", "24.10.2026", new[]
+        {
+            "Milchglas ohne Körnung: Die feine Körnung auf den Glasflächen ist entfernt.",
+            "Fehlerprotokoll: Abstürze, Startfehler und Fehler aus Hintergrundaufgaben stehen jetzt in error.log im Datenordner (vorher gingen letztere verloren).",
+            "Einstellungen → Über zeigt auch, wo ffmpeg und ffprobe gefunden werden, bevor Scan oder Vorschau daran scheitern.",
+            "Platzhalter-Cover: Lange Wörter (z. B. „Unbekannter Künstler“) brechen nicht mehr mitten im Wort um, die Schrift wird passend verkleinert.",
+            "Werkzeug-Suche: mpv, ffmpeg und ffprobe werden neben der Anwendung und im Ordner tools gefunden (vor dem PATH bzw. dem Standardpfad von mpv); die Umgebungsvariablen haben weiter Vorrang.",
+            "Dev-Build: Publish-Profil Dev und publish-dev.ps1 bauen einen eigenständigen Ordner für Windows x64 (Laufzeit liegt dabei).",
+        }),
+        new ChangelogEntry("0.13.0", "24.10.2026", new[]
+        {
+            "Milchglas überall: Menüs (Rechtsklick, Sortierung, Einschlaf-Timer, Klang …), Kurzinfos, Meldungen, Rückfragen und alle Fenster (Modale) sind jetzt gefrostetes Glas: Sie zeichnen die Seite dahinter weichgezeichnet nach, mit Glanz oben und hellem Lichtrand. Die Navigationsleiste und der Mini-Player sind durchlässiger; was unter der Navigation scrollt, schimmert unscharf durch. Karten in den Einstellungen und die Rahmen von Knöpfen, Filtern und Eingabefeldern haben denselben Lichtrand.",
+            "Technik: Das Glas liest ein lebendes Bild der Szene (Hintergrund + Seite) bzw. der Bühne (alles bis auf Rückfragen und Meldungen), nicht mehr nur den Hintergrund. Menüs und Kurzinfos sind eigene Fenster und bestimmen ihre Lage über Bildschirmkoordinaten. Der Player (über dem mpv-Video) bleibt unverändert, dort lässt sich das Video nicht weichzeichnen.",
+        }),
         new ChangelogEntry("0.12.0", "24.10.2026", new[]
         {
             "Verschobene Dateien behalten ihre Daten: Der Scan merkt sich je Datei einen Fingerabdruck (Größe plus Anfang, Mitte und Ende des Inhalts). Verschiebst oder benennst du eine Datei um, erkennt der nächste Scan sie am Inhalt wieder und hängt Fortschritt, gesehen-Markierung, Untertitel, Farbeinstellungen, Poster und Meine Liste an den neuen Ort, statt einen neuen Eintrag anzulegen („… verschoben“ in der Scan-Meldung). Kopien, bei denen das Original noch liegt, bleiben eigene Einträge; liegt das Laufwerk der alten Datei nicht an, wird nichts übernommen. Schema 18; vorhandene Dateien bekommen ihren Fingerabdruck beim nächsten Scan. Eine Verschiebung, die schon vor diesem Update gescannt wurde, ist nicht mehr zu retten.",
@@ -23,10 +84,8 @@ public static class Changelog
         }),
         new ChangelogEntry("0.11.0", "24.10.2026", new[]
         {
-            "Neuer Stil „Liquid Glass“: Glasflächen haben jetzt einen Glanz, der oben links am hellsten ist, und eine Lichtkante an zwei gegenüberliegenden Ecken statt eines gleichmäßigen Rands. Das gilt für die Navigationsleiste, Fenster, Menüs, Knöpfe, Pillen, Eingabefelder und Poster; alles ist stärker gerundet.",
-            "Die Navigationsleiste oben läuft nicht mehr nach unten aus, sondern hat eine helle Unterkante. Der aktive Reiter liegt auf einer glänzenden Pille mit Lichtkante. Hauptknöpfe tragen einen Glanz auf der oberen Hälfte.",
             "Das Titelbild auf der Startseite und auf der Detailseite ist jetzt eine abgerundete Karte mit heller Kante unterhalb der Navigationsleiste statt eines Hintergrunds über die ganze Breite. Text und Knöpfe darauf sind in Hell und Dunkel hell und lesbar.",
-            "Die Audio-Leiste ist jetzt eine schwebende Glas-Insel mit Abstand zum Rand statt einer durchgehenden Leiste. Der Hintergrund hat einen kräftigeren Farbschein in den Akzentfarben und einen dritten Fleck unten rechts.",
+            "Die Navigationsleiste oben ist dunkler getönt als die Seite (Milchglas wie bisher, im Hell-Modus ein getöntes Blaugrau).",
         }),
         new ChangelogEntry("0.10.0", "24.10.2026", new[]
         {

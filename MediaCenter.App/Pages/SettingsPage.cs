@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using MediaCenter.App.Services;
@@ -13,7 +14,7 @@ namespace MediaCenter.App.Pages;
 /// <summary>Einstellungen in Reitern; jeder Reiter fasst zusammen, was zusammengehört (Darstellung, Bibliothek, Wiedergabe …).</summary>
 public sealed class SettingsPage : UserControl
 {
-    private static readonly string[] Tabs = { "Darstellung", "Bibliothek", "Wiedergabe", "Profile", "Übersetzung", "Tastenkürzel", "Über" };
+    private static readonly string[] Tabs = { "Darstellung", "Bibliothek", "Wiedergabe", "Profile", "Übersetzung", "Steuerung", "Tastenkürzel", "Über" };
 
     /// <summary>Der zuletzt gewählte Reiter bleibt beim Wiederöffnen der Seite erhalten.</summary>
     private static string _lastTab = Tabs[0];
@@ -84,6 +85,7 @@ public sealed class SettingsPage : UserControl
             "Wiedergabe" => PlaybackSettings(),
             "Profile" => new ProfileSettingsPanel(_shell),
             "Übersetzung" => TranslationSettings(),
+            "Steuerung" => Steering(),
             "Tastenkürzel" => Hotkeys(),
             "Über" => About(),
             _ => throw new ArgumentOutOfRangeException(nameof(name), name, "Unbekannter Reiter."),
@@ -211,6 +213,22 @@ public sealed class SettingsPage : UserControl
             }))),
             "Poster online");
 
+        var watch = PageParts.Segmented("watch-folders",
+            new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.WatchFolders == o.Item2, (Action)(() =>
+            {
+                settings.WatchFolders = o.Item2;
+                settings.Save();
+            }))),
+            "Ordner überwachen");
+
+        var upcoming = PageParts.Segmented("upcoming-episodes",
+            new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.UpcomingEpisodes == o.Item2, (Action)(() =>
+            {
+                settings.UpcomingEpisodes = o.Item2;
+                settings.Save();
+            }))),
+            "Kommende Folgen");
+
         var lyrics = PageParts.Segmented("online-lyrics",
             new[] { ("An", true), ("Aus", false) }.Select(o => (o.Item1, settings.OnlineLyrics == o.Item2, (Action)(() =>
             {
@@ -251,6 +269,36 @@ public sealed class SettingsPage : UserControl
         var keyRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { keyField, save, remove } };
         keyStatus.Margin = new Thickness(0, 0, 0, 0);
 
+        var tmdbStatus = PageParts.Muted("", 13);
+        void ShowTmdbStatus() => tmdbStatus.Text = _shell.Services.Tmdb is null
+            ? "Kein TMDB-Schlüssel hinterlegt. Den „API-Schlüssel“ oder das „API Read Access Token“ gibt es kostenlos nach der Anmeldung auf themoviedb.org unter Einstellungen → API."
+            : _shell.Services.TmdbKeyFromVariable
+                ? $"Aus der Umgebungsvariable {AppServices.TmdbKeyVariable} (hat Vorrang vor einem hier gespeicherten)."
+                : $"Gespeichert in {AppServices.TmdbKeyFile}.";
+        ShowTmdbStatus();
+
+        var (tmdbField, tmdbBox) = PageParts.HintBox("TMDB-Schlüssel", 240);
+        AutomationProperties.SetName(tmdbBox, "TMDB-Schlüssel");
+        void SaveTmdbKey(string? key)
+        {
+            try
+            {
+                _shell.Services.SetTmdbKey(key);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            tmdbBox.Clear();
+            ShowTmdbStatus();
+        }
+        var tmdbSave = PageParts.Compact(PageParts.Button("Speichern", "PrimaryButton", (_, _) => SaveTmdbKey(tmdbBox.Text), new Thickness(10, 0, 0, 0)));
+        var tmdbRemove = PageParts.Compact(PageParts.Button("Entfernen", "GhostButton", (_, _) => SaveTmdbKey(null), new Thickness(8, 0, 0, 0)));
+        AutomationProperties.SetName(tmdbSave, "TMDB-Schlüssel speichern");
+        AutomationProperties.SetName(tmdbRemove, "TMDB-Schlüssel entfernen");
+        var tmdbRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { tmdbField, tmdbSave, tmdbRemove } };
+
         var refresh = PageParts.Compact(PageParts.Button("Fehlende Cover suchen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(), new Thickness(0)));
         var rebuild = PageParts.Compact(PageParts.Button("Alle Cover neu erzeugen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(force: true), new Thickness(0)));
 
@@ -271,12 +319,33 @@ public sealed class SettingsPage : UserControl
             {
                 PageParts.Group(
                     PageParts.SettingRow("Cover aus dem Internet",
-                        "Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Serien kommen von TVmaze (api.tvmaze.com), Filme von OMDb (omdbapi.com); " +
+                        "Nur für Titel ohne eigenes Poster im Ordner oder in der Datei. Mit TMDB-Schlüssel (unten) kommt alles zuerst von TMDB; sonst und wo TMDB nichts findet kommen Serien von TVmaze (api.tvmaze.com) und Filme von OMDb (omdbapi.com); " +
                         "gesendet werden nur Titel und Jahr. Ein Treffer muss genau so heißen wie der Titel in der Bibliothek, sonst bleibt es ohne Poster; " +
                         "deutsche Filmtitel findet OMDb oft nicht. Album-Cover kommen von iTunes (itunes.apple.com), sonst von MusicBrainz und dem Cover Art Archive (musicbrainz.org, coverartarchive.org); gesendet werden Künstler und Albumtitel; " +
                         "Alben ohne Künstler im Tag werden nicht gesucht. Ein selbst gesetztes Poster bleibt immer. " +
-                        "Von denselben Diensten (und mit denselben Treffer-Regeln) kommen auf die Seite eines Films oder einer Serie Handlung, Wertung, Besetzung und bei Serien die Folgentexte, jeweils auf Englisch.", online),
+                        "Von denselben Diensten (und mit denselben Treffer-Regeln) kommen auf die Seite eines Films oder einer Serie Handlung, Wertung, Besetzung und bei Serien die Folgentexte: von TMDB auf Deutsch, von OMDb und TVmaze auf Englisch.", online),
+                    PageParts.SettingRow("TMDB-Schlüssel",
+                        "Mit Schlüssel fragt die App zuerst TMDB (themoviedb.org): Poster, Hintergrundbilder, deutsche Handlung, Besetzung, Folgentexte und einen Trailer. " +
+                        "Gesendet werden Titel und Jahr. TVmaze und OMDb springen ein, wo TMDB nichts findet. TMDB erlaubt die kostenlose Nutzung nur nicht-kommerziell.",
+                        new StackPanel { Children = { tmdbStatus, tmdbRow } }, stacked: true),
                     PageParts.SettingRow("OMDb-Schlüssel", null, new StackPanel { Children = { keyStatus, keyRow } }, stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Trakt",
+                        "Gleicht „gesehen“ mit trakt.tv ab: Was dort als gesehen steht, gilt hier auch, und was hier gesehen ist und dort fehlt, wird eingetragen. " +
+                        "Zugeordnet wird über Titel und Jahr; Titel, die bei Trakt anders heißen (deutsche Namen), kennt der Dienst nicht und die App meldet sie. " +
+                        "Eigene Trakt-App nötig (kostenlos, trakt.tv/oauth/applications). Das Konto gehört zum Profil, das es verbindet; Kinderprofile gleichen nicht ab. " +
+                        "Zugangsdaten liegen in trakt.json im Datenordner, nicht in der Sicherung.",
+                        TraktControls(), stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Kommende Folgen",
+                        "Fragt TVmaze (api.tvmaze.com) nach den Sendeplänen deiner Serien; gesendet werden nur Titel und Jahr, laufende Serien halbtäglich. " +
+                        "Der Kalender (Serien → Kalender) zeigt, was in den nächsten Wochen läuft; neue Folgen, die noch nicht in der Bibliothek liegen, meldet die App beim Start. " +
+                        "Wo Dateinamen anders zählen als TVmaze (z. B. Anime durchnummeriert), kann eine Folge fälschlich als fehlend gelten.", upcoming)),
+                PageParts.Group(
+                    PageParts.SettingRow("Ordner überwachen",
+                        "Neue, entfernte oder umbenannte Dateien in den Ordnern unter „Laufwerke“ nimmt die App nach einer kurzen Ruhepause (8 Sekunden ohne Änderung) selbst auf; " +
+                        "beim Start und bei einem angeschlossenen Laufwerk gleicht sie alles einmal ab. Während ein Video läuft, wartet sie bis zum Ende. Gilt nach spätestens 30 Sekunden. " +
+                        "Nur Ordner auf lokalen Laufwerken; einzelne Dateien und Netzlaufwerke beobachtet die App nicht.", watch)),
                 PageParts.Group(
                     PageParts.SettingRow("Songtexte aus dem Internet",
                         "Songtexte zeigt das Panel „Jetzt läuft“ der Musik. Zuerst zählt eine .lrc-Datei neben dem Titel (zeitgesteuert), dann ein Text im Tag der Datei; " +
@@ -291,7 +360,7 @@ public sealed class SettingsPage : UserControl
                     PageParts.SettingRow("Alle Cover neu erzeugen", "Ersetzt automatisch erzeugte Cover und lädt die Infotexte neu; selbst gewählte Poster bleiben.", rebuild)),
                 PageParts.Group(
                     PageParts.SettingRow("Sichern",
-                        "Schreibt Datenbank (Fortschritt, Playlists, „Meine Liste“, Sammlungen, eigene Namen, Infotexte), Einstellungen, selbst gewählte Poster, gespeicherte Untertitel und LUTs in eine ZIP-Datei. " +
+                        "Schreibt Datenbank (Fortschritt, Playlists, „Meine Liste“, Sammlungen, eigene Namen, Infotexte, Senderlisten von Live-TV samt ihren Adressen, die Zugangsdaten enthalten können), Einstellungen, selbst gewählte Poster, gespeicherte Untertitel und LUTs in eine ZIP-Datei. " +
                         "Schlüssel und Zwischenspeicher (Vorschauen, Songtexte) sind nicht dabei. " + LastBackupText(settings), backup),
                     PageParts.SettingRow("Wiederherstellen",
                         "Spielt eine Sicherung ein. Der jetzige Stand wird nicht gelöscht, sondern in einen Ordner „vor-wiederherstellung-…“ im Datenordner verschoben; die App startet dafür neu.", restore)),
@@ -304,6 +373,116 @@ public sealed class SettingsPage : UserControl
                     PageParts.SettingRow("Einstellungen", AppSettings.FilePath, null)),
             },
         };
+    }
+
+    /// <summary>Zugangsdaten der Trakt-App, Verbinden, Abgleichen und Trennen.</summary>
+    private UIElement TraktControls()
+    {
+        var trakt = _shell.Services.Trakt;
+        var account = trakt.Account;
+        var status = PageParts.Muted(account switch
+        {
+            null => "Nicht eingerichtet. Lege auf trakt.tv/oauth/applications eine App an (Redirect URI: urn:ietf:wg:oauth:2.0:oob), trage Client-ID und Client-Secret ein und verbinde dann das Konto.",
+            { Tokens: null } => "Client-ID und Client-Secret sind gespeichert. Als Nächstes „Mit Trakt verbinden“.",
+            _ => $"Verbunden{(account.Username is { } name ? $" als {name}" : "")}. " +
+                 (trakt.BelongsToCurrentProfile ? "Der Abgleich läuft nach dem Start, nach jedem Player und mit „Jetzt abgleichen“." : "Das Konto gehört zu einem anderen Profil: in diesem Profil findet kein Abgleich statt."),
+        }, 13);
+
+        var (idField, idBox) = PageParts.HintBox("Client-ID", 240);
+        var (secretField, secretBox) = PageParts.HintBox("Client-Secret", 240);
+        AutomationProperties.SetName(idBox, "Trakt Client-ID");
+        AutomationProperties.SetName(secretBox, "Trakt Client-Secret");
+        var save = PageParts.Compact(PageParts.Button("Speichern", "PrimaryButton", (_, _) =>
+        {
+            try
+            {
+                trakt.SaveApp(idBox.Text, secretBox.Text);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            ShowTab("Bibliothek", animate: false);
+        }, new Thickness(10, 0, 0, 0)));
+        AutomationProperties.SetName(save, "Trakt Zugangsdaten speichern");
+        var fields = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { idField, new Border { Width = 10 }, secretField, save } };
+
+        var connect = PageParts.Compact(PageParts.Button(trakt.IsConnected ? "Neu verbinden" : "Mit Trakt verbinden", "GhostButton", async (_, _) => await ConnectTraktAsync(), new Thickness(0, 0, 8, 0)));
+        connect.IsEnabled = account is not null;
+        var sync = PageParts.Compact(PageParts.Button("Jetzt abgleichen", "GhostButton", async (_, _) => await _shell.Services.SyncTraktAsync(_shell, automatic: false), new Thickness(0, 0, 8, 0)));
+        sync.IsEnabled = trakt.IsConnected && trakt.BelongsToCurrentProfile;
+        var disconnect = PageParts.Compact(PageParts.Button("Trennen", "GhostButton", (_, _) =>
+        {
+            trakt.Disconnect();
+            ShowTab("Bibliothek", animate: false);
+        }, new Thickness(0)));
+        disconnect.IsEnabled = trakt.IsConnected;
+        AutomationProperties.SetName(connect, "Mit Trakt verbinden");
+        AutomationProperties.SetName(sync, "Trakt jetzt abgleichen");
+        AutomationProperties.SetName(disconnect, "Trakt trennen");
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { connect, sync, disconnect } };
+
+        return new StackPanel { Children = { status, fields, buttons } };
+    }
+
+    /// <summary>Zeigt den Code zum Eingeben auf trakt.tv/activate und wartet auf die Bestätigung.</summary>
+    private async Task ConnectTraktAsync()
+    {
+        var trakt = _shell.Services.Trakt;
+        using var cts = new CancellationTokenSource();
+        try
+        {
+            var code = await trakt.BeginConnectAsync(cts.Token);
+
+            var codeText = PageParts.Semi(code.UserCode, 44);
+            codeText.SetResourceReference(TextBlock.ForegroundProperty, "AccentBrush");
+            codeText.Margin = new Thickness(0, 6, 0, 18);
+            var open = PageParts.Compact(PageParts.Button("trakt.tv/activate öffnen", "PrimaryButton", (_, _) => OpenTraktPage(code.VerificationUrl), new Thickness(0, 12, 0, 18)));
+            AutomationProperties.SetName(open, "Trakt-Seite öffnen");
+            var waiting = PageParts.Muted("Warte auf die Bestätigung … (das Fenster schließen bricht ab)", 13);
+            var content = new UserControl
+            {
+                Content = new StackPanel
+                {
+                    Margin = new Thickness(0, 4, 0, 4),
+                    Children =
+                    {
+                        PageParts.Muted("1. Öffne trakt.tv/activate und melde dich bei Trakt an.", 14), open,
+                        PageParts.Muted("2. Gib diesen Code ein:", 14), codeText,
+                        waiting,
+                    },
+                },
+            };
+            content.Unloaded += (_, _) => cts.Cancel();
+            _shell.OpenModal("Trakt", "Mit Trakt verbinden", content, dismissOnScrim: false);
+
+            var username = await trakt.CompleteConnectAsync(code, cts.Token);
+            _shell.CloseModal();
+            _shell.ShowMessage($"Mit Trakt verbunden{(username is null ? "" : $" als {username}")}.");
+            ShowTab("Bibliothek", animate: false);
+            await _shell.Services.SyncTraktAsync(_shell, automatic: false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Der Nutzer hat das Fenster geschlossen: nichts zu melden.
+        }
+        catch (Exception ex) when (ex is TraktAuthException or System.Net.Http.HttpRequestException or InvalidOperationException or InvalidDataException or System.Text.Json.JsonException or IOException)
+        {
+            _shell.CloseModal();
+            _shell.ShowMessage($"Verbinden mit Trakt fehlgeschlagen: {ex.Message}", isError: true);
+        }
+    }
+
+    /// <summary>Öffnet die Aktivierungsseite im Browser; nur Adressen auf trakt.tv (der Link kommt aus einer Antwort des Dienstes).</summary>
+    private void OpenTraktPage(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || !(uri.Host == "trakt.tv" || uri.Host.EndsWith(".trakt.tv", StringComparison.Ordinal)))
+        {
+            _shell.ShowMessage($"Die Adresse „{url}“ gehört nicht zu trakt.tv und wird nicht geöffnet. Öffne trakt.tv/activate selbst im Browser.", isError: true);
+            return;
+        }
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
     }
 
     private static string LastBackupText(AppSettings settings) =>
@@ -358,6 +537,7 @@ public sealed class SettingsPage : UserControl
         var language = Offered(settings.SubtitleLanguage).Select(l => (l.Name, settings.SubtitleLanguage == l.Id, (Action)(() => settings.SubtitleLanguage = l.Id)));
         var autoplay = new[] { ("An", true), ("Aus", false) }.Select(a => (a.Item1, settings.AutoPlayNext == a.Item2, (Action)(() => settings.AutoPlayNext = a.Item2)));
         var crossfade = Crossfade.Options.Select(sec => (sec == 0 ? "Aus" : $"{sec} s", settings.AudioCrossfadeSeconds == sec, (Action)(() => settings.AudioCrossfadeSeconds = sec)));
+        var hdr = new[] { ("Automatisch", HdrOutput.Auto), ("Immer SDR", HdrOutput.Sdr) }.Select(h => (h.Item1, settings.Hdr == h.Item2, (Action)(() => settings.Hdr = h.Item2)));
         var castHevc = new[] { ("Umwandeln", false), ("Direkt senden", true) }.Select(a => (a.Item1, settings.CastHevc == a.Item2, (Action)(() => settings.CastHevc = a.Item2)));
 
         var note = PageParts.Muted(
@@ -376,6 +556,7 @@ public sealed class SettingsPage : UserControl
                         Choice("Untertitel", mode)),
                     PageParts.SettingRow("Untertitelsprache", null, Chips("Untertitelsprache", language), stacked: true),
                     PageParts.SettingRow("Nächste Folge automatisch", "Nach einer Folge startet nach einem Countdown von 8 Sekunden die nächste.", Choice("Nächste Folge", autoplay)),
+                    PageParts.SettingRow("HDR-Bild", HdrNote(), Choice("HDR-Bild", hdr)),
                     PageParts.SettingRow("Auf den Fernseher übertragen: HEVC",
                         "„Direkt senden“ schickt HEVC-Videos (auch HDR) unverändert an den Fernseher, wenn er sie abspielt; schont den PC. „Umwandeln“ macht per ffmpeg H.264 daraus, das jedes Cast-Gerät kann.",
                         Choice("HEVC beim Übertragen", castHevc))),
@@ -395,6 +576,20 @@ public sealed class SettingsPage : UserControl
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },
         };
+    }
+
+    /// <summary>Erklärt die HDR-Wahl und sagt, was Windows für den Bildschirm dieses Fensters gerade meldet.</summary>
+    private string HdrNote()
+    {
+        var handle = Application.Current.MainWindow is { } window ? new System.Windows.Interop.WindowInteropHelper(window).Handle : IntPtr.Zero;
+        var state = DisplayHdr.IsActive(handle) switch
+        {
+            true => "Windows-HDR ist an diesem Bildschirm an.",
+            false => "Windows-HDR ist an diesem Bildschirm aus (Einstellungen → System → Bildschirm → HDR verwenden); HDR-Videos werden deshalb umgerechnet.",
+            null => "Ob Windows-HDR an ist, lässt sich nicht feststellen.",
+        };
+        return "„Automatisch“ gibt HDR-Videos (HDR10, HLG, Dolby Vision) als HDR an den Bildschirm, wenn Windows-HDR an ist; sonst rechnet der Player sie in normale Farben um. " +
+            "„Immer SDR“ rechnet immer um. Mit LUT oder Farbfiltern (Weißabgleich, Schärfe, Invertieren) bleibt das Bild SDR. " + state;
     }
 
     // --- Untertitel-Aussehen -------------------------------------------------------------------------------
@@ -838,6 +1033,277 @@ public sealed class SettingsPage : UserControl
         }
     }
 
+    // --- Steuerung: Controller und Tasten -------------------------------------------------------------------
+
+    private UIElement Steering()
+    {
+        var settings = _shell.Services.Settings;
+        var controller = _shell.Services.Controller;
+        var panel = new StackPanel();
+        panel.Children.Add(HomeServerRow());
+
+        // Controller: angeschlossene Geräte und eine Anzeige, was gerade gedrückt wird (zum Prüfen der Belegung)
+        var devices = PageParts.Muted("", 13);
+        var live = PageParts.Muted("", 13);
+        live.Margin = new Thickness(0, 10, 0, 0);
+        var family = ControllerFamily.Xbox;
+        void Refresh()
+        {
+            var list = controller.Controllers;
+            family = list.FirstOrDefault(c => c.Supported)?.Family ?? ControllerFamily.Xbox;
+            devices.Text = list.Count == 0
+                ? "Kein Controller gefunden. Xbox-Controller und PlayStation-Controller (DualSense, DualShock 4) werden per USB oder Bluetooth erkannt. Die App reagiert nur, solange ihr Fenster vorn liegt."
+                : string.Join("\n", list.Select(c => c.Supported
+                    ? $"• {c.Name} ({(c.Family == ControllerFamily.PlayStation ? "PlayStation" : "Xbox")}) – bereit"
+                    : $"• {c.Name} ({c.VendorId:X4}:{c.ProductId:X4}) – nicht unterstützt: {c.Note}"));
+            if (controller.Latest is not { } snapshot)
+            {
+                live.Text = controller.RawDump is { } dump ? $"Rohwerte des unbekannten Controllers: {dump}" : "";
+                return;
+            }
+            var pressed = snapshot.WithStickAsDpad().Buttons;
+            live.Text = pressed.Count == 0
+                ? "Test: Drücke eine Taste am Controller – sie erscheint hier."
+                : "Gedrückt: " + string.Join(", ", Enum.GetValues<ControllerButton>().Where(pressed.Contains).Select(b => ControllerLayout.Label(b, family)));
+        }
+        Refresh();
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        timer.Tick += (_, _) => Refresh();
+        panel.Loaded += (_, _) => timer.Start();
+        panel.Unloaded += (_, _) => timer.Stop();
+
+        panel.Children.Add(PageParts.Group(PageParts.SettingRow("Controller",
+            "Im Player und in der Bibliothek lässt sich die App mit einem Controller bedienen. In der Bibliothek bewegen Kreuz und linker Stick die Auswahl, " +
+            "Kreuz (A) öffnet, Kreis (B) geht zurück, Quadrat (X) öffnet das Menü einer Karte, Dreieck (Y) die Suche, L1/R1 wechseln den Reiter, L2/R2 blättern, Options das Vollbild.",
+            new StackPanel { Children = { devices, live } }, stacked: true)));
+
+        // Belegung im Player
+        var mapRows = new List<UIElement>();
+        foreach (var (button, effect) in ControllerPlayerMap.Overview)
+        {
+            var row = new Grid { Margin = new Thickness(0, 11, 0, 11) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var playStation = ControllerLayout.Label(button, ControllerFamily.PlayStation);
+            var xbox = ControllerLayout.Label(button, ControllerFamily.Xbox);
+            var cap = KeyCap(playStation == xbox ? playStation : $"{playStation}  ·  {xbox}");
+            var text = PageParts.Muted(effect, 13);
+            text.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(text, 1);
+            row.Children.Add(cap);
+            row.Children.Add(text);
+            mapRows.Add(row);
+        }
+        var mapLabel = new TextBlock { Text = "CONTROLLER IM PLAYER (PLAYSTATION · XBOX)", Margin = new Thickness(4, 24, 0, 10) };
+        mapLabel.SetResourceReference(StyleProperty, "KickerText");
+        panel.Children.Add(mapLabel);
+        panel.Children.Add(PageParts.Group(mapRows.ToArray()));
+
+        // Tasten des Players ändern
+        var keyLabel = new TextBlock { Text = "TASTEN IM PLAYER", Margin = new Thickness(4, 24, 0, 10) };
+        keyLabel.SetResourceReference(StyleProperty, "KickerText");
+        panel.Children.Add(keyLabel);
+        var keyIntro = PageParts.Muted("„Ändern“ wählen und die neue Taste drücken (Esc bricht ab). Eine Taste je Aktion; Strg-Kombinationen (Einzelbild, Tempo, Ausschnitt) und die Umschalt-Varianten bleiben fest.", 13);
+        keyIntro.Margin = new Thickness(4, 0, 0, 10);
+        panel.Children.Add(keyIntro);
+
+        var keyHost = new StackPanel();
+        PlayerAction? capturing = null;
+        void BuildKeyRows()
+        {
+            keyHost.Children.Clear();
+            Button? captureButton = null;
+            var rows = new List<UIElement>();
+            foreach (var action in Enum.GetValues<PlayerAction>())
+            {
+                var row = new Grid { Margin = new Thickness(0, 8, 0, 8) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(310) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var keys = PlayerKeys.KeysOf(action, settings.KeyBindings);
+                var cap = KeyCap(capturing == action ? "Taste drücken …" : string.Join("  ·  ", keys.Select(KeyName)));
+                var label = PageParts.Muted(PlayerKeys.Label(action), 13);
+                label.VerticalAlignment = VerticalAlignment.Center;
+                Grid.SetColumn(label, 1);
+                var change = PageParts.Compact(PageParts.Button(capturing == action ? "Abbrechen" : "Ändern", "GhostButton", (_, _) =>
+                {
+                    capturing = capturing == action ? null : action;
+                    BuildKeyRows();
+                }, new Thickness(0, 0, 8, 0)));
+                AutomationProperties.SetName(change, $"Taste ändern {PlayerKeys.Label(action)}");
+                if (capturing == action) captureButton = change;
+                var reset = PageParts.Compact(PageParts.Button("Standard", "GhostButton", (_, _) =>
+                {
+                    settings.KeyBindings = PlayerKeys.Reset(settings.KeyBindings, action, out var conflict);
+                    if (conflict is { } other) _shell.ShowMessage($"Die Standardtaste gehört jetzt zu „{PlayerKeys.Label(other)}“. Ändere zuerst jene Aktion.", isError: true);
+                    else settings.Save();
+                    capturing = null;
+                    BuildKeyRows();
+                }, new Thickness(0)));
+                reset.IsEnabled = settings.KeyBindings.ContainsKey(action.ToString());
+                AutomationProperties.SetName(reset, $"Standardtaste {PlayerKeys.Label(action)}");
+                var buttons = new StackPanel { Orientation = Orientation.Horizontal, Children = { change, reset } };
+                Grid.SetColumn(buttons, 2);
+                row.Children.Add(cap);
+                row.Children.Add(label);
+                row.Children.Add(buttons);
+                rows.Add(row);
+            }
+            keyHost.Children.Add(PageParts.Group(rows.ToArray()));
+
+            // Der Knopf, den der Nutzer gedrückt hat, wurde mit den Zeilen neu gebaut: der Fokus muss wieder hinein, sonst kommt die nächste Taste nicht an.
+            if (captureButton is { } focusTarget)
+                Dispatcher.BeginInvoke(() => focusTarget.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+        }
+        BuildKeyRows();
+        panel.Children.Add(keyHost);
+
+        var resetAll = PageParts.Compact(PageParts.Button("Alle Tasten zurücksetzen", "GhostButton", (_, _) =>
+        {
+            settings.KeyBindings = new Dictionary<string, string[]>();
+            settings.Save();
+            capturing = null;
+            BuildKeyRows();
+        }, new Thickness(0)));
+        AutomationProperties.SetName(resetAll, "Alle Tasten zurücksetzen");
+        panel.Children.Add(resetAll);
+
+        panel.PreviewKeyDown += (_, e) =>
+        {
+            if (capturing is not { } action) return;
+
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            e.Handled = true;
+            if (key == Key.Escape)
+            {
+                capturing = null;
+                BuildKeyRows();
+                return;
+            }
+            if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin or Key.None) return; // erst die eigentliche Taste
+            if (Keyboard.Modifiers != ModifierKeys.None)
+            {
+                _shell.ShowMessage("Bitte die Taste allein drücken, ohne Strg, Umschalt oder Alt.", isError: true);
+                return;
+            }
+            if (key is Key.Tab or Key.Apps)
+            {
+                _shell.ShowMessage($"Die Taste {KeyName(key.ToString())} ist für die Bedienung der Oberfläche reserviert.", isError: true);
+                return;
+            }
+
+            var updated = PlayerKeys.Assign(settings.KeyBindings, action, key.ToString(), out var conflict);
+            if (conflict is { } other)
+            {
+                _shell.ShowMessage($"{KeyName(key.ToString())} gehört schon zu „{PlayerKeys.Label(other)}“. Wähle eine andere Taste oder ändere zuerst jene Aktion.", isError: true);
+                return;
+            }
+            settings.KeyBindings = updated;
+            settings.Save();
+            capturing = null;
+            BuildKeyRows();
+        };
+        return panel;
+    }
+
+    /// <summary>Der Heimnetz-Server: ein- und ausschalten, Reichweite, Anschluss, Adresse, PIN und angemeldete Geräte.</summary>
+    private UIElement HomeServerRow()
+    {
+        var services = _shell.Services;
+        var settings = services.Settings;
+
+        async Task Apply()
+        {
+            settings.Save();
+            if (await services.ApplyHomeServerAsync() is { } problem) _shell.ShowMessage(problem, isError: true);
+            ShowTab("Steuerung", animate: false);
+        }
+
+        var onOff = PageParts.Segmented("home-server",
+            new[] { ("Aus", false), ("An", true) }.Select(o => (o.Item1, settings.HomeServer == o.Item2, (Action)(async () =>
+            {
+                if (settings.HomeServer == o.Item2) return;
+                settings.HomeServer = o.Item2;
+                await Apply();
+            }))),
+            "Heimnetz-Server");
+        var reach = PageParts.Segmented("home-server-reach",
+            new[] { ("Im Heimnetz", true), ("Nur dieser PC", false) }.Select(o => (o.Item1, settings.HomeServerLan == o.Item2, (Action)(async () =>
+            {
+                if (settings.HomeServerLan == o.Item2) return;
+                settings.HomeServerLan = o.Item2;
+                await Apply();
+            }))),
+            "Erreichbar");
+        reach.Margin = new Thickness(0, 12, 0, 0);
+
+        var (portField, portBox) = PageParts.HintBox("Anschluss", 120);
+        portBox.Text = settings.HomeServerPort.ToString();
+        AutomationProperties.SetName(portBox, "Anschluss des Heimnetz-Servers");
+        var portApply = PageParts.Compact(PageParts.Button("Übernehmen", "GhostButton", async (_, _) =>
+        {
+            if (!int.TryParse(portBox.Text.Trim(), out var port) || port is < 1024 or > 65535)
+            {
+                _shell.ShowMessage("Der Anschluss muss eine Zahl von 1024 bis 65535 sein.", isError: true);
+                return;
+            }
+            settings.HomeServerPort = port;
+            await Apply();
+        }, new Thickness(10, 0, 0, 0)));
+        AutomationProperties.SetName(portApply, "Anschluss übernehmen");
+        var portRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0), Children = { portField, portApply } };
+
+        var status = PageParts.Muted("", 13);
+        status.Margin = new Thickness(0, 14, 0, 0);
+        var remote = services.Remote;
+        if (!settings.HomeServer) status.Text = "Der Server ist aus.";
+        else if (remote is null || !remote.Running) status.Text = "Der Server läuft nicht (siehe Meldung beim Start).";
+        else
+        {
+            var addresses = remote.Addresses();
+            status.Text = (addresses.Count == 0 ? "Läuft, aber kein Heimnetz gefunden (kein Netzwerkanschluss?)." : "Adresse im Browser des Handys: " + string.Join("   oder   ", addresses)) +
+                          $"{'\n'}PIN: {services.RemoteAccess.Pin}   ·   {services.RemoteAccess.DeviceCount} Gerät{(services.RemoteAccess.DeviceCount == 1 ? "" : "e")} angemeldet";
+        }
+
+        var revoke = PageParts.Compact(PageParts.Button("Alle Geräte abmelden (neue PIN)", "GhostButton", (_, _) =>
+        {
+            services.RemoteAccess.RevokeAll();
+            ShowTab("Steuerung", animate: false);
+        }, new Thickness(0)));
+        AutomationProperties.SetName(revoke, "Alle Geräte abmelden");
+        revoke.Margin = new Thickness(0, 12, 0, 0);
+
+        var controls = new StackPanel { Children = { onOff, reach, portRow, status, revoke } };
+        return PageParts.Group(PageParts.SettingRow("Heimnetz-Server",
+            "Weboberfläche und Fernbedienung fürs Handy: Im Browser Filme und Serien durchsuchen, auf dem PC abspielen oder im Handy ansehen (MP4 unverändert, sonst von ffmpeg umgewandelt), " +
+            "und Player und Bibliothek der App wie mit einem Controller bedienen. Zugang nur mit der PIN unten; die Verbindung ist unverschlüsselt (HTTP) und gehört ins eigene Heimnetz, nicht ins Internet. " +
+            "Der Server zeigt die Bibliothek des gerade gewählten Profils. Beim ersten Einschalten fragt die Windows-Firewall, ob MediaCenter im privaten Netz erreichbar sein darf.",
+            controls, stacked: true));
+    }
+
+    /// <summary>Anzeigename einer Taste: „Space“ → „Leertaste“, „OemComma“ → „,“.</summary>
+    private static string KeyName(string key) => key switch
+    {
+        "Space" => "Leertaste",
+        "Escape" => "Esc",
+        "Return" => "Enter",
+        "OemComma" => ",",
+        "OemPeriod" => ".",
+        "OemPlus" => "+",
+        "OemMinus" => "−",
+        "Add" => "+ (Ziffernblock)",
+        "Subtract" => "− (Ziffernblock)",
+        "Left" => "←",
+        "Right" => "→",
+        "Up" => "↑",
+        "Down" => "↓",
+        "PageUp" => "Bild auf",
+        "PageDown" => "Bild ab",
+        "D0" => "0",
+        "NumPad0" => "0 (Ziffernblock)",
+        _ => key.Length == 2 && key[0] == 'D' && char.IsDigit(key[1]) ? key[1..] : key,
+    };
+
     // --- Tastenkürzel --------------------------------------------------------------------------------------
 
     // Muss zu den Tasten in MainWindow.Player.cs (OnPlayerKey), CardView und MainWindow.OnPreviewKeyDown passen.
@@ -905,7 +1371,7 @@ public sealed class SettingsPage : UserControl
     private static UIElement Hotkeys()
     {
         var panel = new StackPanel();
-        var intro = PageParts.Muted("Gelten im Player und in der Bibliothek. Die Tasten lassen sich noch nicht ändern.", 13);
+        var intro = PageParts.Muted("Gelten im Player und in der Bibliothek; hier die Standardtasten. Die Tasten des Players lassen sich im Reiter „Steuerung“ ändern, dort steht auch die Belegung für Controller.", 13);
         intro.Margin = new Thickness(4, 0, 0, 0);
         panel.Children.Add(intro);
 
@@ -960,8 +1426,12 @@ public sealed class SettingsPage : UserControl
             {
                 PageParts.Group(
                     PageParts.SettingRow("Mediacenter", "Ein Klick auf die Versionsnummer zeigt, was sich in welcher Version geändert hat.", version),
-                    PageParts.SettingRow("Player", $"mpv: {_shell.Services.MpvPath}" + (File.Exists(_shell.Services.MpvPath) ? "" : "  (nicht gefunden)") +
+                    PageParts.SettingRow("Player", $"mpv: {ToolLocator.Mpv().Describe()}" +
                         "\nEinen anderen Pfad gibt die Umgebungsvariable MEDIACENTER_MPV vor.", null),
+                    PageParts.SettingRow("Werkzeuge", $"ffmpeg: {ToolLocator.Ffmpeg().Describe()}\nffprobe: {ToolLocator.Ffprobe().Describe()}" +
+                        "\nOhne sie gibt es keine Scans, Cover, Vorschauen und keinen Mkv-Editor. mpv, ffmpeg und ffprobe werden auch neben der Anwendung und im Ordner tools gefunden; andere Pfade geben MEDIACENTER_MPV, MEDIACENTER_FFMPEG und MEDIACENTER_FFPROBE vor.", null),
+                    PageParts.SettingRow("Datenquellen", "Dieses Produkt nutzt die TMDB-API, ist aber nicht von TMDB unterstützt oder zertifiziert (themoviedb.org). " +
+                        "Weitere Quellen: TVmaze (tvmaze.com), OMDb (omdbapi.com), iTunes, MusicBrainz und Cover Art Archive, LRCLIB (lrclib.net), radio-browser.info.", null),
                     PageParts.SettingRow("Schriften", "Bebas Neue und Figtree, beide unter der SIL Open Font License (Lizenztexte im Ordner Fonts).", null)),
             },
         };

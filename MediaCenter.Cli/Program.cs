@@ -93,7 +93,7 @@ switch (arguments.FirstOrDefault())
             var flags = (status.Connected.ContainsKey(v.VolumeId) ? "" : " [offline]") + (v.Missing ? " [fehlt]" : "") + (v.Locked ? " [gesperrt]" : "");
             var genres = v.TitleId is { } id && db.GetGenres(id) is { Count: > 0 } g ? "  {" + string.Join(", ", g) + "}" : "";
             var duration = v.DurationSeconds is { } s ? TimeSpan.FromSeconds(s).ToString(@"h\:mm\:ss") : "?";
-            Console.WriteLine($"{label,-38} {v.Width}x{v.Height} {v.VideoCodec}{(v.IsHdr ? " HDR" : "")} {duration}{flags}{genres}");
+            Console.WriteLine($"{label,-38} {v.Width}x{v.Height} {v.VideoCodec}{(v.Hdr == HdrFormat.None ? "" : $" {v.Hdr.Label()}")} {duration}{flags}{genres}");
         }
         return 0;
     }

@@ -94,7 +94,7 @@ public sealed class DuplicatesPage : UserControl
             {
                 video.Height is { } h ? $"{h}p" : null,
                 video.VideoCodec?.ToUpperInvariant(),
-                video.IsHdr ? "HDR" : null,
+                video.Hdr == HdrFormat.None ? null : video.Hdr.Label(),
                 FormatSize(file.Size),
                 online is null ? "nicht erreichbar" : null,
             }.Where(x => x is not null));

@@ -122,7 +122,7 @@ public sealed class LibrarySearchTests
 
 public sealed class WatchStateTests
 {
-    private static VideoRow Video(long id) => new(id, id, 1, $"v{id}.mkv", false, 1, TitleKind.Series, "S", null, 1, (int)id, false, "S", VideoKind.Episode, 60, 720, 1080, "h264", false);
+    private static VideoRow Video(long id) => new(id, id, 1, $"v{id}.mkv", false, 1, TitleKind.Series, "S", null, 1, (int)id, false, "S", VideoKind.Episode, 60, 720, 1080, "h264", HdrFormat.None);
 
     private static Dictionary<long, PlaybackState> Playback(params (long Id, double Position, bool Watched)[] rows) =>
         rows.ToDictionary(r => r.Id, r => new PlaybackState(r.Position, r.Watched, "2026-01-01T00:00:00Z"));

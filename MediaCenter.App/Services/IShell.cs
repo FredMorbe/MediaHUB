@@ -13,6 +13,7 @@ public enum Section
     Settings,
     Music,
     Radio,
+    Live,
     Podcasts,
     History,
 }
@@ -51,6 +52,9 @@ public interface IShell
     void Back();
 
     Task PlayAsync(VideoRow video, bool resume);
+
+    /// <summary>Spielt einen Live-Sender im Player. <paramref name="zapList"/> sind die Sender, zwischen denen dort Bild auf/ab und das Sendermenü wechseln.</summary>
+    Task PlayLiveAsync(LiveChannel channel, IReadOnlyList<LiveChannel> zapList);
 
     /// <summary>Großes Titelbild hinter der Seite; null blendet es aus.</summary>
     void SetBackdrop(string? imagePath);

@@ -55,7 +55,8 @@ public partial class DetailPage : UserControl
         var tech = new List<string>();
         if (video.Height is { } height) tech.Add($"{height}p");
         if (video.VideoCodec is { } codec) tech.Add(codec.ToUpperInvariant());
-        if (video.IsHdr) tech.Add("HDR");
+        if (video.Hdr != HdrFormat.None) tech.Add(video.Hdr.Label());
+        if (video.Disc != DiscKind.None) tech.Add(DiscDetector.Label(video.Disc));
         return string.Join(" · ", new[] { basic }.Concat(tech).Where(s => s.Length > 0));
     }
 
@@ -74,8 +75,8 @@ public partial class DetailPage : UserControl
     {
         if (_model.Db.GetTitleInfo(_title.Id) is not { } info) return;
 
-        var source = info.Provider switch { "omdb" => "OMDb", "tvmaze" => "TVmaze", _ => info.Provider };
-        // OMDb liefert die IMDb-Wertung, TVmaze die eigene der Nutzer dort.
+        var source = info.Provider switch { "omdb" => "OMDb", "tvmaze" => "TVmaze", "tmdb" => "TMDB", _ => info.Provider };
+        // OMDb liefert die IMDb-Wertung, TVmaze und TMDB die eigene der Nutzer dort.
         var credits = new List<string>();
         if (info.Rating is { } rating) credits.Add($"{(info.Provider == "omdb" ? "IMDb" : source)} {rating.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture)}");
         if (info.Director is { } director) credits.Add($"Regie: {director}");
@@ -101,8 +102,31 @@ public partial class DetailPage : UserControl
         {
             ShowText(SourceText, info.UserEdited
                 ? $"Handlung, Regie und Besetzung selbst geschrieben; Wertung und Folgentexte von {source}"
-                : $"Infotexte von {source}, auf Englisch");
+                : $"Infotexte von {source}, auf {(info.Provider == "tmdb" ? "Deutsch (wo es keine Übersetzung gibt, fehlt der Text)" : "Englisch")}");
         }
+
+        BuildTrailerButton(info.TrailerKey);
+    }
+
+    /// <summary>„Trailer“ öffnet die Seite des Trailers bei YouTube im Standardbrowser; erst dann geht etwas an YouTube.</summary>
+    private void BuildTrailerButton(string? key)
+    {
+        if (key is null) return;
+
+        PageParts.Compact(TrailerButton);
+        TrailerButton.ToolTip = "Trailer bei YouTube ansehen (öffnet den Browser)";
+        TrailerButton.Visibility = Visibility.Visible;
+        TrailerButton.Click += (_, _) =>
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"https://www.youtube.com/watch?v={Uri.EscapeDataString(key)}") { UseShellExecute = true });
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                _shell.ShowMessage($"Der Browser lässt sich nicht öffnen: {ex.Message}", isError: true);
+            }
+        };
     }
 
     /// <summary>„Sammlung: Matrix“ als Link, wenn der Film in einer Sammlung steht.</summary>

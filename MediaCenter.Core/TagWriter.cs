@@ -70,7 +70,7 @@ public sealed class TagWriter(string ffmpegPath)
     /// <summary>Ogg und Opus tragen die Tags am Audiostream statt am Container.</summary>
     private static readonly HashSet<string> StreamTagged = new(StringComparer.OrdinalIgnoreCase) { ".ogg", ".oga", ".opus" };
 
-    public static TagWriter FromEnvironment() => new(Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg");
+    public static TagWriter FromEnvironment() => new(ToolLocator.Ffmpeg().Path);
 
     /// <summary>Die ffmpeg-Argumente für diese Änderung (ohne Programmnamen); für Tests sichtbar.</summary>
     public static IReadOnlyList<string> BuildArguments(string input, string output, TagChanges changes)

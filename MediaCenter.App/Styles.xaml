@@ -97,18 +97,9 @@
                 <ControlTemplate TargetType="Button">
                     <Grid>
                         <Border x:Name="Bd" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" Background="{TemplateBinding Background}"
-                                BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1.5" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                BorderBrush="Transparent" BorderThickness="1.5" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
-                        <!-- Glanz auf der oberen Hälfte (Liquid Glass) -->
-                        <Border x:Name="Gloss" CornerRadius="{Binding CornerRadius, ElementName=Bd}" IsHitTestVisible="False">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                    <GradientStop Color="#38FFFFFF" Offset="0"/>
-                                    <GradientStop Color="#00FFFFFF" Offset="0.55"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
                         </Border>
                         <Border x:Name="Shine" CornerRadius="{Binding CornerRadius, ElementName=Bd}" Background="#2EFFFFFF" Opacity="0" IsHitTestVisible="False"/>
                     </Grid>
@@ -137,12 +128,12 @@
     <!-- Zweitknopf: Pille mit feinem Rahmen -->
     <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
         <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-        <Setter Property="Background" Value="{DynamicResource GlassSheenBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Bd" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            BorderBrush="{DynamicResource GlassRimBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Border>
@@ -314,7 +305,7 @@
                     <Grid Background="Transparent" SnapsToDevicePixels="True">
                         <Border x:Name="Hover" Margin="0,13" Opacity="0" Background="{DynamicResource InkBrush}"
                                 CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}"/>
-                        <Border x:Name="Pill" Margin="0,13" Opacity="0" Background="{DynamicResource NavPillBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1"
+                        <Border x:Name="Pill" Margin="0,13" Opacity="0" Background="{DynamicResource InkBrush}"
                                 CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
@@ -329,7 +320,7 @@
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="Pill" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.22">
+                                        <DoubleAnimation Storyboard.TargetName="Pill" Storyboard.TargetProperty="Opacity" To="0.16" Duration="0:0:0.22">
                                             <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
                                         </DoubleAnimation>
                                     </Storyboard>
@@ -362,7 +353,7 @@
                 <ControlTemplate TargetType="RadioButton">
                     <Grid Background="Transparent" SnapsToDevicePixels="True">
                         <Ellipse x:Name="Hover" Width="38" Height="38" Opacity="0" Fill="{DynamicResource InkBrush}"/>
-                        <Ellipse x:Name="Pill" Width="38" Height="38" Opacity="0" Fill="{DynamicResource NavPillBrush}" Stroke="{DynamicResource GlassEdgeBrush}" StrokeThickness="1"/>
+                        <Ellipse x:Name="Pill" Width="38" Height="38" Opacity="0" Fill="{DynamicResource InkBrush}"/>
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="{TemplateBinding Foreground}"/>
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -372,7 +363,7 @@
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
-                            <Setter TargetName="Pill" Property="Opacity" Value="1"/>
+                            <Setter TargetName="Pill" Property="Opacity" Value="0.16"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -392,7 +383,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
-                    <Border x:Name="Bd" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" Background="{DynamicResource GlassSheenBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}"
+                    <Border x:Name="Bd" CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillRadius}}" Background="Transparent" BorderBrush="{DynamicResource GlassRimBrush}"
                             BorderThickness="1" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
                                           TextElement.Foreground="{TemplateBinding Foreground}"/>
@@ -457,7 +448,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="Bd" CornerRadius="14" Background="Transparent" BorderBrush="{DynamicResource GlassEdgeBrush}"
+                    <Border x:Name="Bd" CornerRadius="14" Background="Transparent" BorderBrush="{DynamicResource GlassRimBrush}"
                             BorderThickness="1" Padding="{TemplateBinding Padding}">
                         <ContentPresenter/>
                     </Border>
@@ -491,7 +482,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
-                    <Border x:Name="Bd" CornerRadius="14" Background="{DynamicResource GlassSheenBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}"
+                    <Border x:Name="Bd" CornerRadius="10" Background="{DynamicResource LineBrush}" BorderBrush="{DynamicResource GlassRimBrush}"
                             BorderThickness="1" SnapsToDevicePixels="True">
                         <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
                                       VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" Focusable="False"/>
@@ -526,7 +517,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="PasswordBox">
-                    <Border x:Name="Bd" CornerRadius="14" Background="{DynamicResource GlassSheenBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}"
+                    <Border x:Name="Bd" CornerRadius="10" Background="{DynamicResource LineBrush}" BorderBrush="{DynamicResource GlassRimBrush}"
                             BorderThickness="1" SnapsToDevicePixels="True">
                         <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
                                       VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" Focusable="False"/>
@@ -605,7 +596,7 @@
         </Setter>
     </Style>
 
-    <!-- Kurzinfo beim Überfahren -->
+    <!-- Kurzinfo beim Überfahren: kleines Milchglas über allem (eigenes Fenster, darum Bildschirmkoordinaten im GlassPanel) -->
     <Style TargetType="ToolTip">
         <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
         <Setter Property="FontFamily" Value="{StaticResource BodyFont}"/>
@@ -614,9 +605,9 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToolTip">
-                    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="8" Padding="10,6">
+                    <c:GlassPanel Layer="Stage" CornerRadius="9" Padding="11,6" Background="{DynamicResource SheetTintBrush}">
                         <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
-                    </Border>
+                    </c:GlassPanel>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -707,10 +698,13 @@
 
     <!-- ===== Flächen ===== -->
 
-    <!-- Milchglas-Fläche: unscharfe Kopie des Hintergrunds, Tönung, Rand (Logik in GlassPanel.cs) -->
+    <!-- Milchglas-Fläche: unscharfes Live-Bild der Ebene dahinter, Tönung, Glanz oben und ein Lichtrand (Logik in GlassPanel.cs) -->
     <Style TargetType="c:GlassPanel">
-        <Setter Property="CornerRadius" Value="28"/>
+        <Setter Property="CornerRadius" Value="22"/>
         <Setter Property="Padding" Value="20"/>
+        <Setter Property="Background" Value="{DynamicResource GlassTintBrush}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource GlassRimBrush}"/>
+        <Setter Property="Focusable" Value="False"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="c:GlassPanel">
@@ -722,19 +716,11 @@
                                     <BlurEffect Radius="40" KernelType="Gaussian" RenderingBias="Performance"/>
                                 </Rectangle.Effect>
                             </Rectangle>
-                            <Border Background="{DynamicResource GlassTintBrush}"/>
-                            <Border Background="{DynamicResource GlassSheenBrush}"/>
+                            <Border Background="{TemplateBinding Underlay}"/>
+                            <Border Background="{TemplateBinding Background}"/>
+                            <Border Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
                         </Grid>
-                        <!-- Lichtkante außen, feine Lichtlinie innen am oberen Rand -->
-                        <Border CornerRadius="{TemplateBinding EffectiveCornerRadius}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1"/>
-                        <Border Margin="1" CornerRadius="{TemplateBinding EffectiveCornerRadius}" BorderThickness="0,1,0,0" IsHitTestVisible="False">
-                            <Border.BorderBrush>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                    <GradientStop Color="#40FFFFFF" Offset="0"/>
-                                    <GradientStop Color="#00FFFFFF" Offset="0.35"/>
-                                </LinearGradientBrush>
-                            </Border.BorderBrush>
-                        </Border>
+                        <Border CornerRadius="{TemplateBinding EffectiveCornerRadius}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" IsHitTestVisible="False"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}"/>
                     </Grid>
                 </ControlTemplate>
@@ -742,9 +728,43 @@
         </Setter>
     </Style>
 
-    <!-- Streifen über die ganze Breite (Navigation): Glas mit Glanz und einer hellen Kante unten (Liquid Glass) -->
+    <!-- Streifen über die ganze Breite (Navigation): dunkel getöntes Milchglas ohne Rahmen, das unten weich in den Inhalt ausläuft -->
     <Style x:Key="BarGlass" TargetType="c:GlassPanel" BasedOn="{StaticResource {x:Type c:GlassPanel}}">
         <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Background" Value="{DynamicResource BarTintBrush}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="c:GlassPanel">
+                    <Grid>
+                        <Grid x:Name="PART_Clip">
+                            <Grid.OpacityMask>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                    <GradientStop Color="#FF000000" Offset="0"/>
+                                    <GradientStop Color="#F2000000" Offset="0.55"/>
+                                    <GradientStop Color="#00000000" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Grid.OpacityMask>
+                            <Border Background="{DynamicResource BgBrush}"/>
+                            <Rectangle x:Name="PART_Blur" Margin="-48">
+                                <Rectangle.Effect>
+                                    <BlurEffect Radius="40" KernelType="Gaussian" RenderingBias="Performance"/>
+                                </Rectangle.Effect>
+                            </Rectangle>
+                            <Border Background="{TemplateBinding Background}"/>
+                            <Border Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
+                        </Grid>
+                        <ContentPresenter Margin="{TemplateBinding Padding}"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Streifen am unteren Rand (Mini-Player): Milchglas mit feiner Lichtkante oben -->
+    <Style x:Key="DockGlass" TargetType="c:GlassPanel" BasedOn="{StaticResource {x:Type c:GlassPanel}}">
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Background" Value="{DynamicResource BarTintBrush}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="c:GlassPanel">
@@ -756,10 +776,10 @@
                                     <BlurEffect Radius="40" KernelType="Gaussian" RenderingBias="Performance"/>
                                 </Rectangle.Effect>
                             </Rectangle>
-                            <Border Background="{DynamicResource GlassTintBrush}"/>
-                            <Border Background="{DynamicResource GlassSheenBrush}"/>
+                            <Border Background="{TemplateBinding Background}"/>
+                            <Border Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
                         </Grid>
-                        <Border BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="0,0,0,1" IsHitTestVisible="False"/>
+                        <Border BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="0,1,0,0" IsHitTestVisible="False"/>
                         <ContentPresenter Margin="{TemplateBinding Padding}"/>
                     </Grid>
                 </ControlTemplate>
@@ -778,7 +798,7 @@
                         <Rectangle RadiusX="{TemplateBinding Radius}" RadiusY="{TemplateBinding Radius}">
                             <Rectangle.Fill>
                                 <RadialGradientBrush Center="0.9,0.1" GradientOrigin="0.9,0.1" RadiusX="0.8" RadiusY="1">
-                                    <GradientStop Color="{DynamicResource AccentGlowColor}" Offset="0"/>
+                                    <GradientStop Color="{DynamicResource AccentLineColor}" Offset="0"/>
                                     <GradientStop Color="{DynamicResource AccentClearColor}" Offset="1"/>
                                 </RadialGradientBrush>
                             </Rectangle.Fill>

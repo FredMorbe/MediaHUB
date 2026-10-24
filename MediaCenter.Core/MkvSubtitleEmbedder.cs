@@ -20,8 +20,8 @@ public sealed class MkvSubtitleEmbedder(string ffmpegPath, string ffprobePath, I
     private readonly MkvEditor _editor = new(ffmpegPath, ffprobePath, probe);
 
     public static MkvSubtitleEmbedder FromEnvironment() => new(
-        Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg",
-        Environment.GetEnvironmentVariable("MEDIACENTER_FFPROBE") ?? "ffprobe",
+        ToolLocator.Ffmpeg().Path,
+        ToolLocator.Ffprobe().Path,
         FfprobeReader.FromEnvironment());
 
     public static bool CanEmbedInto(string videoPath) => MkvEditor.CanEdit(videoPath);

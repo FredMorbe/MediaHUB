@@ -19,8 +19,8 @@ public static class LibraryActions
 
     public static async Task AddFileAsync(IShell shell)
     {
-        var extensions = string.Join(";", MediaExtensions.Video.Select(e => "*" + e));
-        var dialog = new OpenFileDialog { Title = "Videodatei wählen", Filter = $"Videos|{extensions}|Alle Dateien|*.*" };
+        var extensions = string.Join(";", MediaExtensions.Video.Append(DiscDetector.ImageExtension).Select(e => "*" + e));
+        var dialog = new OpenFileDialog { Title = "Videodatei oder Disc-Abbild wählen", Filter = $"Videos und Disc-Abbilder|{extensions}|Alle Dateien|*.*" };
         if (dialog.ShowDialog() != true) return;
         await AddAsync(shell, "Datei wird gelesen …", () => shell.Services.Model.Library.AddFileAsync(dialog.FileName));
     }

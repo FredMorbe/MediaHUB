@@ -19,9 +19,8 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
-    /// <summary>Pfad aus MEDIACENTER_FFMPEG, sonst "ffmpeg" aus dem PATH.</summary>
-    public static FfmpegTool FromEnvironment() =>
-        new(Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg");
+    /// <summary>Pfad nach <see cref="ToolLocator.Ffmpeg"/> (MEDIACENTER_FFMPEG, neben der EXE, PATH).</summary>
+    public static FfmpegTool FromEnvironment() => new(ToolLocator.Ffmpeg().Path);
 
     public Task ScaleImageAsync(string input, string output, int maxWidth, int maxHeight, CancellationToken ct = default) =>
         RunAsync(output, ct, "-i", input, "-frames:v", "1", "-vf", ScaleFilter(maxWidth, maxHeight));
@@ -32,8 +31,9 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
         // Schwarze Balken (Cinemascope in 16:9-Bild) würden als Cover mit abgebildet; sie werden vorher abgeschnitten.
         var crop = await DetectCropAsync(video, position, ct);
         var filter = (crop is null ? "" : $"crop={crop},") + ScaleFilter(maxWidth, maxHeight);
-        // -ss vor -i: schnelles Springen, auch in sehr großen Dateien.
-        await RunAsync(output, ct, "-ss", position, "-i", video, "-frames:v", "1", "-vf", filter);
+        // -ss vor -i: schnelles Springen, auch in sehr großen Dateien. Eine Disc (DiscInput.ForFfmpeg) braucht ihr Eingabeformat vor -i.
+        var (format, input) = DiscInput.SplitFfmpeg(video);
+        await RunAsync(output, ct, ["-ss", position, .. format, "-i", input, "-frames:v", "1", "-vf", filter]);
     }
 
     public Task ExtractStreamImageAsync(string video, int streamIndex, string output, int maxWidth, int maxHeight, CancellationToken ct = default) =>
@@ -48,7 +48,8 @@ public sealed class FfmpegTool(string ffmpegPath) : IImageTool
     private async Task<string?> DetectCropAsync(string video, string position, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(ffmpegPath) { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, StandardErrorEncoding = System.Text.Encoding.UTF8, CreateNoWindow = true };
-        foreach (var arg in new[] { "-hide_banner", "-v", "info", "-ss", position, "-i", video, "-t", "3", "-an", "-sn", "-vf", "cropdetect=limit=24:round=2:reset=0", "-f", "null", "-" })
+        var (format, input) = DiscInput.SplitFfmpeg(video);
+        foreach (var arg in new[] { "-hide_banner", "-v", "info", "-ss", position }.Concat(format).Concat(new[] { "-i", input, "-t", "3", "-an", "-sn", "-vf", "cropdetect=limit=24:round=2:reset=0", "-f", "null", "-" }))
         {
             psi.ArgumentList.Add(arg);
         }

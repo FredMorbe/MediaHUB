@@ -1,0 +1,9 @@
+{
+  "name": "Mediacenter",
+  "short_name": "Mediacenter",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "icons": [{ "src": "/icon.png", "sizes": "any", "type": "image/png" }]
+}

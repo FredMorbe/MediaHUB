@@ -5,10 +5,21 @@ using System.Windows.Shapes;
 
 namespace MediaCenter.App.Controls;
 
+/// <summary>Welche Ebene des Hauptfensters eine Glas-Fläche weichzeichnet.</summary>
+public enum GlassLayer
+{
+    /// <summary>Hintergrund und Seite: für Flächen, die selbst darüber liegen (Navigation, Leiste, Modale, Menüs über der Seite).</summary>
+    Scene,
+
+    /// <summary>Alles bis auf Rückfragen und Meldungen: für Flächen, die auch über Modalen und der Navigation liegen können.</summary>
+    Stage,
+}
+
 /// <summary>
 /// Milchglas-Fläche. WPF kann nichts live hinter einem Element weichzeichnen; stattdessen zeichnet die Fläche
-/// den passenden Ausschnitt des Hintergrund-Elements (<see cref="Backdrop"/>) unscharf nach und legt eine Tönung darüber.
-/// Inhalte, die über den Hintergrund scrollen, erscheinen daher nicht im Glas.
+/// den passenden Ausschnitt einer Ebene des Hauptfensters (<see cref="Backdrop"/> oder <see cref="Overlay"/>) als lebendes Bild
+/// unscharf nach und legt Tönung, Glanz und einen Lichtrand darüber. Was hinter der Fläche scrollt, scheint also weichgezeichnet durch.
+/// Funktioniert auch in Popups (eigene Fenster): dort wird die Lage über Bildschirmkoordinaten bestimmt.
 /// </summary>
 public sealed class GlassPanel : ContentControl
 {
@@ -18,17 +29,28 @@ public sealed class GlassPanel : ContentControl
     public static readonly DependencyProperty CornerRadiusProperty = DependencyProperty.Register(
         nameof(CornerRadius), typeof(CornerRadius), typeof(GlassPanel), new PropertyMetadata(new CornerRadius(22), (d, _) => ((GlassPanel)d).UpdateClip()));
 
+    public static readonly DependencyProperty LayerProperty = DependencyProperty.Register(
+        nameof(Layer), typeof(GlassLayer), typeof(GlassPanel), new PropertyMetadata(GlassLayer.Scene, (d, _) => ((GlassPanel)d).Refresh()));
+
+    /// <summary>Farbe zwischen Weichzeichnung und Tönung, z. B. die Abdunkelung eines Modals, die im Hintergrund des Glases fehlt.</summary>
+    public static readonly DependencyProperty UnderlayProperty = DependencyProperty.Register(
+        nameof(Underlay), typeof(Brush), typeof(GlassPanel), new PropertyMetadata(null));
+
     private static readonly DependencyPropertyKey EffectiveCornerRadiusKey = DependencyProperty.RegisterReadOnly(
         nameof(EffectiveCornerRadius), typeof(CornerRadius), typeof(GlassPanel), new PropertyMetadata(new CornerRadius(0)));
 
     public static readonly DependencyProperty EffectiveCornerRadiusProperty = EffectiveCornerRadiusKey.DependencyProperty;
 
-    /// <summary>Das Element, dessen Bild als Glas-Untergrund dient; steht im selben Fenster wie die Flächen.</summary>
+    /// <summary>Hintergrund und Seite des Hauptfensters (<see cref="GlassLayer.Scene"/>).</summary>
     public static FrameworkElement? Backdrop { get; set; }
+
+    /// <summary>Alle Ebenen bis auf Rückfragen und Meldungen (<see cref="GlassLayer.Stage"/>).</summary>
+    public static FrameworkElement? Overlay { get; set; }
 
     private Grid? _clip;
     private Rectangle? _blur;
     private Rect _lastBounds;
+    private FrameworkElement? _lastSource;
 
     static GlassPanel()
     {
@@ -42,6 +64,18 @@ public sealed class GlassPanel : ContentControl
     {
         get => (CornerRadius)GetValue(CornerRadiusProperty);
         set => SetValue(CornerRadiusProperty, value);
+    }
+
+    public GlassLayer Layer
+    {
+        get => (GlassLayer)GetValue(LayerProperty);
+        set => SetValue(LayerProperty, value);
+    }
+
+    public Brush? Underlay
+    {
+        get => (Brush?)GetValue(UnderlayProperty);
+        set => SetValue(UnderlayProperty, value);
     }
 
     public override void OnApplyTemplate()
@@ -60,7 +94,9 @@ public sealed class GlassPanel : ContentControl
         {
             LayoutUpdated += OnLayoutUpdated;
             // LayoutUpdated kommt nur bei Änderungen; beim ersten Anzeigen muss der Ausschnitt einmal gesetzt werden.
-            Dispatcher.BeginInvoke(() => OnLayoutUpdated(this, EventArgs.Empty), System.Windows.Threading.DispatcherPriority.Loaded);
+            // In einem Popup steht das Fenster erst danach an seiner Stelle, darum zusätzlich noch einmal im Leerlauf.
+            Dispatcher.BeginInvoke(Refresh, System.Windows.Threading.DispatcherPriority.Loaded);
+            Dispatcher.BeginInvoke(Refresh, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         };
         Unloaded += (_, _) => LayoutUpdated -= OnLayoutUpdated;
     }
@@ -74,16 +110,35 @@ public sealed class GlassPanel : ContentControl
         _clip.Clip = new RectangleGeometry(new Rect(0, 0, _clip.ActualWidth, _clip.ActualHeight), radius, radius);
     }
 
+    private void Refresh()
+    {
+        _lastBounds = Rect.Empty;
+        OnLayoutUpdated(this, EventArgs.Empty);
+    }
+
     private void OnLayoutUpdated(object? sender, EventArgs e)
     {
-        if (_blur is null || Backdrop is null || ActualWidth <= 0 || ActualHeight <= 0) return;
-        if (Window.GetWindow(this) is not { } window || Window.GetWindow(Backdrop) != window) return;
+        if (_blur is null || !IsLoaded || ActualWidth <= 0 || ActualHeight <= 0) return;
+        var source = Layer == GlassLayer.Stage ? Overlay ?? Backdrop : Backdrop;
+        if (source is null || PresentationSource.FromVisual(source) is not { } sourceRoot || PresentationSource.FromVisual(this) is not { } ownRoot) return;
 
-        var bounds = TransformToVisual(Backdrop).TransformBounds(new Rect(0, 0, ActualWidth, ActualHeight));
-        if (bounds == _lastBounds) return;
+        Rect bounds;
+        if (ReferenceEquals(sourceRoot, ownRoot))
+        {
+            bounds = TransformToVisual(source).TransformBounds(new Rect(0, 0, ActualWidth, ActualHeight));
+        }
+        else
+        {
+            // Popup: eigenes Fenster, kein gemeinsamer Elternknoten; die Lage kommt über den Bildschirm.
+            var topLeft = source.PointFromScreen(PointToScreen(new Point(0, 0)));
+            var bottomRight = source.PointFromScreen(PointToScreen(new Point(ActualWidth, ActualHeight)));
+            bounds = new Rect(topLeft, bottomRight);
+        }
+        if (bounds == _lastBounds && ReferenceEquals(source, _lastSource)) return;
         _lastBounds = bounds;
+        _lastSource = source;
 
-        _blur.Fill = new VisualBrush(Backdrop)
+        _blur.Fill = new VisualBrush(source)
         {
             ViewboxUnits = BrushMappingMode.Absolute,
             Viewbox = new Rect(bounds.X - Pad, bounds.Y - Pad, bounds.Width + 2 * Pad, bounds.Height + 2 * Pad),

@@ -23,6 +23,9 @@ public enum RenameStatus
 
     /// <summary>Der neue Name würde von der Bibliothek nicht wieder als derselbe Film gelesen.</summary>
     Unreadable,
+
+    /// <summary>Eine DVD oder Blu-ray (Ordner oder Abbild): Discs werden nicht umbenannt.</summary>
+    Disc,
 }
 
 /// <summary>Eine Begleitdatei (Untertitel, nfo, Bild), die mit dem Film umbenannt wird; Pfade relativ zum Laufwerk.</summary>
@@ -190,6 +193,7 @@ public sealed class MovieRenamePlanner(IMovieInfoSource source)
     {
         if (!status.Connected.TryGetValue(video.VolumeId, out var volume)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Laufwerk nicht angeschlossen.");
         var path = Path.Combine(volume.RootPath, video.RelPath);
+        if (video.Disc != DiscKind.None) return new RenameProposal(video, RenameStatus.Disc, Detail: "Discs (Ordner und Abbilder) werden nicht umbenannt.");
         if (!File.Exists(path)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Datei nicht gefunden.");
 
         var info = await source.LookupAsync(video.TitleName ?? video.ParsedTitle, video.Year, ct);
@@ -227,6 +231,7 @@ public sealed class MovieRenamePlanner(IMovieInfoSource source)
 
         if (!status.Connected.TryGetValue(video.VolumeId, out var volume)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Laufwerk nicht angeschlossen.");
         var path = Path.Combine(volume.RootPath, video.RelPath);
+        if (video.Disc != DiscKind.None) return new RenameProposal(video, RenameStatus.Disc, Detail: "Discs (Ordner und Abbilder) werden nicht umbenannt.");
         if (!File.Exists(path)) return new RenameProposal(video, RenameStatus.Offline, Detail: "Datei nicht gefunden.");
 
         if (Path.GetFileNameWithoutExtension(path) == baseName) return new RenameProposal(video, RenameStatus.AlreadyCorrect);

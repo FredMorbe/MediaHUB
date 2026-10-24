@@ -117,6 +117,8 @@ public partial class MainWindow
         _overlay.Activity += () => _lastActivity = DateTime.UtcNow;
         InitCast();
         InitSubtitleSearch();
+        InitLive();
+        InitHdr();
 
         LocationChanged += (_, _) => UpdateOverlay();
         SizeChanged += (_, _) => UpdateOverlay();
@@ -166,7 +168,9 @@ public partial class MainWindow
         Closed += (_, _) => _media.Dispose();
     }
 
-    private MediaInfo? VideoInfo() => _playing is null || !PlayerActive
+    private MediaInfo? VideoInfo() => _live is { } live && PlayerActive
+        ? new MediaInfo(MediaKind.Video, live.Name, null, null, null, Playing: !_paused, CanNext: _liveList.Count > 1, CanPrevious: _liveList.Count > 1, Position: 0, Duration: 0)
+        : _playing is null || !PlayerActive
         ? null
         : new MediaInfo(MediaKind.Video, TitleOf(_playing), null, null, _playing.TitleId is { } titleId ? Services.Model.BestCover(titleId)?.Path : null,
             Playing: !_paused, CanNext: _nextVideo is not null, CanPrevious: true, Position: _position, Duration: _duration);
@@ -183,9 +187,9 @@ public partial class MainWindow
 
         public Task SetPlayingAsync(bool playing) => window.SetPausedAsync(!playing);
 
-        public Task NextAsync() => window._nextVideo is null ? Task.CompletedTask : window.PlayNextAsync();
+        public Task NextAsync() => window._nextVideo is null && window._live is null ? Task.CompletedTask : window.PlayNextAsync();
 
-        public Task PreviousAsync() => window.SeekAsync(0, relative: false);
+        public Task PreviousAsync() => window._live is not null ? window.ZapAsync(-1) : window.SeekAsync(0, relative: false);
 
         public Task StopAsync() => window.ExitPlayerAsync();
     }
@@ -201,6 +205,13 @@ public partial class MainWindow
             ShowMessage($"Die Datei ist nicht erreichbar (Laufwerk abgesteckt oder Datei fehlt): {video.RelPath}", isError: true);
             return;
         }
+        if (_casting && video.Disc != DiscKind.None)
+        {
+            ShowMessage("DVDs und Blu-rays lassen sich nicht auf den Fernseher übertragen. Beende zuerst die Übertragung.", isError: true);
+            return;
+        }
+
+        if (_live is not null) await EndLiveAsync(); // vom Sender zu einem Video: die Optionen für Dateien zurücksetzen
 
         if (_playing is not null)
         {
@@ -282,7 +293,15 @@ public partial class MainWindow
             await ApplySubtitleStyleAsync(Services.Settings.SubtitleStyle);
             await ResetPictureAsync();
             await LoadColorAsync(video);
-            await _mpv.CommandAsync("loadfile", path, "replace", -1, $"start={start.ToString("0.###", CultureInfo.InvariantCulture)}");
+            var target = path;
+            if (video.Disc != DiscKind.None)
+            {
+                // DVD und Blu-ray (Ordner oder Abbild): mpv bekommt den Ort der Disc und spielt den Hauptfilm (den längsten Titel).
+                var (deviceProperty, url) = DiscInput.ForMpv(video.Disc);
+                await _mpv.CommandAsync("set", deviceProperty, path);
+                target = url;
+            }
+            await _mpv.CommandAsync("loadfile", target, "replace", -1, $"start={start.ToString("0.###", CultureInfo.InvariantCulture)}");
             await _mpv.CommandAsync("set", "pause", "no");
             _lastActivity = DateTime.UtcNow;
             _idleTimer.Start();
@@ -314,9 +333,10 @@ public partial class MainWindow
         mpv.FileLoaded += () => Dispatcher.Invoke(() =>
         {
             _fileReady = true;
+            _liveRetries = 0;
             AutoSelectSubtitle();
         });
-        mpv.FileFailed += message => Dispatcher.Invoke(() => PlayerNotice($"Die Datei lässt sich nicht abspielen: {message}", isError: true));
+        mpv.FileFailed += message => Dispatcher.Invoke(() => PlayerNotice($"{(_live is null ? "Die Datei" : "Der Sender")} lässt sich nicht abspielen: {message}", isError: true));
         mpv.Ended += reason => Dispatcher.Invoke(async () =>
         {
             ShowMessage($"mpv wurde beendet: {reason}", isError: true);
@@ -326,7 +346,7 @@ public partial class MainWindow
         foreach (var property in new[]
         {
             "time-pos", "duration", "pause", "eof-reached", "volume", "mute", "track-list",
-            "video-params", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps", "chapter-list",
+            "video-params", "video-target-params", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps", "chapter-list",
         })
         {
             await mpv.ObserveAsync(property);
@@ -334,6 +354,7 @@ public partial class MainWindow
         await mpv.CommandAsync("set", "af", Services.Sound.Filter ?? "");
         Services.Sound.Changed -= OnSoundChanged; // mpv kann neu gestartet werden; nur einmal anmelden
         Services.Sound.Changed += OnSoundChanged;
+        _appliedHdrHint = null; // eine neue mpv-Instanz kennt den Wert nicht
         _mpv = mpv;
     }
 
@@ -393,11 +414,13 @@ public partial class MainWindow
             _overlay.SetCastActive(null);
             await Services.Cast.StopAsync();
         }
+        await EndLiveAsync();
         if (_mpv is not null) await _mpv.CommandAsync("stop");
         _overlay.Hide();
         PlayerLayer.Visibility = Visibility.Collapsed;
         NotifyVideo();
         ReloadView();
+        _ = SyncTraktSafelyAsync(automatic: true); // das eben Gesehene geht an Trakt (höchstens alle zehn Minuten, nur wenn verbunden)
     }
 
     /// <summary>Schreibt Position und Gesehen-Status; sehr frühe Positionen werden nicht gemerkt.</summary>
@@ -444,7 +467,11 @@ public partial class MainWindow
                 break;
             case "eof-reached" when data is { } v:
                 _eof = v.ValueKind == JsonValueKind.True;
-                if (_eof)
+                if (_eof && _live is not null)
+                {
+                    _ = ReconnectLiveAsync(); // ein Sender hat kein Ende: der Anbieter hat getrennt
+                }
+                else if (_eof)
                 {
                     SaveProgress();
                     // Einschlaf-Timer „am Ende der Folge“: hier anhalten statt die nächste Folge zu starten.
@@ -456,15 +483,23 @@ public partial class MainWindow
                 }
                 break;
             case "volume" when data is { ValueKind: JsonValueKind.Number } v:
-                _overlay.SetVolume(v.GetDouble());
+                _mpvVolume = v.GetDouble();
+                _overlay.SetVolume(_mpvVolume);
                 break;
             case "mute" when data is { } v:
-                _overlay.SetMuted(v.GetBoolean());
+                _mpvMuted = v.GetBoolean();
+                _overlay.SetMuted(_mpvMuted);
                 break;
             case "video-params" when _switching:
                 break;
             case "video-params":
                 _overlay.SetVideoAspect(data is { ValueKind: JsonValueKind.Object } p && p.TryGetProperty("aspect", out var aspect) && aspect.ValueKind == JsonValueKind.Number ? aspect.GetDouble() : null);
+                OnVideoParams(data);
+                break;
+            case "video-target-params" when _switching:
+                break;
+            case "video-target-params":
+                OnVideoTargetParams(data);
                 break;
             case "track-list" when data is { ValueKind: JsonValueKind.Array } v:
                 _tracks = ParseTracks(v);
@@ -836,6 +871,11 @@ public partial class MainWindow
     /// <summary>Folge aus dem Folgenmenü des Players: setzt dort fort, wo sie zuletzt stand.</summary>
     private async Task PlayEpisodeAsync(long videoId)
     {
+        if (_live is not null)
+        {
+            await PlayChannelAsync(videoId); // im Live-Modus ist das Menü das Sendermenü
+            return;
+        }
         if (_playing is null || _playing.TitleId is not { } titleId || _playing.VideoId == videoId) return;
         if (Services.Model.VideosOf(titleId).FirstOrDefault(v => v.VideoId == videoId) is not { } episode) return;
 
@@ -851,6 +891,11 @@ public partial class MainWindow
 
     private async Task PlayNextAsync()
     {
+        if (_live is not null)
+        {
+            await ZapAsync(1);
+            return;
+        }
         if (_nextVideo is not { } next) return;
 
         CancelNextCountdown(declined: false);
@@ -879,7 +924,7 @@ public partial class MainWindow
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         switch (e.Key)
         {
-            // Bild (Belegung wie im MPC-BE): Strg+←/→ Einzelbild, Strg+↑/↓ Tempo, Strg+R Tempo zurück
+            // Bild (Belegung wie im MPC-BE): Strg+←/→ Einzelbild, Strg+↑/↓ Tempo, Strg+R Tempo zurück; diese Kombinationen sind fest.
             case Key.Left when ctrl && shift: _overlay.Pan(-PictureSettings.PanStep, 0); break;
             case Key.Right when ctrl && shift: _overlay.Pan(PictureSettings.PanStep, 0); break;
             case Key.Up when ctrl && shift: _overlay.Pan(0, -PictureSettings.PanStep); break;
@@ -889,34 +934,97 @@ public partial class MainWindow
             case Key.Up when ctrl: _overlay.StepSpeed(1); break;
             case Key.Down when ctrl: _overlay.StepSpeed(-1); break;
             case Key.R when ctrl: _overlay.ResetSpeed(); break;
-            case Key.OemComma: _ = StepFrameAsync(-1); break;
-            case Key.OemPeriod: _ = StepFrameAsync(1); break;
-            case Key.OemPlus or Key.Add: _overlay.StepZoom(1); break;
-            case Key.OemMinus or Key.Subtract: _overlay.StepZoom(-1); break;
-            case Key.D0 or Key.NumPad0: _overlay.ResetZoom(); break;
-            case Key.R: _overlay.Rotate(shift ? -90 : 90); break;
-            case Key.A: _overlay.NextAspect(); break;
-
-            case Key.Space or Key.K: _ = TogglePauseAsync(); break;
-            case Key.P: TogglePictureInPicture(); break;
-            case Key.F11 or Key.F: ToggleFullscreen(); break;
-            case Key.Escape: if (PictureInPictureActive) RestorePictureInPicture(); else if (_fullscreen && !_fullscreenBeforePlayer) ToggleFullscreen(); else _ = ExitPlayerAsync(); break;
-            case Key.Left: _ = SeekAsync(shift ? -60 : -10, relative: true); break;
-            case Key.Right: _ = SeekAsync(shift ? 60 : 10, relative: true); break;
-            case Key.Up: _ = ChangeVolumeAsync(5); break;
-            case Key.Down: _ = ChangeVolumeAsync(-5); break;
-            case Key.M: _ = ToggleMuteAsync(); break;
-            case Key.I: _overlay.ToggleStats(); break;
-            case Key.N when _nextVideo is not null: _ = PlayNextAsync(); break;
-            case Key.S: _ = SkipIntroAsync(); break;
-            case Key.PageUp: _ = StepChapterAsync(-1); break;
-            case Key.PageDown: _ = StepChapterAsync(1); break;
-            case Key.Z: _overlay.NudgeDelay(-0.1); break; // Untertitel früher
-            case Key.X: _overlay.NudgeDelay(0.1); break;  // Untertitel später
-            default: return;
+            default:
+                if (!PlayerKeyMap.TryGetValue(e.Key.ToString(), out var action) || !RunPlayerAction(action, shift)) return;
+                break;
         }
         _lastActivity = DateTime.UtcNow;
         e.Handled = true;
+    }
+
+    /// <summary>Taste → Aktion nach den Einstellungen; wird neu gebaut, wenn die Einstellungen eine neue Belegung bekommen (sie tauschen dann das ganze Wörterbuch aus).</summary>
+    private Dictionary<string, PlayerAction> PlayerKeyMap
+    {
+        get
+        {
+            var source = Services.Settings.KeyBindings;
+            if (_playerKeyMap is null || !ReferenceEquals(_playerKeySource, source))
+            {
+                _playerKeyMap = PlayerKeys.Resolve(source);
+                _playerKeySource = source;
+            }
+            return _playerKeyMap;
+        }
+    }
+
+    private Dictionary<string, PlayerAction>? _playerKeyMap;
+    private Dictionary<string, string[]>? _playerKeySource;
+
+    /// <summary>
+    /// Führt eine Player-Aktion aus (Taste oder Controller). <paramref name="large"/> macht aus Springen die 60-Sekunden-Variante und aus Drehen die
+    /// Gegenrichtung. false, wenn die Aktion hier nichts tun kann (keine nächste Folge): die Taste bleibt dann unbehandelt.
+    /// </summary>
+    private bool RunPlayerAction(PlayerAction action, bool large)
+    {
+        switch (action)
+        {
+            case PlayerAction.PlayPause: _ = TogglePauseAsync(); break;
+            case PlayerAction.PictureInPicture: TogglePictureInPicture(); break;
+            case PlayerAction.Fullscreen: ToggleFullscreen(); break;
+            case PlayerAction.Exit:
+                if (PictureInPictureActive) RestorePictureInPicture();
+                else if (_fullscreen && !_fullscreenBeforePlayer) ToggleFullscreen();
+                else _ = ExitPlayerAsync();
+                break;
+            case PlayerAction.SeekBack: _ = SeekAsync(large ? -60 : -10, relative: true); break;
+            case PlayerAction.SeekForward: _ = SeekAsync(large ? 60 : 10, relative: true); break;
+            case PlayerAction.VolumeUp: _ = ChangeVolumeAsync(5); break;
+            case PlayerAction.VolumeDown: _ = ChangeVolumeAsync(-5); break;
+            case PlayerAction.Mute: _ = ToggleMuteAsync(); break;
+            case PlayerAction.Stats: _overlay.ToggleStats(); break;
+            case PlayerAction.NextVideo when _live is not null: _ = ZapAsync(1); break;
+            case PlayerAction.NextVideo when _nextVideo is not null: _ = PlayNextAsync(); break;
+            case PlayerAction.NextVideo: return false;
+            case PlayerAction.SkipIntro: _ = SkipIntroAsync(); break;
+            case PlayerAction.ChapterPrevious when _live is not null: _ = ZapAsync(-1); break;
+            case PlayerAction.ChapterNext when _live is not null: _ = ZapAsync(1); break;
+            case PlayerAction.ChapterPrevious: _ = StepChapterAsync(-1); break;
+            case PlayerAction.ChapterNext: _ = StepChapterAsync(1); break;
+            case PlayerAction.SubtitleCycle: CycleTrack("sub"); break;
+            case PlayerAction.AudioCycle: CycleTrack("audio"); break;
+            case PlayerAction.SubtitleEarlier: _overlay.NudgeDelay(-0.1); break;
+            case PlayerAction.SubtitleLater: _overlay.NudgeDelay(0.1); break;
+            case PlayerAction.NextAspect: _overlay.NextAspect(); break;
+            case PlayerAction.Rotate: _overlay.Rotate(large ? -90 : 90); break;
+            case PlayerAction.ZoomIn: _overlay.StepZoom(1); break;
+            case PlayerAction.ZoomOut: _overlay.StepZoom(-1); break;
+            case PlayerAction.ZoomReset: _overlay.ResetZoom(); break;
+            case PlayerAction.FrameBack: _ = StepFrameAsync(-1); break;
+            case PlayerAction.FrameForward: _ = StepFrameAsync(1); break;
+            default: throw new ArgumentOutOfRangeException(nameof(action), action, null);
+        }
+        return true;
+    }
+
+    /// <summary>Wählt die nächste Ton- oder Untertitelspur (bei Untertiteln nach der letzten „aus“, dann wieder die erste) und sagt, welche läuft.</summary>
+    private void CycleTrack(string type)
+    {
+        if (_casting)
+        {
+            _overlay.ShowNotice("Während der Übertragung lassen sich die Spuren nur im Menü wählen.", isError: false);
+            return;
+        }
+        var tracks = _tracks.Where(t => t.Type == type).ToList();
+        if (tracks.Count == 0)
+        {
+            _overlay.ShowNotice(type == "sub" ? "Diese Datei hat keine Untertitel." : "Diese Datei hat nur eine Tonspur.", isError: false);
+            return;
+        }
+        var current = tracks.FindIndex(t => t.Selected);
+        var next = type == "sub" ? (current + 1 >= tracks.Count ? -1 : current + 1) : (current + 1) % tracks.Count;
+        if (type == "sub") _subtitlePicked = true;
+        _ = _mpv?.CommandAsync("set", type == "audio" ? "aid" : "sid", next < 0 ? "no" : tracks[next].Id.ToString(CultureInfo.InvariantCulture));
+        _overlay.ShowNotice(type == "sub" ? (next < 0 ? "Untertitel aus" : $"Untertitel: {tracks[next].Label}") : $"Ton: {tracks[next].Label}", isError: false);
     }
 
     /// <summary>Vollbild der ganzen App (Knopf in der Navigation, F11, Einstellung „Immer im Vollbild starten“) und des Players.</summary>

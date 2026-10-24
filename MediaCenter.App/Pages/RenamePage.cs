@@ -210,6 +210,7 @@ public sealed class RenamePage : UserControl, IModalContent
         Count(RenameStatus.TargetExists, "mit schon vorhandenem Zielnamen");
         Count(RenameStatus.Unreadable, "mit unlesbarem neuem Namen");
         Count(RenameStatus.Offline, "nicht erreichbar");
+        Count(RenameStatus.Disc, "Discs (werden nicht umbenannt)");
 
         _summary.Text = _ready.Count == 0
             ? $"Nichts zum Umbenennen gefunden.{(counts.Count > 0 ? " Übrig: " + string.Join(", ", counts) + "." : "")}"
@@ -224,6 +225,7 @@ public sealed class RenamePage : UserControl, IModalContent
         RenameStatus.TargetExists => p.Detail ?? "Zielname schon vergeben",
         RenameStatus.Unreadable => p.Detail ?? "Neuer Name würde nicht gelesen",
         RenameStatus.Offline => p.Detail ?? "Nicht erreichbar",
+        RenameStatus.Disc => p.Detail ?? "Discs werden nicht umbenannt",
         _ => "",
     };
 

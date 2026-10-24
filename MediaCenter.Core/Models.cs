@@ -29,9 +29,12 @@ public sealed record VideoRow(
     long VideoId, long FileId, long VolumeId, string RelPath, bool Missing,
     long? TitleId, TitleKind? TitleKind, string? TitleName, int? Year, int? Season, int? Episode, bool Locked,
     string ParsedTitle, VideoKind ParsedKind,
-    double? DurationSeconds, int? Width, int? Height, string? VideoCodec, bool IsHdr)
+    double? DurationSeconds, int? Width, int? Height, string? VideoCodec, HdrFormat Hdr, DiscKind Disc = DiscKind.None)
 {
     public bool IsInbox => TitleId is null;
+
+    /// <summary>Das Bild trägt PQ oder HLG und lässt sich mit ffmpeg nach SDR umrechnen (Vorschau, Übertragen).</summary>
+    public bool IsHdr => Hdr.IsToneMappable();
 }
 
 public sealed record PlaybackState(double PositionSeconds, bool Watched, string UpdatedUtc);
@@ -77,7 +80,7 @@ public sealed record TitleRow(long Id, TitleKind Kind, string Name, int? Year);
 
 /// <summary>Eine Videodatei eines Titels samt Ort; für Cover-Suche und Wiedergabe.</summary>
 public sealed record TitleVideo(
-    long VideoId, long VolumeId, string RelPath, bool Missing, double? DurationSeconds, int? Season, int? Episode);
+    long VideoId, long VolumeId, string RelPath, bool Missing, double? DurationSeconds, int? Season, int? Episode, DiscKind Disc = DiscKind.None);
 
 /// <summary>Zeitversatz, Größe und Höhe der Untertitel eines Videos; die Standardwerte ändern nichts.</summary>
 /// <param name="DelaySeconds">Positiv zeigt die Untertitel später (mpv: sub-delay).</param>

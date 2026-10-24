@@ -4,10 +4,10 @@ namespace MediaCenter.Core;
 // außer was der Nutzer selbst geschrieben hat (user_edited): das fasst kein automatischer Durchlauf an.
 public sealed partial class LibraryDb
 {
-    private const string TitleInfoColumns = "title_id, provider, plot, rating, director, actors, user_edited";
+    private const string TitleInfoColumns = "title_id, provider, plot, rating, director, actors, user_edited, trailer";
 
     private static TitleInfoRow ReadTitleInfo(Microsoft.Data.Sqlite.SqliteDataReader r) =>
-        new(r.GetInt64(0), r.GetString(1), r.GetStringOrNull(2), r.GetDoubleOrNull(3), r.GetStringOrNull(4), r.GetStringOrNull(5), r.GetInt32(6) == 1);
+        new(r.GetInt64(0), r.GetString(1), r.GetStringOrNull(2), r.GetDoubleOrNull(3), r.GetStringOrNull(4), r.GetStringOrNull(5), r.GetInt32(6) == 1, r.GetStringOrNull(7));
 
     public TitleInfoRow? GetTitleInfo(long titleId)
     {
@@ -54,13 +54,14 @@ public sealed partial class LibraryDb
     public void SetTitleInfo(long titleId, string provider, OnlineTitleInfo info) => InTransaction(() =>
     {
         Run("""
-            INSERT INTO title_info (title_id, provider, plot, rating, director, actors, user_edited, updated_utc)
-            VALUES ($id, $provider, $plot, $rating, $director, $actors, 0, $now)
+            INSERT INTO title_info (title_id, provider, plot, rating, director, actors, user_edited, updated_utc, trailer)
+            VALUES ($id, $provider, $plot, $rating, $director, $actors, 0, $now, $trailer)
             ON CONFLICT (title_id) DO UPDATE SET provider = excluded.provider, plot = excluded.plot, rating = excluded.rating,
-                director = excluded.director, actors = excluded.actors, user_edited = 0, updated_utc = excluded.updated_utc
+                director = excluded.director, actors = excluded.actors, user_edited = 0, updated_utc = excluded.updated_utc,
+                trailer = excluded.trailer
             """,
             ("$id", titleId), ("$provider", provider), ("$plot", info.Plot), ("$rating", info.Rating), ("$director", info.Director),
-            ("$actors", info.Cast), ("$now", Utc(DateTime.UtcNow)));
+            ("$actors", info.Cast), ("$now", Utc(DateTime.UtcNow)), ("$trailer", info.TrailerKey));
 
         Run("DELETE FROM episode_info WHERE title_id = $id", ("$id", titleId));
         foreach (var e in info.Episodes)

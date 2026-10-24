@@ -34,7 +34,8 @@ public partial class MainWindow : Window, IShell
         Width = Math.Min(Width, area.Width * 0.92);
         Height = Math.Min(Height, area.Height * 0.92);
 
-        GlassPanel.Backdrop = Backdrop;
+        GlassPanel.Backdrop = Scene;
+        GlassPanel.Overlay = Stage;
         CardView.Previews = Services.Previews;
         // Ein defektes ffmpeg oder eine kaputte Datei würde bei jedem Überfahren dieselbe Meldung auslösen; jede nur einmal zeigen.
         var reported = new HashSet<string>();
@@ -67,6 +68,11 @@ public partial class MainWindow : Window, IShell
                 ShowMessage($"Sicherung wiederhergestellt. Der bisherige Stand liegt in {previous}.");
             if (Services.Settings.StartFullscreen) SetFullscreen(true);
             CheckRendering();
+            _watch = new LibraryWatch(this, () => PlayerActive || Modal.IsOpen || Dialog.IsOpen); // nicht unter einem Fenster oder Video die Seite neu bauen
+            _watch.Start();
+            InitController();
+            InitSchedule();
+            _ = StartHomeServerAsync();
         };
         InitPlayer();
         SourceInitialized += (_, _) => StartMediaSession();
@@ -82,12 +88,14 @@ public partial class MainWindow : Window, IShell
     /// <summary>Lässt unten Platz für die Audio-Leiste, damit sie keine Inhalte verdeckt.</summary>
     private void UpdateBottomInset()
     {
-        var inset = Mini.IsVisible ? 88 : 0;
+        var inset = Mini.IsVisible ? 72 : 0;
         PageHost.Margin = new Thickness(0, 0, 0, inset);
         Toasts.Margin = new Thickness(0, 0, 0, 26 + inset);
     }
 
     public AppServices Services { get; }
+
+    private LibraryWatch? _watch;
 
     // --- Navigation ----------------------------------------------------------------------------------------
 
@@ -102,7 +110,7 @@ public partial class MainWindow : Window, IShell
         var items = new (Section Section, string Label, Panel Host, string? Glyph)[]
         {
             (Section.Home, "Start", NavItems, null), (Section.Movies, "Filme", NavItems, null), (Section.Series, "Serien", NavItems, null),
-            (Section.Music, "Musik", NavItems, null), (Section.Radio, "Radio", NavItems, null), (Section.Podcasts, "Podcasts", NavItems, null),
+            (Section.Music, "Musik", NavItems, null), (Section.Radio, "Radio", NavItems, null), (Section.Live, "Live-TV", NavItems, null), (Section.Podcasts, "Podcasts", NavItems, null),
             (Section.Sources, "Laufwerke", UtilItems, DriveGlyph), (Section.Inbox, "Inbox", UtilItems, InboxGlyph), (Section.History, "Verlauf und Statistik", UtilItems, HistoryGlyph), (Section.Settings, "Einstellungen", UtilItems, SettingsGlyph),
         };
         foreach (var (section, label, host, glyph) in items)
@@ -186,6 +194,7 @@ public partial class MainWindow : Window, IShell
             Section.Series => new LibraryPage(this, TitleKind.Series),
             Section.Music => new MusicPage(this),
             Section.Radio => new RadioPage(this),
+            Section.Live => new LiveTvPage(this),
             Section.Podcasts => new PodcastsPage(this),
             Section.Inbox => new InboxPage(this),
             Section.History => new HistoryPage(this),
@@ -374,7 +383,7 @@ public partial class MainWindow : Window, IShell
         }
     }
 
-    private Border CreateToast(string text, bool isError)
+    private GlassPanel CreateToast(string text, bool isError)
     {
         var dot = new Ellipse { Width = 8, Height = 8, Margin = new Thickness(0, 6, 12, 0), VerticalAlignment = VerticalAlignment.Top };
         dot.SetResourceReference(Shape.FillProperty, isError ? "Accent2Brush" : "AccentBrush");
@@ -388,19 +397,19 @@ public partial class MainWindow : Window, IShell
         };
         label.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
         var lift = new TranslateTransform();
-        var toast = new Border
+        var toast = new GlassPanel
         {
+            Layer = GlassLayer.Stage,
             CornerRadius = new CornerRadius(14),
             Padding = new Thickness(16, 12, 20, 12),
             Margin = new Thickness(0, 8, 0, 0),
-            BorderThickness = new Thickness(1),
-            Child = new StackPanel { Orientation = Orientation.Horizontal, Children = { dot, label } },
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Children = { dot, label } },
             Cursor = Cursors.Hand,
             RenderTransform = lift,
             Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 6, Direction = 270, Opacity = 0.32, Color = Colors.Black },
         };
-        toast.SetResourceReference(Border.BackgroundProperty, "SurfaceBrush");
-        toast.SetResourceReference(Border.BorderBrushProperty, isError ? "Accent2Brush" : "GlassEdgeBrush");
+        toast.SetResourceReference(Control.BackgroundProperty, "SheetTintBrush");
+        if (isError) toast.SetResourceReference(Control.BorderBrushProperty, "Accent2Brush");
         toast.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
         lift.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(10, 0, TimeSpan.FromMilliseconds(220)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         return toast;
@@ -427,6 +436,7 @@ public partial class MainWindow : Window, IShell
 
     protected override void OnClosed(EventArgs e)
     {
+        _watch?.Dispose();
         ClosePlayer();
         base.OnClosed(e);
         Services.Dispose();

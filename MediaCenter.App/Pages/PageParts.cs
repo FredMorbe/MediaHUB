@@ -229,8 +229,8 @@ internal static class PageParts
             Margin = margin ?? new Thickness(0, 0, 0, 14),
             Child = child,
         };
-        card.SetResourceReference(Border.BackgroundProperty, "CardBgBrush");
-        card.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
+        card.SetResourceReference(Border.BackgroundProperty, "GlassFillBrush");
+        card.SetResourceReference(Border.BorderBrushProperty, "GlassRimBrush");
         return card;
     }
 

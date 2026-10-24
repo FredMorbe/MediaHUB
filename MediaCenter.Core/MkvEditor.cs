@@ -64,8 +64,8 @@ public sealed class MkvEditor(string ffmpegPath, string ffprobePath, IMediaProbe
         string? Language, string? Title, string? ExpectedCodec, string ExpectedType, string? ExpectedLanguage, string? ExpectedTitle);
 
     public static MkvEditor FromEnvironment() => new(
-        Environment.GetEnvironmentVariable("MEDIACENTER_FFMPEG") ?? "ffmpeg",
-        Environment.GetEnvironmentVariable("MEDIACENTER_FFPROBE") ?? "ffprobe",
+        ToolLocator.Ffmpeg().Path,
+        ToolLocator.Ffprobe().Path,
         FfprobeReader.FromEnvironment());
 
     public static bool CanEdit(string videoPath) => Path.GetExtension(videoPath).Equals(".mkv", StringComparison.OrdinalIgnoreCase);

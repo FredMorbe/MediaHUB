@@ -27,6 +27,34 @@ public static partial class MusicIndex
 {
     public const string UnknownArtist = "Unbekannter Künstler";
     public const string UnknownAlbum = "Unbekanntes Album";
+    public const string VariousArtists = "Verschiedene Interpreten";
+
+    /// <summary>
+    /// Alben ohne Album-Künstler-Tag, deren Titel im selben Ordner liegen, denselben Albumnamen tragen und verschiedene Künstler haben
+    /// (Playlist-Ordner aus Videoportalen, Sampler): Sie sollen ein Album bleiben, statt je Künstler zu zerfallen.
+    /// Liefert für jedes solche Album den Album-Künstler: der Künstler, dem mindestens drei Viertel der Titel gehören (so bleibt „Band“
+    /// mit einzelnen „Band feat. Gast“ beisammen), sonst <see cref="VariousArtists"/>.
+    /// </summary>
+    /// <param name="tracks">Titel, wie sie in den Tags stehen (ohne eigene Namen und Künstler).</param>
+    public static IReadOnlyDictionary<(long VolumeId, string Folder, string Album), string> CompilationArtists(IEnumerable<TrackRow> tracks)
+    {
+        var result = new Dictionary<(long, string, string), string>();
+        foreach (var group in tracks
+                     .Where(t => string.IsNullOrWhiteSpace(t.AlbumArtist) && t.Album is not null)
+                     .GroupBy(CompilationKey))
+        {
+            var byArtist = group.GroupBy(t => Normalize(ArtistOf(t))).OrderByDescending(g => g.Count()).ToList();
+            if (byArtist.Count < 2) continue;
+
+            var top = byArtist[0];
+            var artist = top.Count() * 4 >= group.Count() * 3 && ArtistOf(top.First()) != UnknownArtist ? ArtistOf(top.First()) : VariousArtists;
+            result[group.Key] = artist;
+        }
+        return result;
+    }
+
+    public static (long VolumeId, string Folder, string Album) CompilationKey(TrackRow track) =>
+        (track.VolumeId, (Path.GetDirectoryName(track.RelPath) ?? "").ToLowerInvariant(), Normalize(track.Album ?? UnknownAlbum));
 
     [GeneratedRegex(@"[^\p{L}\p{N}]+")]
     private static partial Regex NonWord();

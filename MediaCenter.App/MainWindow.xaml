@@ -8,6 +8,11 @@
         TextElement.Foreground="{DynamicResource InkBrush}" UseLayoutRounding="True">
     <Grid x:Name="Shell">
 
+        <!-- Bühne: alles bis auf Rückfragen und Meldungen. Szene: Hintergrund und Seite. Das Milchglas liest von diesen beiden Ebenen
+             (Navigation, Leiste und Modale von der Szene, Menüs, Rückfragen und Meldungen von der Bühne), damit nichts sich selbst weichzeichnet. -->
+        <Grid x:Name="Stage">
+        <Grid x:Name="Scene">
+
         <!-- Hintergrund: Grundfarbe, Farbschein in Akzentfarben, Titelbild mit Verlauf nach unten. Das Milchglas liest von hier. -->
         <Grid x:Name="Backdrop" IsHitTestVisible="False" ClipToBounds="True">
             <Rectangle Fill="{DynamicResource BgBrush}"/>
@@ -43,7 +48,7 @@
             <Rectangle>
                 <Rectangle.Fill>
                     <RadialGradientBrush Center="0.9,0.0" GradientOrigin="0.9,0.0" RadiusX="0.7" RadiusY="0.8">
-                        <GradientStop Color="{DynamicResource AccentGlowColor}" Offset="0"/>
+                        <GradientStop Color="{DynamicResource AccentSoftColor}" Offset="0"/>
                         <GradientStop Color="{DynamicResource AccentClearColor}" Offset="1"/>
                     </RadialGradientBrush>
                 </Rectangle.Fill>
@@ -51,17 +56,8 @@
             <Rectangle>
                 <Rectangle.Fill>
                     <RadialGradientBrush Center="0.0,1.0" GradientOrigin="0.0,1.0" RadiusX="0.6" RadiusY="0.7">
-                        <GradientStop Color="{DynamicResource Accent2GlowColor}" Offset="0"/>
+                        <GradientStop Color="{DynamicResource Accent2SoftColor}" Offset="0"/>
                         <GradientStop Color="{DynamicResource Accent2ClearColor}" Offset="1"/>
-                    </RadialGradientBrush>
-                </Rectangle.Fill>
-            </Rectangle>
-            <!-- Dritter, ruhigerer Fleck unten rechts: gibt dem Glas am unteren Rand (Player-Leiste) etwas zum Brechen -->
-            <Rectangle>
-                <Rectangle.Fill>
-                    <RadialGradientBrush Center="0.82,1.0" GradientOrigin="0.82,1.0" RadiusX="0.42" RadiusY="0.5">
-                        <GradientStop Color="{DynamicResource AccentSoftColor}" Offset="0"/>
-                        <GradientStop Color="{DynamicResource AccentClearColor}" Offset="1"/>
                     </RadialGradientBrush>
                 </Rectangle.Fill>
             </Rectangle>
@@ -76,6 +72,7 @@
         </Grid>
 
         <ContentPresenter x:Name="PageHost"/>
+        </Grid>
 
         <!-- Navigation oben wie bei Netflix: Logo links bündig mit dem Inhalt, Reiter als Pillen, Symbole rechts -->
         <c:GlassPanel x:Name="Nav" Style="{StaticResource BarGlass}" VerticalAlignment="Top" Height="60" Padding="48,0,40,0">
@@ -105,7 +102,8 @@
 
         <!-- Fenster über der Seite (Browser, Umbenennen, Editor …) und Rückfragen darüber -->
         <c:ModalHost x:Name="Modal"/>
-        <c:ModalHost x:Name="Dialog"/>
+        </Grid>
+        <c:ModalHost x:Name="Dialog" GlassLayer="Stage"/>
 
         <!-- Meldungen und Fortschritt unten -->
         <StackPanel x:Name="Toasts" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,26"/>

@@ -37,7 +37,7 @@ public sealed class PreviewClips(LibraryModel model, FfmpegTool ffmpeg, AppSetti
     public Task<string?> GetAsync(long titleId)
     {
         // Bei Serien die erste erreichbare Folge, bei Filmen die Datei selbst.
-        var video = model.VideosOf(titleId).Where(v => model.PathOf(v) is not null)
+        var video = model.VideosOf(titleId).Where(v => v.Disc == DiscKind.None && model.PathOf(v) is not null) // Discs: keine Vorschau
             .OrderBy(v => v.Season ?? 0).ThenBy(v => v.Episode ?? 0).FirstOrDefault();
         if (video is null) return Task.FromResult<string?>(null);
 
