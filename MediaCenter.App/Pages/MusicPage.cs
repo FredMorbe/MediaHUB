@@ -45,10 +45,16 @@ public sealed class MusicPage : UserControl
     private readonly NowPlayingPanel _nowPlaying;
     private View _view = new(Kind.Home);
 
-    public MusicPage(IShell shell)
+    /// <summary>Die Seite wurde von außen (Suche) direkt auf ein Album geöffnet: „Zurück“ führt aus der Musik heraus statt auf deren Start.</summary>
+    private readonly bool _fromOutside;
+
+    /// <param name="openAlbumKey">Öffnet gleich dieses Album; null zeigt den Start der Musik.</param>
+    public MusicPage(IShell shell, string? openAlbumKey = null)
     {
         _shell = shell;
         _model = shell.Services.Model;
+        _fromOutside = openAlbumKey is not null;
+        if (openAlbumKey is not null) _view = new View(Kind.Album, openAlbumKey);
 
         _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(new View(Kind.Artist, name)), () => Go(new View(Kind.Tracks)),
             id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist)
@@ -130,7 +136,11 @@ public sealed class MusicPage : UserControl
 
     private void GoBack()
     {
-        if (_back.Count == 0) return;
+        if (_back.Count == 0)
+        {
+            if (_fromOutside) _shell.Back();
+            return;
+        }
         _view = _back.Pop();
         Render(animate: true);
     }
@@ -196,7 +206,7 @@ public sealed class MusicPage : UserControl
         _scroll.ScrollToTop();
         if (animate) content.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
 
-        _backHolder.Visibility = _back.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        _backHolder.Visibility = _back.Count > 0 || _fromOutside ? Visibility.Visible : Visibility.Collapsed;
         _library.Select(_view.Kind switch
         {
             Kind.Album => $"album:{_view.Key}",

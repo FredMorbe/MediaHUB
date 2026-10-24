@@ -58,6 +58,7 @@ public partial class PlayerOverlay
         CloseMenu();
         AdjustPanel.Visibility = Visibility.Collapsed;
         TranslatePanel.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
         PicturePanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (show) ColorScroll.MaxHeight = Math.Max(160, ActualHeight - 160);

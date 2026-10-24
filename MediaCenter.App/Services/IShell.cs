@@ -14,6 +14,7 @@ public enum Section
     Music,
     Radio,
     Podcasts,
+    History,
 }
 
 /// <summary>Was die Seiten vom Hauptfenster brauchen.</summary>
@@ -24,6 +25,12 @@ public interface IShell
     void Navigate(Section section);
 
     void OpenTitle(long titleId);
+
+    /// <summary>Öffnet die Suche (Strg+F); mit <paramref name="query"/> sucht sie gleich danach (z. B. nach einem Schauspieler), ohne zeigt sie die letzte Suche.</summary>
+    void OpenSearch(string? query = null);
+
+    /// <summary>Öffnet die Musik direkt auf diesem Album; „Zurück“ führt zur vorherigen Seite.</summary>
+    void OpenAlbum(string albumKey);
 
     /// <summary>Öffnet eine Unterseite (Album, Podcast …); "Zurück" führt zur aktuellen Seite.</summary>
     void Open(Func<System.Windows.Controls.UserControl> page);

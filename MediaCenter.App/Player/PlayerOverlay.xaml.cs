@@ -60,6 +60,12 @@ public partial class PlayerOverlay : Window
     /// <summary>„Übertragung beenden“: weiter auf diesem PC schauen.</summary>
     public event Action? CastStopRequested;
 
+    /// <summary>Ein Kapitel im Kapitelmenü gewählt (Beginn in Sekunden).</summary>
+    public event Action<double>? ChapterChosen;
+
+    /// <summary>„Intro überspringen“ (Karte oder Knopf).</summary>
+    public event Action? IntroSkipClicked;
+
     /// <summary>Eine Folge im Folgenmenü gewählt (Video-Id).</summary>
     public event Action<long>? EpisodeChosen;
 
@@ -162,6 +168,9 @@ public partial class PlayerOverlay : Window
         NextNowButton.Click += (_, _) => NextClicked?.Invoke();
         NextCancelButton.Click += (_, _) => NextCancelled?.Invoke();
         EpisodesButton.Click += (_, _) => ToggleMenu("episodes");
+        ChaptersButton.Click += (_, _) => ToggleMenu("chapters");
+        IntroSkipButton.Click += (_, _) => IntroSkipClicked?.Invoke();
+        IntroCardButton.Click += (_, _) => IntroSkipClicked?.Invoke();
         AudioButton.Click += (_, _) => ToggleMenu("audio");
         SubButton.Click += (_, _) => ToggleMenu("sub");
         CastButton.Click += (_, _) =>
@@ -174,6 +183,9 @@ public partial class PlayerOverlay : Window
 
         // handledEventsToo: Ein Klick auf die Linie wird vom Slider selbst behandelt (IsMoveToPointEnabled) und als erledigt
         // markiert; ohne diese Anmeldung bliebe _seeking aus, und die nächste Positionsmeldung setzte den Regler zurück.
+        SeekSlider.MouseMove += (_, e) => ShowSeekTip(e.GetPosition(SeekSlider).X);
+        SeekSlider.MouseLeave += (_, _) => SeekTip.Visibility = Visibility.Collapsed;
+        SeekSlider.SizeChanged += (_, _) => BuildChapterMarks();
         SeekSlider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), handledEventsToo: true);
         SeekSlider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) =>
             // Wert erst nach der eigenen Behandlung des Sliders lesen.
@@ -240,6 +252,7 @@ public partial class PlayerOverlay : Window
         CloseMenu();
         AdjustPanel.Visibility = Visibility.Collapsed;
         TranslatePanel.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
         PicturePanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = Visibility.Collapsed;
         return open;
@@ -249,14 +262,21 @@ public partial class PlayerOverlay : Window
     {
         for (var node = element; node is not null; node = node is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
         {
-            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || (includeHeader && ReferenceEquals(node, CompactHeader)) || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, PicturePanel) || ReferenceEquals(node, ColorPanel) || ReferenceEquals(node, TranslatePanel) || ReferenceEquals(node, BusyLayer)) return true;
+            if (node is ButtonBase or RangeBase or Thumb or ScrollBar || (includeHeader && ReferenceEquals(node, CompactHeader)) || ReferenceEquals(node, TrackMenu) || ReferenceEquals(node, NextCard) || ReferenceEquals(node, IntroCard) || ReferenceEquals(node, Dock) || ReferenceEquals(node, AdjustPanel) || ReferenceEquals(node, PicturePanel) || ReferenceEquals(node, ColorPanel) || ReferenceEquals(node, TranslatePanel) || ReferenceEquals(node, SearchPanel) || ReferenceEquals(node, BusyLayer)) return true;
         }
         return false;
     }
 
     // --- Anzeige -------------------------------------------------------------------------------------------
 
-    public void SetTitle(string text) => CompactTitle.Text = TitleText.Text = text;
+    /// <param name="kicker">Kleine Zeile über dem Titel (bei Folgen „Staffel 1 · Folge 2“); null blendet sie aus.</param>
+    public void SetTitle(string text, string? kicker = null)
+    {
+        CompactTitle.Text = kicker is null ? text : $"{text}  ·  {kicker}";
+        TitleText.Text = text;
+        KickerText.Text = kicker?.ToUpperInvariant() ?? "";
+        KickerText.Visibility = kicker is null ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     public void SetCompact(bool compact)
     {
@@ -276,18 +296,134 @@ public partial class PlayerOverlay : Window
         PositionText.Text = Format(seconds);
         CompactTime.Text = $"{Format(seconds)} / {DurationText.Text}";
         if (!_seeking) SeekSlider.Value = seconds;
+        _lastPosition = seconds;
+        RefreshChapterText();
+        RefreshIntroCard();
     }
 
     public void SetDuration(double seconds)
     {
         DurationText.Text = Format(seconds);
         SeekSlider.Maximum = Math.Max(seconds, 1);
+        _duration = seconds;
+        _introRange = ChapterList.FindIntro(_chapters, _duration);
+        BuildChapterMarks();
+        RefreshIntroCard();
     }
+
+    // --- Kapitel und Intro ---------------------------------------------------------------------------------
+
+    private IReadOnlyList<Chapter> _chapters = Array.Empty<Chapter>();
+    private (double Start, double End)? _introRange;
+    private double _duration;
+    private double _lastPosition;
+
+    /// <summary>Das Vorspann-Kapitel der Datei (Beginn, Ende); null, wenn keins so heißt.</summary>
+    public (double Start, double End)? IntroRange => _introRange;
+
+    /// <summary>Kapitel der laufenden Datei; weniger als zwei blenden den Knopf aus. Ein Fernseher kennt sie nicht (mpv ruht): dort ist der Knopf weg.</summary>
+    public void SetChapters(IReadOnlyList<Chapter> chapters)
+    {
+        _chapters = chapters;
+        _introRange = ChapterList.FindIntro(chapters, _duration);
+        BuildChapterMarks();
+        ChaptersButton.Visibility = chapters.Count > 1 && _castActiveName is null ? Visibility.Visible : Visibility.Collapsed;
+        if (_menuType == "chapters")
+        {
+            if (chapters.Count > 1) BuildMenu("chapters");
+            else CloseMenu();
+        }
+        RefreshChapterText();
+        RefreshIntroCard();
+    }
+
+    /// <summary>Striche an den Kapitelanfängen. Der Regler läuft von Mitte Griff zu Mitte Griff, daher die halbe Griffbreite Rand.</summary>
+    private void BuildChapterMarks()
+    {
+        ChapterMarks.Children.Clear();
+        if (_chapters.Count < 2 || _duration <= 0 || SeekSlider.ActualWidth <= SeekThumbWidth) return;
+        foreach (var chapter in _chapters.Where(c => c.Start > 0.5 && c.Start < _duration - 0.5))
+        {
+            var mark = new System.Windows.Shapes.Rectangle { Width = 2, Height = 10, RadiusX = 1, RadiusY = 1, Fill = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)) };
+            Canvas.SetLeft(mark, SeekThumbWidth / 2 + chapter.Start / _duration * (SeekSlider.ActualWidth - SeekThumbWidth) - 1);
+            Canvas.SetTop(mark, 6);
+            ChapterMarks.Children.Add(mark);
+        }
+    }
+
+    private const double SeekThumbWidth = 14;
+
+    /// <summary>Zeigt über der Zeitleiste die Zeit (und das Kapitel), auf die ein Klick an dieser Stelle springt.</summary>
+    private void ShowSeekTip(double x)
+    {
+        if (_duration <= 0 || SeekSlider.ActualWidth <= SeekThumbWidth) return;
+        var fraction = Math.Clamp((x - SeekThumbWidth / 2) / (SeekSlider.ActualWidth - SeekThumbWidth), 0, 1);
+        var seconds = fraction * _duration;
+        var index = _chapters.Count > 1 ? ChapterList.IndexAt(_chapters, seconds) : -1;
+        SeekTipText.Text = index < 0 ? Format(seconds) : $"{Format(seconds)}  ·  {_chapters[index].Label}";
+        SeekTip.Visibility = Visibility.Visible;
+        SeekTip.UpdateLayout();
+        SeekTip.Margin = new Thickness(Math.Clamp(x - SeekTip.ActualWidth / 2, 0, Math.Max(0, SeekSlider.ActualWidth - SeekTip.ActualWidth)), -40, 0, 0);
+    }
+
+    /// <summary>Großes Zeichen in der Bildmitte, das nach einer Pause oder einem Start ausblendet.</summary>
+    private void FlashState(bool paused)
+    {
+        StateFlashGlyph.Text = paused ? "" : "";
+        StateFlash.BeginAnimation(OpacityProperty, new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(750)) { BeginTime = TimeSpan.FromMilliseconds(120) });
+    }
+
+    private void RefreshChapterText()
+    {
+        var index = _chapters.Count > 1 && _castActiveName is null ? ChapterList.IndexAt(_chapters, _lastPosition) : -1;
+        ChapterText.Text = index < 0 ? "" : $"Kapitel {index + 1} von {_chapters.Count}  ·  {_chapters[index].Label}";
+        ChapterText.Visibility = index < 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void RefreshIntroCard()
+    {
+        var inside = _introRange is { } range && _lastPosition >= range.Start - 1 && _lastPosition < range.End - 1;
+        IntroCard.Visibility = inside && !_compact && _castActiveName is null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Menü „Kapitel“: Name und Beginn, das laufende Kapitel ist markiert.</summary>
+    private void BuildChapterMenu()
+    {
+        var current = ChapterList.IndexAt(_chapters, _lastPosition);
+        _building = true; // das Setzen von IsChecked beim Aufbau ist keine Wahl des Nutzers
+        foreach (var chapter in _chapters)
+        {
+            var chosen = chapter;
+            var button = new RadioButton
+            {
+                Content = $"{chapter.Label}    {Format(chapter.Start)}",
+                GroupName = "chapters",
+                IsChecked = chapter.Index == current,
+                Foreground = Brushes.White,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+            };
+            button.SetResourceReference(StyleProperty, "Chip");
+            button.Margin = new Thickness(0, 0, 0, 4);
+            System.Windows.Automation.AutomationProperties.SetName(button, $"Kapitel {chapter.Index + 1} {chapter.Label}");
+            button.Checked += (_, _) =>
+            {
+                if (_building) return;
+                CloseMenu();
+                ChapterChosen?.Invoke(chosen.Start);
+            };
+            TrackList.Children.Add(button);
+        }
+        _building = false;
+    }
+
+    private bool _pausedBefore;
 
     public void SetPaused(bool paused)
     {
         PlayPauseButton.Content = paused ? "" : "";
         CompactPlayPause.Content = PlayPauseButton.Content;
+        if (_pausedBefore != paused && _lastPosition > 0.5 && !_compact) FlashState(paused);
+        _pausedBefore = paused;
         // Einzelbild-Knöpfe nur bei Pause (die Tasten Strg+←/→ pausieren selbst).
         FramePrevButton.Visibility = FrameNextButton.Visibility = paused ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -365,7 +501,7 @@ public partial class PlayerOverlay : Window
         controls.BeginAnimation(OpacityProperty, new DoubleAnimation(visible ? 1 : 0, TimeSpan.FromMilliseconds(visible ? 120 : 350)));
     }
 
-    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible || PicturePanel.Visibility == Visibility.Visible || ColorPanel.Visibility == Visibility.Visible || TranslatePanel.Visibility == Visibility.Visible;
+    public bool IsMenuOpen => _menuType is not null || AdjustPanel.Visibility == Visibility.Visible || PicturePanel.Visibility == Visibility.Visible || ColorPanel.Visibility == Visibility.Visible || TranslatePanel.Visibility == Visibility.Visible || SearchPanel.Visibility == Visibility.Visible;
 
     // --- Untertitel anpassen -------------------------------------------------------------------------------
 
@@ -412,6 +548,7 @@ public partial class PlayerOverlay : Window
         var show = AdjustPanel.Visibility != Visibility.Visible;
         CloseMenu();
         TranslatePanel.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
         PicturePanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = Visibility.Collapsed;
         AdjustPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -518,12 +655,13 @@ public partial class PlayerOverlay : Window
         }
         AdjustPanel.Visibility = Visibility.Collapsed;
         TranslatePanel.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
         PicturePanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = Visibility.Collapsed;
         _menuType = type;
         // Die Folgenliste ist lang und die Namen sind breit; die Spurlisten bleiben schmal.
-        TrackMenu.MaxHeight = type == "episodes" ? 480 : 320;
-        TrackMenu.MinWidth = type == "episodes" ? 320 : 220;
+        TrackMenu.MaxHeight = type is "episodes" or "chapters" ? 480 : 320;
+        TrackMenu.MinWidth = type is "episodes" or "chapters" ? 320 : 220;
         BuildMenu(type);
         TrackMenu.Visibility = Visibility.Visible;
     }
@@ -538,7 +676,7 @@ public partial class PlayerOverlay : Window
     public void SetSoundPreset(string presetId)
     {
         _soundPreset = presetId;
-        SoundButton.Content = presetId == Equalizer.Flat ? "Klang" : "Klang ●";
+        SoundButton.Tag = presetId == Equalizer.Flat ? null : "on";
         if (_menuType == "sound") BuildMenu("sound");
     }
 
@@ -547,7 +685,8 @@ public partial class PlayerOverlay : Window
     {
         _sleepMode = mode;
         _sleepLabel = label;
-        SleepButton.Content = mode == SleepMode.Off ? "Timer" : $"Timer {label}";
+        SleepButton.Tag = mode == SleepMode.Off ? null : "on";
+        SleepButton.ToolTip = mode == SleepMode.Off ? "Einschlaf-Timer" : $"Einschlaf-Timer: {label}";
         if (_menuType == "sleep") BuildMenu("sleep");
     }
 
@@ -628,12 +767,16 @@ public partial class PlayerOverlay : Window
     {
         _castActiveName = deviceName;
         var casting = deviceName is not null;
-        CastButton.Content = casting ? "Übertragen ●" : "Übertragen";
+        CastButton.Tag = casting ? "on" : null;
+        CastButton.ToolTip = casting ? $"Wird auf {deviceName} übertragen" : "Auf einen Fernseher übertragen (Google Cast)";
         CastBanner.Visibility = casting ? Visibility.Visible : Visibility.Collapsed;
         CastBannerTitle.Text = deviceName ?? "";
         // Bildoptionen und Untertitel-Anpassung wirken nur im lokalen Player.
         var local = casting ? Visibility.Collapsed : Visibility.Visible;
         PictureButton.Visibility = ColorButton.Visibility = AdjustButton.Visibility = PictureInPictureButton.Visibility = local;
+        ChaptersButton.Visibility = _chapters.Count > 1 && !casting ? Visibility.Visible : Visibility.Collapsed;
+        RefreshChapterText();
+        RefreshIntroCard();
         if (_menuType == "cast") BuildMenu("cast");
     }
 
@@ -752,6 +895,11 @@ public partial class PlayerOverlay : Window
             BuildEpisodeMenu();
             return;
         }
+        if (type == "chapters")
+        {
+            BuildChapterMenu();
+            return;
+        }
         if (type == "cast")
         {
             BuildCastMenu();
@@ -829,6 +977,19 @@ public partial class PlayerOverlay : Window
                 SubtitleFileRequested?.Invoke();
             };
             TrackList.Children.Add(load);
+
+            if (_castActiveName is null)
+            {
+                var search = new Button { Content = "Online suchen …", Foreground = Brushes.White, Padding = new Thickness(18, 7, 18, 7), Margin = new Thickness(0, 6, 0, 0) };
+                search.SetResourceReference(StyleProperty, "GhostButton");
+                System.Windows.Automation.AutomationProperties.SetName(search, "Untertitel online suchen");
+                search.Click += (_, _) =>
+                {
+                    CloseMenu();
+                    SubtitleSearchRequested?.Invoke();
+                };
+                TrackList.Children.Add(search);
+            }
 
             var translate = new Button { Content = "Untertitel übersetzen …", Foreground = Brushes.White, Padding = new Thickness(18, 7, 18, 7), Margin = new Thickness(0, 6, 0, 0) };
             translate.SetResourceReference(StyleProperty, "GhostButton");

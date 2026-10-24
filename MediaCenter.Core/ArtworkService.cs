@@ -7,6 +7,9 @@ public sealed record ArtworkFailure(string Subject, string Error);
 /// <param name="Unreachable">Titel, deren Dateien gerade nicht erreichbar sind (Laufwerk offline oder Datei fehlt).</param>
 public sealed record ArtworkResult(int Created, int Skipped, int Unreachable, IReadOnlyList<ArtworkFailure> Failures);
 
+/// <param name="Problem">Warum nichts geholt wurde; null bei Erfolg.</param>
+public sealed record InfoRefreshResult(bool Found, string? Problem);
+
 /// <summary>Quellen für Cover aus dem Internet (je Titelart und für Alben, null = keine) samt Ablage der geladenen Bilder im Cover-Cache.</summary>
 /// <param name="Albums">Anbieter für Album-Cover in der Reihenfolge der Anfrage; der nächste wird nur gefragt, wenn der vorige nichts fand oder ausfiel.</param>
 /// <param name="SeriesText">Quelle für die Infotexte von Serien (null = keine); wie die Poster-Quellen nur gefragt, wenn <see cref="ArtworkService.Online"/> gesetzt ist.</param>
@@ -213,17 +216,18 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
     /// <paramref name="force"/> neu gefragt. Ergebnislose Suchen und Ausfälle behandelt es wie <see cref="TryOnlinePosterAsync"/>; ein Ausfall des
     /// Dienstes gilt dabei für Poster und Infotexte zugleich, denn es ist derselbe Dienst.
     /// </summary>
-    private async Task TryOnlineInfoAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct)
+    private async Task<bool> TryOnlineInfoAsync(TitleRow title, bool force, OnlineRun run, List<ArtworkFailure> failures, CancellationToken ct, bool replaceUserTexts = false)
     {
-        if (Online is not { } online) return;
-        if ((title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is not { } finder || run.Unavailable.Contains(finder.Provider)) return;
-        if (!force && db.GetTitleInfo(title.Id) is not null) return;
+        if (Online is not { } online) return false;
+        if ((title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is not { } finder || run.Unavailable.Contains(finder.Provider)) return false;
+        var known = db.GetTitleInfo(title.Id);
+        if (known is not null && (!force || (known.UserEdited && !replaceUserTexts))) return false; // selbst geschriebene Texte bleiben
 
         var lookupKey = $"info:{finder.Provider}"; // getrennt von der Posteranfrage an denselben Dienst
         var query = $"{title.Name}|{title.Year}|v{MatchVersion}";
         if (!force && db.GetOnlineLookup(title.Id, lookupKey) is { Found: false } miss && miss.Query == query && DateTime.UtcNow - miss.CheckedUtc < NoMatchRetry)
         {
-            return;
+            return false;
         }
 
         try
@@ -232,21 +236,45 @@ public sealed class ArtworkService(LibraryDb db, IImageTool images, IMediaProbe 
             if (info is null || info.IsEmpty)
             {
                 db.SetOnlineLookup(title.Id, lookupKey, query, found: false);
-                return;
+                return false;
             }
 
             db.SetTitleInfo(title.Id, finder.Provider, info);
             db.SetOnlineLookup(title.Id, lookupKey, query, found: true);
+            return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or PosterSourceUnavailableException || (ex is TaskCanceledException or TimeoutException && !ct.IsCancellationRequested))
         {
             run.Unavailable.Add(finder.Provider);
             failures.Add(new ArtworkFailure($"Online-Infotexte ({finder.Provider})", $"nicht verfügbar: {ex.Message}"));
+            return false;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             failures.Add(new ArtworkFailure(title.Name, $"Online-Infotexte nicht übernommen: {ex.Message}"));
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Holt die Infotexte eines einzelnen Titels neu, auch wenn er schon welche hat; dabei werden selbst geschriebene Texte ersetzt.
+    /// Der Nutzer hat das ausdrücklich verlangt, darum gilt auch eine gemerkte Absage nicht.
+    /// </summary>
+    /// <returns>Ob Texte gefunden und gespeichert wurden; sonst, warum nicht (Dienst fehlt, Dienst nicht erreichbar, nichts Passendes).</returns>
+    public async Task<InfoRefreshResult> RefreshInfoAsync(long titleId, CancellationToken ct = default)
+    {
+        var title = db.GetTitles().FirstOrDefault(t => t.Id == titleId) ?? throw new InvalidOperationException($"Titel {titleId} existiert nicht (mehr).");
+        if (Online is not { } online || (title.Kind == TitleKind.Series ? online.SeriesText : online.MovieText) is null)
+        {
+            return new InfoRefreshResult(false, title.Kind == TitleKind.Movie
+                ? "Für Filme fehlt der OMDb-Schlüssel (Einstellungen → Bibliothek) oder „Cover aus dem Internet“ ist aus."
+                : "„Cover aus dem Internet“ ist in den Einstellungen aus.");
+        }
+
+        var failures = new List<ArtworkFailure>();
+        var found = await TryOnlineInfoAsync(title, force: true, new OnlineRun(), failures, ct, replaceUserTexts: true);
+        if (found) return new InfoRefreshResult(true, null);
+        return new InfoRefreshResult(false, failures.Count > 0 ? failures[0].Error : "Der Dienst kennt keinen Titel mit genau diesem Namen.");
     }
 
     /// <summary>Standbilder je Episode für die Episodenliste.</summary>

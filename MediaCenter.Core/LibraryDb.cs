@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 15;
+    private const int SchemaVersion = 17;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -381,6 +381,24 @@ public sealed partial class LibraryDb : IDisposable
                     summary TEXT,
                     PRIMARY KEY (title_id, season, episode)
                 );
+                """);
+            // Schema 16: Infotexte, die der Nutzer selbst geschrieben hat, bleiben bei automatischen Durchläufen unangetastet.
+            if (version < 16) Run("ALTER TABLE title_info ADD COLUMN user_edited INTEGER NOT NULL DEFAULT 0;");
+            // Schema 17: Sammlungen (Filmreihen, Nutzerdaten). Ein Film steht in mehreren Sammlungen, in jeder höchstens einmal.
+            if (version < 17) Run("""
+                CREATE TABLE collections (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    created_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE collection_titles (
+                    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    added_utc TEXT NOT NULL,
+                    PRIMARY KEY (collection_id, title_id)
+                );
+                CREATE INDEX collection_titles_title ON collection_titles(title_id);
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");
         });

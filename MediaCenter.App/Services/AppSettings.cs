@@ -77,6 +77,9 @@ public sealed class AppSettings
     /// <summary>Beim Überfahren eines Films oder einer Serie einen kurzen stummen Ausschnitt zeigen (wird beim ersten Mal per ffmpeg erzeugt).</summary>
     public bool PreviewOnHover { get; set; } = true;
 
+    /// <summary>Wann die letzte Sicherung geschrieben wurde (Einstellungen → Bibliothek → Sicherung); null, solange es keine gab.</summary>
+    public DateTime? LastBackupUtc { get; set; }
+
     /// <summary>Adresse des lokalen Ollama, das Untertitel übersetzt.</summary>
     public string OllamaUrl { get; set; } = "http://localhost:11434";
 

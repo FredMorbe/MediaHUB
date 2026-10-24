@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using MediaCenter.App.Controls;
@@ -33,9 +34,11 @@ public partial class DetailPage : UserControl
         MetaText.Text = BuildMeta();
         BuildPoster();
         BuildInfo();
+        BuildCollections();
         BuildGenres();
         BuildPlayButton();
         BuildListButton();
+        BuildWatchedButton();
         BuildEditButton();
         if (_title.Kind == TitleKind.Series) BuildEpisodes();
 
@@ -70,18 +73,78 @@ public partial class DetailPage : UserControl
         if (_model.Db.GetTitleInfo(_title.Id) is not { } info) return;
 
         var source = info.Provider switch { "omdb" => "OMDb", "tvmaze" => "TVmaze", _ => info.Provider };
-        var credits = new List<string>();
         // OMDb liefert die IMDb-Wertung, TVmaze die eigene der Nutzer dort.
+        var credits = new List<string>();
         if (info.Rating is { } rating) credits.Add($"{(info.Provider == "omdb" ? "IMDb" : source)} {rating.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture)}");
         if (info.Director is { } director) credits.Add($"Regie: {director}");
-        if (info.Cast is { } cast) credits.Add($"Besetzung: {cast}");
 
         ShowText(PlotText, info.Plot);
-        ShowText(CreditsText, string.Join(" · ", credits));
+        CreditsText.Inlines.Clear();
+        CreditsText.Inlines.Add(new Run(string.Join(" · ", credits)));
+        if (info.Cast is { } cast)
+        {
+            if (credits.Count > 0) CreditsText.Inlines.Add(new Run(" · "));
+            CreditsText.Inlines.Add(new Run("Besetzung: "));
+            var actors = LibrarySearch.Actors(cast).ToList();
+            for (var i = 0; i < Math.Min(actors.Count, MaxActorsShown); i++)
+            {
+                if (i > 0) CreditsText.Inlines.Add(new Run(", "));
+                CreditsText.Inlines.Add(ActorLink(actors[i]));
+            }
+            if (actors.Count > MaxActorsShown) CreditsText.Inlines.Add(new Run(" …"));
+        }
+        CreditsText.Visibility = CreditsText.Inlines.Count > 0 && (credits.Count > 0 || info.Cast is not null) ? Visibility.Visible : Visibility.Collapsed;
+
         if (PlotText.Visibility == Visibility.Visible || CreditsText.Visibility == Visibility.Visible || _model.Db.GetEpisodeInfos(_title.Id).Count > 0)
         {
-            ShowText(SourceText, $"Infotexte von {source}, auf Englisch");
+            ShowText(SourceText, info.UserEdited
+                ? $"Handlung, Regie und Besetzung selbst geschrieben; Wertung und Folgentexte von {source}"
+                : $"Infotexte von {source}, auf Englisch");
         }
+    }
+
+    /// <summary>„Sammlung: Matrix“ als Link, wenn der Film in einer Sammlung steht.</summary>
+    private void BuildCollections()
+    {
+        var collections = _model.CollectionsOf(_title.Id).ToList();
+        CollectionText.Inlines.Clear();
+        if (collections.Count == 0)
+        {
+            CollectionText.Visibility = Visibility.Collapsed;
+            return;
+        }
+        CollectionText.Inlines.Add(new Run(collections.Count == 1 ? "Sammlung: " : "Sammlungen: "));
+        for (var i = 0; i < collections.Count; i++)
+        {
+            if (i > 0) CollectionText.Inlines.Add(new Run(", "));
+            var id = collections[i].Id;
+            var link = new Hyperlink(new Run(collections[i].Name)) { TextDecorations = null, Cursor = Cursors.Hand, ToolTip = "Sammlung öffnen" };
+            link.SetResourceReference(TextElement.ForegroundProperty, "AccentBrush");
+            link.Click += (_, _) => _shell.Open(() => new CollectionPage(_shell, id));
+            CollectionText.Inlines.Add(link);
+        }
+        CollectionText.Visibility = Visibility.Visible;
+    }
+
+    private const int MaxActorsShown = 8;
+
+    /// <summary>Ein Schauspieler als Link: ein Klick sucht alle Filme und Serien mit ihm oder ihr.</summary>
+    private Hyperlink ActorLink(string name)
+    {
+        var link = new Hyperlink(new Run(name)) { TextDecorations = null, Cursor = Cursors.Hand, ToolTip = $"Filme und Serien mit {name} suchen" };
+        link.SetResourceReference(TextElement.ForegroundProperty, "MutedBrush");
+        link.MouseEnter += (_, _) =>
+        {
+            link.SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
+            link.TextDecorations = System.Windows.TextDecorations.Underline;
+        };
+        link.MouseLeave += (_, _) =>
+        {
+            link.SetResourceReference(TextElement.ForegroundProperty, "MutedBrush");
+            link.TextDecorations = null;
+        };
+        link.Click += (_, _) => _shell.OpenSearch(name);
+        return link;
     }
 
     private static void ShowText(TextBlock block, string? text)
@@ -111,6 +174,29 @@ public partial class DetailPage : UserControl
         {
             OfflineText.Text = "Gerade nicht erreichbar (Laufwerk abgesteckt?)";
         }
+    }
+
+    // --- Gesehen -------------------------------------------------------------------------------------------
+
+    private void BuildWatchedButton()
+    {
+        PageParts.Compact(WatchedButton);
+        UpdateWatchedButton();
+        WatchedButton.Click += (_, _) =>
+        {
+            LibraryActions.SetTitleWatched(_shell, _title.Id, _model.WatchStateOf(_title.Id) != WatchState.Watched);
+            UpdateWatchedButton();
+            if (_title.Kind == TitleKind.Series) BuildEpisodes();
+        };
+    }
+
+    private void UpdateWatchedButton()
+    {
+        var watched = _model.WatchStateOf(_title.Id) == WatchState.Watched;
+        WatchedButton.Content = _title.Kind == TitleKind.Movie
+            ? (watched ? "✓ Gesehen" : "Als gesehen markieren")
+            : (watched ? "✓ Alles gesehen" : "Alles als gesehen markieren");
+        WatchedButton.ToolTip = watched ? "Als ungesehen markieren" : "Als gesehen markieren";
     }
 
     private void BuildEditButton()
@@ -220,6 +306,7 @@ public partial class DetailPage : UserControl
         {
             Children =
             {
+
                 EditAction("Umbenennen …", () =>
                 {
                     LibraryActions.RenameTitle(_shell, _title.Id);
@@ -227,6 +314,14 @@ public partial class DetailPage : UserControl
                 }),
             },
         };
+        if (_title.Kind == TitleKind.Movie)
+        {
+            manage.Children.Add(EditAction("Zu Sammlung hinzufügen …", () =>
+            {
+                CollectionPickerPage.Show(_shell, _title.Id);
+                return Task.CompletedTask;
+            }));
+        }
         if (_title.Kind == TitleKind.Movie && _model.VideosOf(_title.Id).FirstOrDefault() is { } movie && MkvEditor.CanEdit(movie.RelPath))
         {
             var edit = EditAction("MKV bearbeiten …", () =>
@@ -246,11 +341,88 @@ public partial class DetailPage : UserControl
         var stack = new StackPanel();
         stack.Children.Add(EditBlock("Genres", _genreEditor));
         stack.Children.Add(PageParts.Divider(new Thickness(0, 20, 0, 20)));
+        stack.Children.Add(EditBlock("Infotext", InfoEditor()));
+        stack.Children.Add(PageParts.Divider(new Thickness(0, 20, 0, 20)));
         stack.Children.Add(EditBlock("Cover", covers));
         stack.Children.Add(PageParts.Divider(new Thickness(0, 20, 0, 20)));
         stack.Children.Add(EditBlock("Titel", manage));
 
         _shell.OpenModal(_title.Kind == TitleKind.Movie ? "Film bearbeiten" : "Serie bearbeiten", _title.Name, new UserControl { Content = stack }, ModalSize.Medium);
+    }
+
+    /// <summary>Handlung, Regie und Besetzung von Hand schreiben oder aus dem Internet neu holen.</summary>
+    private UIElement InfoEditor()
+    {
+        var info = _model.Db.GetTitleInfo(_title.Id);
+
+        TextBox Field(string name, string? text, bool multiline)
+        {
+            var box = new TextBox { Text = text ?? "", FontSize = 14, Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 10) };
+            if (multiline)
+            {
+                box.AcceptsReturn = true;
+                box.TextWrapping = TextWrapping.Wrap;
+                box.MinHeight = 110;
+                box.MaxHeight = 220;
+                box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                box.VerticalContentAlignment = VerticalAlignment.Top;
+            }
+            AutomationProperties.SetName(box, name);
+            return box;
+        }
+        TextBlock Label(string text)
+        {
+            var label = PageParts.Muted(text, 13);
+            label.Margin = new Thickness(2, 0, 0, 4);
+            return label;
+        }
+
+        var plot = Field("Handlung", info?.Plot, multiline: true);
+        var director = Field("Regie", info?.Director, multiline: false);
+        var cast = Field("Besetzung", info?.Cast, multiline: false);
+
+        var save = PageParts.Button("Speichern", "PrimaryButton", (_, _) =>
+        {
+            _model.Db.SetUserTitleInfo(_title.Id, plot.Text, director.Text, cast.Text);
+            _shell.CloseModal();
+            _shell.ReloadView();
+            _shell.ShowMessage("Infotext gespeichert.");
+        }, new Thickness(0, 0, 10, 0));
+        AutomationProperties.SetName(save, "Infotext speichern");
+        var refetch = PageParts.Button("Online neu holen", "GhostButton", async (_, _) => await RefetchInfoAsync(info), new Thickness(0));
+        AutomationProperties.SetName(refetch, "Infotext online neu holen");
+
+        var note = PageParts.Muted(_title.Kind == TitleKind.Movie
+            ? "Die Texte kommen von OMDb, auf Englisch. Leere Felder beim Speichern holen sie beim nächsten Durchlauf wieder. Namen der Besetzung mit Komma trennen: Nach ihnen sucht die Suche."
+            : "Die Texte kommen von TVmaze, auf Englisch. Leere Felder beim Speichern holen sie beim nächsten Durchlauf wieder. Namen der Besetzung mit Komma trennen: Nach ihnen sucht die Suche.", 12);
+        note.TextWrapping = TextWrapping.Wrap;
+        note.Margin = new Thickness(0, 12, 0, 0);
+
+        return new StackPanel
+        {
+            Children =
+            {
+                Label("Handlung"), plot, Label("Regie"), director, Label("Besetzung"), cast,
+                new StackPanel { Orientation = Orientation.Horizontal, Children = { save, refetch } },
+                note,
+            },
+        };
+    }
+
+    private async Task RefetchInfoAsync(TitleInfoRow? info)
+    {
+        if (info is { UserEdited: true }
+            && !_shell.Confirm("Eigenen Text ersetzen?", "Handlung, Regie und Besetzung wurden von dir geschrieben. Die Texte aus dem Internet ersetzen sie.", "Ersetzen"))
+        {
+            return;
+        }
+
+        _shell.CloseModal();
+        InfoRefreshResult? result = null;
+        await _shell.RunBusyAsync("Infotexte werden geholt …", async () => result = await _model.Artwork.RefreshInfoAsync(_title.Id));
+        _shell.ReloadView();
+        if (result is { Found: true }) _shell.ShowMessage("Infotexte aktualisiert.");
+        else _shell.ShowMessage($"Keine Infotexte geholt: {result?.Problem}", isError: true);
     }
 
     private static UIElement EditBlock(string title, UIElement content)
@@ -288,6 +460,7 @@ public partial class DetailPage : UserControl
     {
         Episodes.Children.Clear();
         _episodeInfo = _model.Db.GetEpisodeInfos(_title.Id).ToDictionary(e => (e.Season, e.Episode));
+        var playback = _model.Db.GetAllPlayback();
         foreach (var season in _model.VideosOf(_title.Id).GroupBy(v => v.Season).OrderBy(g => g.Key ?? int.MaxValue))
         {
             var header = new TextBlock
@@ -297,7 +470,24 @@ public partial class DetailPage : UserControl
                 Margin = new Thickness(0, 14, 0, 8),
             };
             header.SetResourceReference(StyleProperty, "DisplayText");
-            Episodes.Children.Add(header);
+            var seasonIds = season.Select(v => v.VideoId).ToList();
+            var seasonWatched = WatchStates.Of(season.ToList(), playback) == WatchState.Watched;
+            var mark = PageParts.Compact(PageParts.Button(seasonWatched ? "✓ Staffel gesehen" : "Staffel als gesehen markieren", "GhostButton", (_, _) =>
+            {
+                _model.Db.SetVideosWatched(seasonIds, !seasonWatched);
+                UpdateWatchedButton();
+                BuildEpisodes();
+            }, new Thickness(0, 0, 8, 0)));
+            mark.VerticalAlignment = VerticalAlignment.Bottom;
+            mark.ToolTip = seasonWatched ? "Staffel als ungesehen markieren" : "Alle Folgen dieser Staffel als gesehen markieren";
+            AutomationProperties.SetName(mark, season.Key is { } n ? $"Staffel {n} gesehen" : "Folgen gesehen");
+            var headerRow = new Grid();
+            headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            headerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(mark, 1);
+            headerRow.Children.Add(header);
+            headerRow.Children.Add(mark);
+            Episodes.Children.Add(headerRow);
 
             foreach (var video in season.OrderBy(v => v.Episode ?? int.MaxValue).ThenBy(v => v.RelPath, StringComparer.OrdinalIgnoreCase))
             {

@@ -253,6 +253,17 @@ public sealed class SettingsPage : UserControl
         var refresh = PageParts.Compact(PageParts.Button("Fehlende Cover suchen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(), new Thickness(0)));
         var rebuild = PageParts.Compact(PageParts.Button("Alle Cover neu erzeugen", "GhostButton", async (_, _) => await _shell.RefreshArtworkAsync(force: true), new Thickness(0)));
 
+        var backup = PageParts.Compact(PageParts.Button("Sichern …", "GhostButton", async (_, _) =>
+        {
+            await BackupActions.CreateAsync(_shell);
+            ShowTab("Bibliothek", animate: false);
+        }, new Thickness(0)));
+        var restore = PageParts.Compact(PageParts.Button("Wiederherstellen …", "GhostButton", (_, _) => BackupActions.Restore(_shell), new Thickness(0)));
+        var duplicates = PageParts.Compact(PageParts.Button("Duplikate suchen", "GhostButton", (_, _) => _shell.Open(() => new DuplicatesPage(_shell)), new Thickness(0)));
+        AutomationProperties.SetName(backup, "Sicherung erstellen");
+        AutomationProperties.SetName(restore, "Sicherung wiederherstellen");
+        AutomationProperties.SetName(duplicates, "Duplikate suchen");
+
         return new StackPanel
         {
             Children =
@@ -278,12 +289,24 @@ public sealed class SettingsPage : UserControl
                         "Erzeugt und holt Cover für Titel, die noch keins haben, und Infotexte für Titel ohne. Ohne Treffer wird erst nach zwei Wochen neu gefragt.", refresh),
                     PageParts.SettingRow("Alle Cover neu erzeugen", "Ersetzt automatisch erzeugte Cover und lädt die Infotexte neu; selbst gewählte Poster bleiben.", rebuild)),
                 PageParts.Group(
+                    PageParts.SettingRow("Sichern",
+                        "Schreibt Datenbank (Fortschritt, Playlists, „Meine Liste“, Sammlungen, eigene Namen, Infotexte), Einstellungen, selbst gewählte Poster, gespeicherte Untertitel und LUTs in eine ZIP-Datei. " +
+                        "Schlüssel und Zwischenspeicher (Vorschauen, Songtexte) sind nicht dabei. " + LastBackupText(settings), backup),
+                    PageParts.SettingRow("Wiederherstellen",
+                        "Spielt eine Sicherung ein. Der jetzige Stand wird nicht gelöscht, sondern in einen Ordner „vor-wiederherstellung-…“ im Datenordner verschoben; die App startet dafür neu.", restore)),
+                PageParts.Group(
+                    PageParts.SettingRow("Duplikate",
+                        "Zeigt Filme und Folgen, die in mehreren Dateien liegen (mit dem Platz, den man gewänne), und gleichnamige Einträge. Es wird nichts gelöscht, ohne dass du es bestätigst.", duplicates)),
+                PageParts.Group(
                     PageParts.SettingRow("Datenbank", Path.Combine(AppSettings.DataDirectory, "library.db"), null),
                     PageParts.SettingRow("Cover-Cache", _shell.Services.Model.Artwork.CacheDir, null),
                     PageParts.SettingRow("Einstellungen", AppSettings.FilePath, null)),
             },
         };
     }
+
+    private static string LastBackupText(AppSettings settings) =>
+        settings.LastBackupUtc is { } when ? $"Letzte Sicherung: {when.ToLocalTime():dd.MM.yyyy HH:mm}." : "Es gibt noch keine Sicherung.";
 
     // --- Wiedergabe ----------------------------------------------------------------------------------------
 
@@ -356,9 +379,69 @@ public sealed class SettingsPage : UserControl
                         Choice("HEVC beim Übertragen", castHevc))),
                 note,
                 PageParts.Group(
+                    PageParts.SettingRow("Untertitel aus dem Internet", SubtitleAccountNote(), SubtitleAccount(), stacked: true)),
+                PageParts.Group(
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },
         };
+    }
+
+    // --- Untertitel aus dem Internet -----------------------------------------------------------------------
+
+    private TextBlock _accountStatus = PageParts.Muted("", 13);
+
+    private static string SubtitleAccountNote() =>
+        "Im Player: Untertitel → „Online suchen …“. Gesucht wird bei OpenSubtitles (opensubtitles.com); gesendet werden Titel, Jahr, Staffel, Folge, Sprache und eine Prüfsumme der Datei, nie Pfade. " +
+        "Die Suche braucht einen kostenlosen API-Schlüssel (opensubtitles.com → Konto → API-Consumers), der Download zusätzlich Benutzername und Passwort des Kontos; ein Gratiskonto hat ein Tageslimit. " +
+        "Die Angaben liegen mit deinem Windows-Konto verschlüsselt im Datenordner. Umgebungsvariablen haben Vorrang: " +
+        $"{OpenSubtitlesAccount.KeyVariable}, {OpenSubtitlesAccount.UserVariable}, {OpenSubtitlesAccount.PasswordVariable}.";
+
+    private UIElement SubtitleAccount()
+    {
+        _accountStatus = PageParts.Muted(OpenSubtitlesAccount.Describe(), 13);
+        var (keyField, keyBox) = PageParts.HintBox("API-Schlüssel", 230);
+        var (userField, userBox) = PageParts.HintBox("Benutzername", 190);
+        var password = new PasswordBox { Width = 190 };
+        AutomationProperties.SetName(keyBox, "OpenSubtitles API-Schlüssel");
+        AutomationProperties.SetName(userBox, "OpenSubtitles Benutzername");
+        AutomationProperties.SetName(password, "OpenSubtitles Passwort");
+
+        var save = PageParts.Compact(PageParts.Button("Speichern", "PrimaryButton", (_, _) =>
+        {
+            try
+            {
+                OpenSubtitlesAccount.Save(keyBox.Text, userBox.Text, password.Password);
+            }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            keyBox.Clear();
+            userBox.Clear();
+            password.Clear();
+            _accountStatus.Text = OpenSubtitlesAccount.Describe();
+        }, new Thickness(10, 0, 0, 0)));
+        var remove = PageParts.Compact(PageParts.Button("Entfernen", "GhostButton", (_, _) =>
+        {
+            try
+            {
+                OpenSubtitlesAccount.Clear();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            _accountStatus.Text = OpenSubtitlesAccount.Describe();
+        }, new Thickness(8, 0, 0, 0)));
+        AutomationProperties.SetName(save, "OpenSubtitles-Zugang speichern");
+        AutomationProperties.SetName(remove, "OpenSubtitles-Zugang entfernen");
+        keyField.Margin = new Thickness(0, 0, 8, 0);
+        userField.Margin = new Thickness(0, 0, 8, 0);
+
+        var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0), Children = { keyField, userField, password, save, remove } };
+        return new StackPanel { Children = { _accountStatus, row } };
     }
 
     // --- Equalizer -----------------------------------------------------------------------------------------
@@ -590,6 +673,8 @@ public sealed class SettingsPage : UserControl
             ("M", "Ton aus / an"),
             ("N", "Nächste Folge (nur bei Serien)"),
             ("I", "Statistik (Hardware-Decoding, verworfene Bilder) ein- / ausblenden"),
+            ("S", "Intro überspringen: ans Ende des Vorspann-Kapitels, sonst 85 Sekunden vor"),
+            ("Bild auf  /  Bild ab", "Voriges / nächstes Kapitel (bei Dateien mit Kapiteln)"),
         }),
         ("Medientasten (auch bei minimiertem Fenster)", new[]
         {

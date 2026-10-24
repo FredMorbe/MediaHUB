@@ -130,8 +130,34 @@ public sealed class AppServices : IDisposable
     /// <summary>Spricht mit dem Ollama aus den Einstellungen (Adresse kann sich zur Laufzeit ändern, daher jedes Mal neu).</summary>
     public OllamaClient Ollama() => new(OllamaHttp, Settings.OllamaUri);
 
+    /// <summary>Wo der bisherige Stand liegt, wenn dieser Start eine Sicherung eingespielt hat; sonst null.</summary>
+    public string? RestoredPreviousState { get; private set; }
+
+    /// <summary>
+    /// Meldet sich bei OpenSubtitles an und gibt den Client zurück (das Token gilt nur für diesen Client).
+    /// </summary>
+    /// <exception cref="OpenSubtitlesException">Zugangsdaten fehlen oder wurden abgelehnt, OpenSubtitles nicht erreichbar.</exception>
+    public async Task<OpenSubtitlesClient> OpenSubtitlesAsync(CancellationToken ct = default)
+    {
+        OpenSubtitlesLogin login;
+        try
+        {
+            login = OpenSubtitlesAccount.Load()
+                ?? throw new OpenSubtitlesException("Der Zugang zu OpenSubtitles ist noch nicht eingerichtet (Einstellungen → Wiedergabe → Untertitel aus dem Internet).");
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new OpenSubtitlesException(ex.Message, ex);
+        }
+        var client = new OpenSubtitlesClient(Http, login.Key, $"MediaCenter v{AppInfo.Version}");
+        await client.LoginAsync(login.User, login.Password, ct);
+        return client;
+    }
+
     public static AppServices Create()
     {
+        // Eine vorbereitete Wiederherstellung muss vor allem anderen eingespielt werden: Datenbank und Einstellungen sind danach andere.
+        var restoredFrom = BackupService.ApplyPendingRestore(AppSettings.DataDirectory);
         var settings = AppSettings.Load();
         var db = new LibraryDb(Path.Combine(AppSettings.DataDirectory, "library.db"));
         var probe = FfprobeReader.FromEnvironment();
@@ -180,6 +206,7 @@ public sealed class AppServices : IDisposable
             OllamaHttp = new HttpClient { Timeout = System.Threading.Timeout.InfiniteTimeSpan },
             SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
+        services.RestoredPreviousState = restoredFrom;
         services.LoadOmdb();
         services.ApplyOnlineCovers();
         services.ApplyOnlineLyrics();
@@ -195,5 +222,6 @@ public sealed class AppServices : IDisposable
         Http.Dispose();
         OllamaHttp.Dispose();
         Db.Dispose();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); // gibt library.db frei, bevor eine neu gestartete App sie austauscht
     }
 }

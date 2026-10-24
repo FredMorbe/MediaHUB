@@ -16,6 +16,32 @@ public sealed class LibraryPage : UserControl
     private readonly WrapPanel _grid = new();
     private readonly TextBlock _count = new() { FontSize = 14, Margin = new Thickness(0, 0, 0, 14) };
     private readonly WrapPanel _chips = new() { VerticalAlignment = VerticalAlignment.Center };
+    private enum WatchFilter
+    {
+        All,
+        Unwatched,
+        InProgress,
+        Watched,
+    }
+
+    // Sortierung und Ansicht bleiben je Filme/Serien für die Dauer der Sitzung, auch wenn die Seite neu aufgebaut wird (Zurück aus einem Titel).
+    private static readonly Dictionary<TitleKind, TitleSort> s_sort = new();
+    private static readonly Dictionary<TitleKind, WatchFilter> s_watch = new();
+
+    private TitleSort Sort
+    {
+        get => s_sort.GetValueOrDefault(_kind);
+        set => s_sort[_kind] = value;
+    }
+
+    private WatchFilter Watch
+    {
+        get => s_watch.GetValueOrDefault(_kind);
+        set => s_watch[_kind] = value;
+    }
+
+    private readonly Button _sortButton;
+    private readonly Button _watchButton;
     private string? _genre; // null = alle
     private bool _listOnly; // nur „Meine Liste“
     private ToggleButton? _selectedChip;
@@ -42,11 +68,22 @@ public sealed class LibraryPage : UserControl
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         toolbar.Children.Add(_chips);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+        _sortButton = PageParts.Compact(PageParts.Button("", "GhostButton", (_, _) => ShowSortMenu(), new Thickness(16, 0, 0, 8)));
+        _watchButton = PageParts.Compact(PageParts.Button("", "GhostButton", (_, _) => ShowWatchMenu(), new Thickness(8, 0, 0, 8)));
+        System.Windows.Automation.AutomationProperties.SetName(_sortButton, "Sortierung");
+        System.Windows.Automation.AutomationProperties.SetName(_watchButton, "Ansicht");
+        UpdateButtons();
+        actions.Children.Add(_sortButton);
+        actions.Children.Add(_watchButton);
         var refresh = PageParts.LibraryRefreshButton(_shell);
-        refresh.Margin = new Thickness(16, 0, 0, 8);
+        refresh.Margin = new Thickness(8, 0, 0, 8);
         actions.Children.Add(refresh);
         if (kind == TitleKind.Movie)
         {
+            var collections = PageParts.Compact(PageParts.Button("Sammlungen", "GhostButton", (_, _) => _shell.Open(() => new CollectionsPage(_shell)), new Thickness(8, 0, 0, 8)));
+            collections.VerticalAlignment = VerticalAlignment.Top;
+            System.Windows.Automation.AutomationProperties.SetName(collections, "Sammlungen");
+            actions.Children.Add(collections);
             var rename = PageParts.Compact(PageParts.Button("Dateien umbenennen …", "GhostButton", (_, _) => RenamePage.Show(_shell), new Thickness(16, 0, 0, 8)));
             rename.VerticalAlignment = VerticalAlignment.Top;
             System.Windows.Automation.AutomationProperties.SetName(rename, "Filme umbenennen");
@@ -87,6 +124,47 @@ public sealed class LibraryPage : UserControl
         }
     }
 
+    private static string SortText(TitleSort sort) => sort switch
+    {
+        TitleSort.Name => "Name (A–Z)",
+        TitleSort.Year => "Jahr (neueste zuerst)",
+        TitleSort.Added => "Zuletzt hinzugefügt",
+        TitleSort.Rating => "Wertung",
+        TitleSort.Resolution => "Auflösung",
+        _ => throw new ArgumentOutOfRangeException(nameof(sort), sort, null),
+    };
+
+    private static string WatchText(WatchFilter filter) => filter switch
+    {
+        WatchFilter.All => "Alle",
+        WatchFilter.Unwatched => "Ungesehen",
+        WatchFilter.InProgress => "Angefangen",
+        WatchFilter.Watched => "Gesehen",
+        _ => throw new ArgumentOutOfRangeException(nameof(filter), filter, null),
+    };
+
+    private void UpdateButtons()
+    {
+        _sortButton.Content = $"Sortierung: {SortText(Sort)}  ▾";
+        _watchButton.Content = $"Ansicht: {WatchText(Watch)}  ▾";
+    }
+
+    private void ShowSortMenu() => ContextPopup.Show(_sortButton,
+        Enum.GetValues<TitleSort>().Select(sort => ((Sort == sort ? "✓ " : "    ") + SortText(sort), (Action)(() =>
+        {
+            Sort = sort;
+            UpdateButtons();
+            Fill();
+        }))).ToList(), "Sortierung");
+
+    private void ShowWatchMenu() => ContextPopup.Show(_watchButton,
+        Enum.GetValues<WatchFilter>().Select(filter => ((Watch == filter ? "✓ " : "    ") + WatchText(filter), (Action)(() =>
+        {
+            Watch = filter;
+            UpdateButtons();
+            Fill();
+        }))).ToList(), "Ansicht");
+
     private void OnWatchlistChanged()
     {
         BuildChips();
@@ -117,10 +195,19 @@ public sealed class LibraryPage : UserControl
 
     private void Fill()
     {
-        var titles = _model.Titles.Where(t => t.Kind == _kind)
-            .Where(t => !_listOnly || _model.IsOnWatchlist(t.Id))
-            .Where(t => _genre is null || _model.GenresOf(t.Id).Contains(_genre, StringComparer.OrdinalIgnoreCase))
-            .ToList();
+        var states = Watch == WatchFilter.All ? null : _model.WatchStatesByTitle();
+        var wanted = Watch switch
+        {
+            WatchFilter.Unwatched => WatchState.Unwatched,
+            WatchFilter.InProgress => WatchState.InProgress,
+            _ => WatchState.Watched,
+        };
+        var titles = TitleOrdering.Order(
+            _model.Titles.Where(t => t.Kind == _kind)
+                .Where(t => !_listOnly || _model.IsOnWatchlist(t.Id))
+                .Where(t => _genre is null || _model.GenresOf(t.Id).Contains(_genre, StringComparer.OrdinalIgnoreCase))
+                .Where(t => states is null || states[t.Id] == wanted),
+            Sort, _model.Ratings(), _model.Heights());
 
         _grid.Children.Clear();
         foreach (var title in titles)
@@ -136,10 +223,11 @@ public sealed class LibraryPage : UserControl
         if (titles.Count == 0)
         {
             var what = _kind == TitleKind.Movie ? "Filme" : "Serien";
+            var filtered = _genre is not null || _listOnly || Watch != WatchFilter.All;
             _grid.Children.Add(PageParts.EmptyState(_kind == TitleKind.Movie ? "\uE714" : "\uE7F4",
-                _genre is null ? $"Noch keine {what}" : $"Keine {what} in diesem Genre",
-                _genre is null ? "Füge unter „Laufwerke“ einen Ordner hinzu oder ordne Dateien aus der Inbox zu." : "Wähle oben „Alle“, um wieder alles zu sehen.",
-                PageParts.Button("Zu den Laufwerken", "PrimaryButton", (_, _) => _shell.Navigate(Section.Sources), new Thickness(0))));
+                filtered ? $"Keine {what} in dieser Ansicht" : $"Noch keine {what}",
+                filtered ? "Setze Genre und Ansicht auf „Alle“, um wieder alles zu sehen." : "Füge unter „Laufwerke“ einen Ordner hinzu oder ordne Dateien aus der Inbox zu.",
+                filtered ? [] : [PageParts.Button("Zu den Laufwerken", "PrimaryButton", (_, _) => _shell.Navigate(Section.Sources), new Thickness(0))]));
         }
     }
 }

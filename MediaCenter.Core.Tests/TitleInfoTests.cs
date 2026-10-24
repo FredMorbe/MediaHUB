@@ -90,7 +90,7 @@ public sealed class TvMazeInfoTests
         Assert.Equal("A missing child & a cave.", info!.Plot);
         Assert.Equal(8.7, info.Rating);
         Assert.Null(info.Director);
-        Assert.Equal("Louis Hofmann, Lisa Vicari, A, B, C, D", info.Cast); // doppelte Namen einmal, höchstens sechs
+        Assert.Equal("Louis Hofmann, Lisa Vicari, A, B, C, D, E", info.Cast); // doppelte Namen nur einmal
         Assert.Equal(new[] { new EpisodeText(1, 1, "Secrets", "Winden mourns."), new EpisodeText(1, 2, "Lies", null) }, info.Episodes);
     }
 
@@ -291,6 +291,124 @@ public sealed class TitleInfoServiceTests : IDisposable
 
         Assert.Empty(_series.Asked);
         Assert.Null(_db.GetTitleInfo(Title("Show X").Id));
+    }
+
+    [Fact]
+    public async Task Texts_written_by_the_user_are_kept_by_every_automatic_run_even_with_force()
+    {
+        Series();
+        _series.Answer = (_, _) => Info("Online", new EpisodeText(1, 1, "Pilot", "Es beginnt."));
+        await Scan();
+        await Refresh();
+        var id = Title("Show X").Id;
+
+        _db.SetUserTitleInfo(id, "  Meine Handlung  ", "Ich", "A, B");
+        _series.Answer = (_, _) => Info("Neu online");
+        await Refresh(force: true);
+
+        var info = _db.GetTitleInfo(id)!;
+        Assert.Equal(("Meine Handlung", "Ich", "A, B", true), (info.Plot, info.Director, info.Cast, info.UserEdited));
+        Assert.Equal(7.5, info.Rating); // die Wertung und der Anbieter bleiben
+        Assert.Equal("fakeseries", info.Provider);
+        Assert.Single(_db.GetEpisodeInfos(id)); // auch die Folgentexte
+        Assert.Single(_series.Asked);
+    }
+
+    [Fact]
+    public async Task Refreshing_one_title_replaces_the_users_texts_with_the_online_ones()
+    {
+        Series();
+        _series.Answer = (_, _) => Info("Online");
+        await Scan();
+        await Refresh();
+        var id = Title("Show X").Id;
+        _db.SetUserTitleInfo(id, "Eigen", null, null);
+
+        _series.Answer = (_, _) => Info("Frisch", new EpisodeText(1, 2, "Zwei", null));
+        var result = await _art.RefreshInfoAsync(id);
+
+        Assert.True(result.Found);
+        var info = _db.GetTitleInfo(id)!;
+        Assert.Equal(("Frisch", false), (info.Plot, info.UserEdited));
+        Assert.Single(_db.GetEpisodeInfos(id));
+    }
+
+    [Fact]
+    public async Task Refreshing_one_title_names_the_reason_when_nothing_is_found_or_the_service_fails()
+    {
+        Series();
+        Touch(_drive, @"Filme\Solo (2020).mkv");
+        await Scan();
+
+        var none = await _art.RefreshInfoAsync(Title("Show X").Id);
+        _movies.Answer = (_, _) => throw new PosterSourceUnavailableException("OMDb: Request limit reached!");
+        var failed = await _art.RefreshInfoAsync(Title("Solo").Id);
+        _art.Online = _art.Online! with { MovieText = null };
+        var without = await _art.RefreshInfoAsync(Title("Solo").Id);
+
+        Assert.False(none.Found);
+        Assert.Contains("kennt keinen Titel", none.Problem);
+        Assert.False(failed.Found);
+        Assert.Contains("Request limit reached!", failed.Problem);
+        Assert.False(without.Found);
+        Assert.Contains("OMDb-Schlüssel", without.Problem);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _art.RefreshInfoAsync(9999));
+    }
+
+    [Fact]
+    public async Task Clearing_all_user_fields_removes_the_entry_so_the_next_run_fetches_again()
+    {
+        Series();
+        _series.Answer = (_, _) => Info("Online", new EpisodeText(1, 1, "Pilot", null));
+        await Scan();
+        await Refresh();
+        var id = Title("Show X").Id;
+
+        _db.SetUserTitleInfo(id, " ", null, "");
+
+        Assert.Null(_db.GetTitleInfo(id));
+        Assert.Empty(_db.GetEpisodeInfos(id));
+        await Refresh();
+        Assert.Equal("Online", _db.GetTitleInfo(id)!.Plot);
+    }
+
+    [Fact]
+    public async Task All_infos_are_listed_by_title()
+    {
+        Touch(_drive, @"Filme\Solo (2020).mkv");
+        Series();
+        _movies.Answer = (_, _) => Info("Film");
+        _series.Answer = (_, _) => Info("Serie");
+        await Scan();
+        await Refresh();
+
+        var infos = _db.ListTitleInfos();
+
+        Assert.Equal(2, infos.Count);
+        Assert.Equal("A, B", infos[Title("Solo").Id].Cast);
+    }
+
+    [Fact]
+    public async Task Videos_are_marked_watched_and_unwatched_and_the_resume_point_is_reset()
+    {
+        Series();
+        await Scan();
+        var videos = _db.ListVideos().Where(v => v.TitleId == Title("Show X").Id).Select(v => v.VideoId).ToList();
+        _db.SavePlayback(videos[0], 42, watched: false);
+
+        _db.SetVideosWatched(videos, true);
+        var all = _db.GetAllPlayback();
+        Assert.All(videos, id => Assert.Equal(new PlaybackState(0, true, all[id].UpdatedUtc), all[id]));
+
+        _db.SetVideosWatched(new[] { videos[0] }, false);
+        all = _db.GetAllPlayback();
+        Assert.False(all[videos[0]].Watched);
+        Assert.Equal(0, all[videos[0]].PositionSeconds);
+        Assert.True(all[videos[1]].Watched);
+        Assert.Empty(_db.GetContinueWatching()); // eine Stelle bei null taucht nicht unter „Weiterschauen“ auf
+
+        Assert.Throws<InvalidOperationException>(() => _db.SetVideosWatched(new[] { videos[1], 99999L }, false));
+        Assert.True(_db.GetAllPlayback()[videos[1]].Watched); // alles oder nichts
     }
 
     [Fact]

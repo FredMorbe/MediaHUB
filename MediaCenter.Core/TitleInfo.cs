@@ -16,7 +16,8 @@ public sealed record OnlineTitleInfo(string Title, string? Plot, double? Rating,
 
 /// <summary>Gespeicherte Infotexte eines Titels.</summary>
 /// <param name="Provider">Von welchem Dienst sie stammen (für die Quellenangabe).</param>
-public sealed record TitleInfoRow(long TitleId, string Provider, string? Plot, double? Rating, string? Director, string? Cast);
+/// <param name="UserEdited">Handlung, Regie und Besetzung hat der Nutzer selbst geschrieben; ein automatischer Durchlauf ersetzt sie nicht.</param>
+public sealed record TitleInfoRow(long TitleId, string Provider, string? Plot, double? Rating, string? Director, string? Cast, bool UserEdited = false);
 
 /// <summary>Findet Infotexte im Internet. Gibt null zurück, wenn es keinen sicheren Treffer gibt (nie Texte eines anderen Titels).</summary>
 public interface ITitleInfoSource

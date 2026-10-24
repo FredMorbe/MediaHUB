@@ -166,6 +166,19 @@ public static class LibraryActions
         return on;
     }
 
+    /// <summary>Markiert alle Videos eines Titels als gesehen oder ungesehen (die gemerkte Stelle wird dabei zurückgesetzt) und sagt es dem Nutzer.</summary>
+    public static void SetTitleWatched(IShell shell, long titleId, bool watched)
+    {
+        var model = shell.Services.Model;
+        if (model.FindTitle(titleId) is not { } title)
+        {
+            shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
+            return;
+        }
+        model.Db.SetVideosWatched(model.VideosOf(titleId).Select(v => v.VideoId), watched);
+        shell.ShowMessage(watched ? $"„{title.Name}“ ist als gesehen markiert." : $"„{title.Name}“ ist als ungesehen markiert.");
+    }
+
     /// <summary>Kontextmenü einer Titelkarte; leer für Karten ohne Titel in der Bibliothek (Alben, Podcasts, Sender).</summary>
     public static IReadOnlyList<(string Text, Action Click)> CardMenu(IShell shell, CardItem item)
     {
@@ -174,12 +187,21 @@ public static class LibraryActions
         var menu = new List<(string, Action)>
         {
             (shell.Services.Model.IsOnWatchlist(item.TitleId) ? "Von „Meine Liste“ entfernen" : "Zu „Meine Liste“ hinzufügen", () => ToggleWatchlist(shell, item.TitleId)),
+            (shell.Services.Model.WatchStateOf(item.TitleId) == WatchState.Watched ? "Als ungesehen markieren" : "Als gesehen markieren", () =>
+            {
+                SetTitleWatched(shell, item.TitleId, shell.Services.Model.WatchStateOf(item.TitleId) != WatchState.Watched);
+                shell.ReloadView();
+            }),
             ("Poster wählen …",async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
             ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
             ("Umbenennen …", () => RenameTitle(shell, item.TitleId)),
         };
         if (item.Kind == TitleKind.Series) menu.Insert(0, ("Folge wählen …", (Action)(() => Pages.EpisodePickerPage.Show(shell, item.TitleId))));
-        if (item.Kind == TitleKind.Movie) menu.Add(("Bearbeiten …", () => EditMovie(shell, item.TitleId)));
+        if (item.Kind == TitleKind.Movie)
+        {
+            menu.Insert(1, ("Zu Sammlung hinzufügen …", () => Pages.CollectionPickerPage.Show(shell, item.TitleId)));
+            menu.Add(("Bearbeiten …", () => EditMovie(shell, item.TitleId)));
+        }
         menu.Add(("Aus Mediacenter entfernen …", () =>
         {
             if (RemoveTitle(shell, item.TitleId)) shell.ReloadView();

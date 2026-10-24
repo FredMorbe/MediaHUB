@@ -67,7 +67,8 @@ public sealed class TvMazeClient(HttpClient http, TimeSpan? minGap = null) : IPo
         return info.IsEmpty ? null : info;
     }
 
-    private const int MaxCast = 6;
+    /// <summary>So viele Schauspieler werden gespeichert (die Suche nach Schauspielern findet nur, wen sie kennt); die Seite zeigt die ersten.</summary>
+    private const int MaxCast = 20;
 
     private static string? Text(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

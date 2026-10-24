@@ -52,11 +52,14 @@ public partial class MainWindow : Window, IShell
         SizeChanged += (_, _) => BackdropArt.Height = ActualHeight * 0.66;
         PreviewKeyDown += OnPreviewKeyDown;
         FullscreenNavButton.Click += (_, _) => ToggleFullscreen();
+        SearchNavButton.Click += (_, _) => OpenSearch();
         Loaded += (_, _) =>
         {
             Services.Model.Reload();
             UpdateInboxBadge();
             Navigate(Section.Home);
+            if (Services.RestoredPreviousState is { } previous)
+                ShowMessage($"Sicherung wiederhergestellt. Der bisherige Stand liegt in {previous}.");
             if (Services.Settings.StartFullscreen) SetFullscreen(true);
             CheckRendering();
         };
@@ -87,6 +90,7 @@ public partial class MainWindow : Window, IShell
     private const string DriveGlyph = "\uEDA2";
     private const string InboxGlyph = "\uEA8F";
     private const string SettingsGlyph = "\uE713";
+    private const string HistoryGlyph = "";
 
     private void BuildNav()
     {
@@ -94,7 +98,7 @@ public partial class MainWindow : Window, IShell
         {
             (Section.Home, "Start", NavItems, null), (Section.Movies, "Filme", NavItems, null), (Section.Series, "Serien", NavItems, null),
             (Section.Music, "Musik", NavItems, null), (Section.Radio, "Radio", NavItems, null), (Section.Podcasts, "Podcasts", NavItems, null),
-            (Section.Sources, "Laufwerke", UtilItems, DriveGlyph), (Section.Inbox, "Inbox", UtilItems, InboxGlyph), (Section.Settings, "Einstellungen", UtilItems, SettingsGlyph),
+            (Section.Sources, "Laufwerke", UtilItems, DriveGlyph), (Section.Inbox, "Inbox", UtilItems, InboxGlyph), (Section.History, "Verlauf und Statistik", UtilItems, HistoryGlyph), (Section.Settings, "Einstellungen", UtilItems, SettingsGlyph),
         };
         foreach (var (section, label, host, glyph) in items)
         {
@@ -153,6 +157,7 @@ public partial class MainWindow : Window, IShell
             Section.Radio => new RadioPage(this),
             Section.Podcasts => new PodcastsPage(this),
             Section.Inbox => new InboxPage(this),
+            Section.History => new HistoryPage(this),
             Section.Sources => new SourcesPage(this),
             Section.Settings => new SettingsPage(this),
             _ => throw new ArgumentOutOfRangeException(nameof(section), section, null),
@@ -164,6 +169,20 @@ public partial class MainWindow : Window, IShell
         if (_current is not null) _history.Push(_current);
         Show(new PageEntry(() => new DetailPage(this, titleId), null));
     }
+
+    public void OpenSearch(string? query = null)
+    {
+        if (Modal.IsOpen) Modal.Close();
+        // Auf der Suche selbst bleibt die Seite stehen (sonst stapelte jedes Strg+F eine weitere Suche auf den Zurück-Verlauf).
+        if (PageHost.Content is SearchPage current)
+        {
+            current.Focus(query);
+            return;
+        }
+        Open(() => new SearchPage(this, query));
+    }
+
+    public void OpenAlbum(string albumKey) => Open(() => new MusicPage(this, albumKey));
 
     public void Open(Func<UserControl> page)
     {
@@ -244,6 +263,12 @@ public partial class MainWindow : Window, IShell
         if (e.Key == Key.F11)
         {
             ToggleFullscreen();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control && !Dialog.IsOpen)
+        {
+            OpenSearch();
             e.Handled = true;
             return;
         }

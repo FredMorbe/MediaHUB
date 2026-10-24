@@ -314,4 +314,14 @@ public sealed partial class LibraryDb
         }
         return rows;
     }
+
+    /// <summary>Größe in Bytes je Datei-Id (<see cref="VideoRow.FileId"/>).</summary>
+    public Dictionary<long, long> GetFileSizes()
+    {
+        var sizes = new Dictionary<long, long>();
+        using var cmd = Command("SELECT id, size FROM files");
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) sizes[r.GetInt64(0)] = r.GetInt64(1);
+        return sizes;
+    }
 }

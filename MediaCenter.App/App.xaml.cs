@@ -31,8 +31,19 @@ public partial class App : Application
     public static void RestartAfterGpuFallback()
     {
         RestartOnExit = true;
+        _restartArgument = GpuFallbackArgument;
         Current.Shutdown();
     }
+
+    /// <summary>Beendet die App und startet sie neu (z. B. damit eine vorbereitete Wiederherstellung eingespielt wird).</summary>
+    public static void Restart()
+    {
+        RestartOnExit = true;
+        _restartArgument = "";
+        Current.Shutdown();
+    }
+
+    private static string _restartArgument = GpuFallbackArgument;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -60,6 +71,6 @@ public partial class App : Application
         if (!RestartOnExit) return;
 
         var path = Environment.ProcessPath ?? throw new InvalidOperationException("Der Pfad der laufenden Anwendung ist unbekannt; ein Neustart ist nicht möglich.");
-        Process.Start(new ProcessStartInfo(path, GpuFallbackArgument) { UseShellExecute = false });
+        Process.Start(new ProcessStartInfo(path, _restartArgument) { UseShellExecute = false });
     }
 }

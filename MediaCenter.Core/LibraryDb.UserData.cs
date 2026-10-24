@@ -26,7 +26,7 @@ public sealed partial class LibraryDb
         "UPDATE videos SET title_id = $title, season = $season, episode = $episode, locked = 1 WHERE id = $id",
         ("$title", titleId), ("$season", season), ("$episode", episode), ("$id", videoId));
 
-    /// <summary>Führt zwei Titel gleicher Art zusammen: Videos, Namensschlüssel, Genres und der Platz auf „Meine Liste“ wandern zum Ziel.</summary>
+    /// <summary>Führt zwei Titel gleicher Art zusammen: Videos, Namensschlüssel, Genres, der Platz auf „Meine Liste“ und die Sammlungen wandern zum Ziel.</summary>
     public void MergeTitles(long fromId, long intoId) => InTransaction(() =>
     {
         if (fromId == intoId) throw new ArgumentException("Ein Titel kann nicht mit sich selbst zusammengeführt werden.");
@@ -42,6 +42,8 @@ public sealed partial class LibraryDb
         Run("INSERT OR IGNORE INTO title_genres (title_id, genre_id) SELECT $into, genre_id FROM title_genres WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
         Run("INSERT OR IGNORE INTO watchlist (title_id, added_utc) SELECT $into, added_utc FROM watchlist WHERE title_id = $from",
+            ("$into", intoId), ("$from", fromId));
+        Run("INSERT OR IGNORE INTO collection_titles (collection_id, title_id, added_utc) SELECT collection_id, $into, added_utc FROM collection_titles WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
         Run("DELETE FROM titles WHERE id = $from", ("$from", fromId));
     });
@@ -106,6 +108,30 @@ public sealed partial class LibraryDb
         using var r = cmd.ExecuteReader();
         return r.Read() ? new PlaybackState(r.GetDouble(0), r.GetInt32(1) == 1, r.GetString(2)) : null;
     }
+
+    /// <summary>Der Fortschritt aller Videos auf einmal: Video-Id → Stand.</summary>
+    public Dictionary<long, PlaybackState> GetAllPlayback()
+    {
+        var result = new Dictionary<long, PlaybackState>();
+        using var cmd = Command("SELECT video_id, position_sec, watched, updated_utc FROM playback");
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) result[r.GetInt64(0)] = new PlaybackState(r.GetDouble(1), r.GetInt32(2) == 1, r.GetString(3));
+        return result;
+    }
+
+    /// <summary>
+    /// Markiert Videos als gesehen oder ungesehen. Beides setzt die gemerkte Stelle auf null zurück: ein gesehenes Video beginnt beim
+    /// nächsten Mal von vorn, ein ungesehenes taucht nicht mehr unter „Weiterschauen“ auf.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Ein Video ist nicht in der Bibliothek; dann ändert sich nichts.</exception>
+    public void SetVideosWatched(IEnumerable<long> videoIds, bool watched) => InTransaction(() =>
+    {
+        foreach (var id in videoIds.Distinct())
+        {
+            if (Scalar<long>("SELECT COUNT(*) FROM videos WHERE id = $id", ("$id", id)) == 0) throw new InvalidOperationException($"Video {id} ist nicht in der Bibliothek.");
+            SavePlayback(id, 0, watched);
+        }
+    });
 
     // --- Untertitel-Anpassung --------------------------------------------------------------------------------
 

@@ -108,11 +108,14 @@ public partial class MainWindow
         _overlay.SubtitleRemoveRequested += RemoveSubtitle;
         _overlay.NextClicked += () => _ = PlayNextAsync();
         _overlay.EpisodeChosen += videoId => _ = PlayEpisodeAsync(videoId);
+        _overlay.ChapterChosen += start => _ = SeekAsync(start, relative: false);
+        _overlay.IntroSkipClicked += () => _ = SkipIntroAsync();
         _overlay.NextCancelled += () => CancelNextCountdown(declined: true);
         _nextTimer.Tick += (_, _) => OnNextTick();
         _overlay.KeyPressed += e => OnPlayerKey(e);
         _overlay.Activity += () => _lastActivity = DateTime.UtcNow;
         InitCast();
+        InitSubtitleSearch();
 
         LocationChanged += (_, _) => UpdateOverlay();
         SizeChanged += (_, _) => UpdateOverlay();
@@ -231,8 +234,13 @@ public partial class MainWindow
             _position = start;
             _duration = video.DurationSeconds ?? 0;
             _eof = false;
-            _overlay.SetTitle(TitleOf(video));
+            if (video.Season is { } titleSeason && video.Episode is { } titleEpisode)
+                _overlay.SetTitle(video.TitleName ?? video.ParsedTitle, $"Staffel {titleSeason} · Folge {titleEpisode}");
+            else
+                _overlay.SetTitle(TitleOf(video), video.Year?.ToString());
             _overlay.SetTracks(Array.Empty<TrackInfo>());
+            _chapters = Array.Empty<Chapter>();
+            _overlay.SetChapters(_chapters);
 
             CancelNextCountdown(declined: false);
             _nextDeclined = false;
@@ -316,7 +324,7 @@ public partial class MainWindow
         foreach (var property in new[]
         {
             "time-pos", "duration", "pause", "eof-reached", "volume", "mute", "track-list",
-            "video-params", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps",
+            "video-params", "hwdec-current", "frame-drop-count", "decoder-frame-drop-count", "estimated-vf-fps", "chapter-list",
         })
         {
             await mpv.ObserveAsync(property);
@@ -413,8 +421,12 @@ public partial class MainWindow
         if (_casting) return; // mpv ruht: seine letzten Meldungen (leere Spurliste, Zeit null) dürfen die Anzeige des Fernsehers nicht überschreiben
         switch (name)
         {
-            case "time-pos" or "duration" or "eof-reached" or "track-list" when _switching:
+            case "time-pos" or "duration" or "eof-reached" or "track-list" or "chapter-list" when _switching:
                 break; // gehört noch zur vorigen Datei
+            case "chapter-list":
+                _chapters = data is { ValueKind: JsonValueKind.Array } list ? ParseChapters(list) : Array.Empty<Chapter>();
+                _overlay.SetChapters(_chapters);
+                break;
             case "time-pos" when data is { ValueKind: JsonValueKind.Number } v:
                 _position = v.GetDouble();
                 _overlay.SetPosition(_position);
@@ -463,6 +475,48 @@ public partial class MainWindow
                     $"hw: {Stat("hwdec-current")} · Drops Anzeige/Decoder: {Stat("frame-drop-count")}/{Stat("decoder-frame-drop-count")} · fps: {Stat("estimated-vf-fps")}");
                 break;
         }
+    }
+
+    // --- Kapitel und Intro -----------------------------------------------------------------------------------
+
+    private IReadOnlyList<Chapter> _chapters = Array.Empty<Chapter>();
+
+    private IReadOnlyList<Chapter> ParseChapters(JsonElement array)
+    {
+        try
+        {
+            return ChapterList.Parse(array);
+        }
+        catch (JsonException ex)
+        {
+            PlayerNotice($"Die Kapitel der Datei lassen sich nicht lesen: {ex.Message}", isError: true);
+            return Array.Empty<Chapter>();
+        }
+    }
+
+    /// <summary>Springt ans Ende des Vorspann-Kapitels, solange man darin ist; sonst 85 Sekunden vor.</summary>
+    private async Task SkipIntroAsync()
+    {
+        if (_overlay.IntroRange is { } intro && _position >= intro.Start - 1 && _position < intro.End - 1)
+        {
+            await SeekAsync(intro.End, relative: false);
+            _overlay.ShowNotice("Intro übersprungen", isError: false);
+            return;
+        }
+        await SeekAsync(ChapterList.DefaultIntroSkipSeconds, relative: true);
+        _overlay.ShowNotice($"{ChapterList.DefaultIntroSkipSeconds:0} Sekunden vor", isError: false);
+    }
+
+    private async Task StepChapterAsync(int direction)
+    {
+        if (_casting || _chapters.Count < 2) return;
+        var target = direction > 0 ? ChapterList.NextStart(_chapters, _position) : ChapterList.PreviousStart(_chapters, _position);
+        if (target is null)
+        {
+            _overlay.ShowNotice(direction > 0 ? "Das ist das letzte Kapitel." : "Kein voriges Kapitel.", isError: false);
+            return;
+        }
+        await SeekAsync(target.Value, relative: false);
     }
 
     private string Stat(string key) => _stats.TryGetValue(key, out var value) ? value : "–";
@@ -837,6 +891,9 @@ public partial class MainWindow
             case Key.M: _ = ToggleMuteAsync(); break;
             case Key.I: _overlay.ToggleStats(); break;
             case Key.N when _nextVideo is not null: _ = PlayNextAsync(); break;
+            case Key.S: _ = SkipIntroAsync(); break;
+            case Key.PageUp: _ = StepChapterAsync(-1); break;
+            case Key.PageDown: _ = StepChapterAsync(1); break;
             case Key.Z: _overlay.NudgeDelay(-0.1); break; // Untertitel früher
             case Key.X: _overlay.NudgeDelay(0.1); break;  // Untertitel später
             default: return;

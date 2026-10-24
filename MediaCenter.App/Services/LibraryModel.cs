@@ -53,6 +53,9 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     public IReadOnlyDictionary<long, List<string>> Genres { get; private set; } = new Dictionary<long, List<string>>();
 
+    /// <summary>Infotexte aus dem Internet (oder selbst geschrieben) je Titel-Id; Titel ohne Infotexte fehlen.</summary>
+    public IReadOnlyDictionary<long, TitleInfoRow> Infos { get; private set; } = new Dictionary<long, TitleInfoRow>();
+
     public IReadOnlyList<ContinueItem> Continue { get; private set; } = Array.Empty<ContinueItem>();
 
     /// <summary>Ids der Titel auf „Meine Liste“, der zuletzt vorgemerkte zuerst.</summary>
@@ -60,6 +63,23 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     /// <summary>Ein Titel kam auf „Meine Liste“ oder wurde heruntergenommen (<see cref="SetOnWatchlist"/>); Seiten mit der Liste bauen sich neu auf.</summary>
     public event Action? WatchlistChanged;
+
+    /// <summary>Sammlungen (Filmreihen) nach Name.</summary>
+    public IReadOnlyList<CollectionRow> Collections { get; private set; } = Array.Empty<CollectionRow>();
+
+    /// <summary>Film-Ids je Sammlungs-Id, nach Jahr geordnet; leere Sammlungen fehlen.</summary>
+    public IReadOnlyDictionary<long, List<long>> CollectionItems { get; private set; } = new Dictionary<long, List<long>>();
+
+    /// <summary>Liest nur die Sammlungen neu (nach einer Änderung); die übrige Momentaufnahme bleibt.</summary>
+    public void ReloadCollections()
+    {
+        Collections = db.ListCollections();
+        CollectionItems = db.ListCollectionItems();
+    }
+
+    /// <summary>Die Sammlungen, in denen ein Film steht.</summary>
+    public IEnumerable<CollectionRow> CollectionsOf(long titleId) =>
+        Collections.Where(c => CollectionItems.TryGetValue(c.Id, out var ids) && ids.Contains(titleId));
 
     public IReadOnlyList<VideoRow> Inbox { get; private set; } = Array.Empty<VideoRow>();
 
@@ -87,8 +107,10 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Volumes = library.RefreshVolumes();
         Titles = db.GetTitles();
         Genres = db.GetAllTitleGenres();
+        Infos = db.ListTitleInfos();
         Continue = db.GetContinueWatching();
         Watchlist = db.GetWatchlist();
+        ReloadCollections();
 
         var videos = db.ListVideos();
         Inbox = videos.Where(v => v.IsInbox).ToList();
@@ -136,6 +158,27 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     public bool IsOnWatchlist(long titleId) => Watchlist.Contains(titleId);
 
+    /// <summary>Wie weit jeder Titel gesehen ist; liest den Fortschritt frisch aus der Datenbank (er ändert sich beim Abspielen).</summary>
+    public Dictionary<long, WatchState> WatchStatesByTitle()
+    {
+        var playback = db.GetAllPlayback();
+        return Titles.ToDictionary(t => t.Id, t => WatchStates.Of(VideosOf(t.Id), playback));
+    }
+
+    public WatchState WatchStateOf(long titleId) => WatchStates.Of(VideosOf(titleId), db.GetAllPlayback());
+
+    /// <summary>Wertung je Titel-Id für die Sortierung; Titel ohne Wertung fehlen.</summary>
+    public Dictionary<long, double> Ratings() =>
+        Infos.Values.Where(i => i.Rating is not null).ToDictionary(i => i.TitleId, i => i.Rating!.Value);
+
+    /// <summary>Größte Bildhöhe je Titel-Id für die Sortierung; Titel ohne bekannte Höhe fehlen.</summary>
+    public Dictionary<long, int> Heights() =>
+        VideosByTitle.Select(p => (p.Key, Height: p.Value.Max(v => v.Height))).Where(x => x.Height is not null).ToDictionary(x => x.Key, x => x.Height!.Value);
+
+    /// <summary>Besetzung je Titel-Id für die Suche nach Schauspielern.</summary>
+    public Dictionary<long, string> Casts() =>
+        Infos.Values.Where(i => !string.IsNullOrWhiteSpace(i.Cast)).ToDictionary(i => i.TitleId, i => i.Cast!);
+
     /// <summary>Setzt einen Titel auf „Meine Liste“ oder nimmt ihn herunter und meldet es; die übrige Momentaufnahme bleibt.</summary>
     public void SetOnWatchlist(long titleId, bool on)
     {
@@ -159,11 +202,12 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
     public bool IsOnline(AlbumInfo album) => album.Tracks.Any(t => PathOf(t) is not null);
 
     /// <summary>Karte für ein Album (quadratisch).</summary>
-    public CardItem ToCard(AlbumInfo album) => new()
+    /// <param name="meta">Zeile unter dem Titel; null zeigt Künstler und Jahr.</param>
+    public CardItem ToCard(AlbumInfo album, string? meta = null) => new()
     {
         TitleId = 0,
         Title = album.Title,
-        Meta = $"{album.Artist}" + (album.Year is { } year ? $" · {year}" : ""),
+        Meta = meta ?? $"{album.Artist}" + (album.Year is { } year ? $" · {year}" : ""),
         Kind = TitleKind.Movie,
         Image = AlbumArtPath(album.Key) is { } path ? ImageCache.Load(path, 360) : null,
         Offline = !IsOnline(album),
@@ -214,14 +258,15 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         return $"{seasonText}{videos.Count} {(videos.Count == 1 ? "Folge" : "Folgen")}";
     }
 
-    public CardItem ToCard(TitleRow title, double progress = 0)
+    /// <param name="meta">Zeile unter dem Titel; null zeigt die Angaben zum Titel (Jahr, Länge, Staffeln).</param>
+    public CardItem ToCard(TitleRow title, double progress = 0, string? meta = null)
     {
         var cover = BestCover(title.Id);
         return new CardItem
         {
             TitleId = title.Id,
             Title = title.Name,
-            Meta = MetaOf(title),
+            Meta = meta ?? MetaOf(title),
             Kind = title.Kind,
             Image = cover is { } c ? ImageCache.Load(c.Path, 360) : null,
             Progress = progress,

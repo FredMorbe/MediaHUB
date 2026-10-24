@@ -138,6 +138,7 @@ public partial class PlayerOverlay
         CloseMenu();
         AdjustPanel.Visibility = Visibility.Collapsed;
         TranslatePanel.Visibility = Visibility.Collapsed;
+        SearchPanel.Visibility = Visibility.Collapsed;
         ColorPanel.Visibility = Visibility.Collapsed;
         PicturePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (show) FitPictureScroll();
