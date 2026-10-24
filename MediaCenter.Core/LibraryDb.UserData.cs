@@ -41,8 +41,10 @@ public sealed partial class LibraryDb
         Run("UPDATE title_keys SET title_id = $into WHERE title_id = $from", ("$into", intoId), ("$from", fromId));
         Run("INSERT OR IGNORE INTO title_genres (title_id, genre_id) SELECT $into, genre_id FROM title_genres WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
-        Run("INSERT OR IGNORE INTO watchlist (title_id, added_utc) SELECT $into, added_utc FROM watchlist WHERE title_id = $from",
+        // Die Einträge aller Profile wandern mit.
+        Run("INSERT OR IGNORE INTO watchlist (profile_id, title_id, added_utc) SELECT profile_id, $into, added_utc FROM watchlist WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
+        Run("INSERT OR IGNORE INTO kids_titles (title_id) SELECT $into FROM kids_titles WHERE title_id = $from", ("$into", intoId), ("$from", fromId));
         Run("INSERT OR IGNORE INTO collection_titles (collection_id, title_id, added_utc) SELECT collection_id, $into, added_utc FROM collection_titles WHERE title_id = $from",
             ("$into", intoId), ("$from", fromId));
         Run("DELETE FROM titles WHERE id = $from", ("$from", fromId));
@@ -97,14 +99,14 @@ public sealed partial class LibraryDb
     // --- Fortschritt ---------------------------------------------------------------------------------------
 
     public void SavePlayback(long videoId, double positionSeconds, bool watched) => Run("""
-        INSERT INTO playback (video_id, position_sec, watched, updated_utc) VALUES ($id, $pos, $watched, $now)
-        ON CONFLICT (video_id) DO UPDATE SET position_sec = excluded.position_sec, watched = excluded.watched, updated_utc = excluded.updated_utc
+        INSERT INTO playback (profile_id, video_id, position_sec, watched, updated_utc) VALUES ($profile, $id, $pos, $watched, $now)
+        ON CONFLICT (profile_id, video_id) DO UPDATE SET position_sec = excluded.position_sec, watched = excluded.watched, updated_utc = excluded.updated_utc
         """,
-        ("$id", videoId), ("$pos", positionSeconds), ("$watched", watched ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
+        ("$profile", ActiveProfileId), ("$id", videoId), ("$pos", positionSeconds), ("$watched", watched ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
 
     public PlaybackState? GetPlayback(long videoId)
     {
-        using var cmd = Command("SELECT position_sec, watched, updated_utc FROM playback WHERE video_id = $id", ("$id", videoId));
+        using var cmd = Command("SELECT position_sec, watched, updated_utc FROM playback WHERE video_id = $id AND profile_id = $profile", ("$id", videoId), ("$profile", ActiveProfileId));
         using var r = cmd.ExecuteReader();
         return r.Read() ? new PlaybackState(r.GetDouble(0), r.GetInt32(1) == 1, r.GetString(2)) : null;
     }
@@ -113,7 +115,7 @@ public sealed partial class LibraryDb
     public Dictionary<long, PlaybackState> GetAllPlayback()
     {
         var result = new Dictionary<long, PlaybackState>();
-        using var cmd = Command("SELECT video_id, position_sec, watched, updated_utc FROM playback");
+        using var cmd = Command("SELECT video_id, position_sec, watched, updated_utc FROM playback WHERE profile_id = $profile", ("$profile", ActiveProfileId));
         using var r = cmd.ExecuteReader();
         while (r.Read()) result[r.GetInt64(0)] = new PlaybackState(r.GetDouble(1), r.GetInt32(2) == 1, r.GetString(3));
         return result;
@@ -208,9 +210,9 @@ public sealed partial class LibraryDb
             FROM playback p
             JOIN videos v ON v.id = p.video_id
             JOIN files f ON f.id = v.file_id
-            WHERE p.watched = 0 AND p.position_sec > 0 AND v.title_id IS NOT NULL AND f.missing = 0
+            WHERE p.profile_id = $profile AND p.watched = 0 AND p.position_sec > 0 AND v.title_id IS NOT NULL AND f.missing = 0
             ORDER BY p.updated_utc DESC
-            """);
+            """, ("$profile", ActiveProfileId));
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {

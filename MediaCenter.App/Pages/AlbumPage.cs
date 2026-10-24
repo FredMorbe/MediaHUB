@@ -81,10 +81,24 @@ public sealed class AlbumPage : UserControl
         rename.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(rename, "Album bearbeiten");
         rename.Click += (_, _) => MusicRenamePage.ShowAlbum(_shell, _album.Key);
+        var queue = new Button { Content = "\uE8FD", Margin = new Thickness(8, 0, 0, 0), ToolTip = "Warteschlange: als Nächstes spielen oder anhängen" };
+        queue.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(queue, "Album in die Warteschlange");
+        queue.Click += (_, _) => MediaCenter.App.Controls.ContextPopup.Show(queue, new (string, Action)[]
+        {
+            ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, _album.Tracks, next: true)),
+            ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, _album.Tracks, next: false)),
+        });
+        var tags = new Button { Content = "\uE8EC", Margin = new Thickness(8, 0, 0, 0), ToolTip = "Tags in den Dateien ändern (Album, Künstler, Jahr, Genre)" };
+        tags.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(tags, "Album-Tags in den Dateien ändern");
+        tags.Click += (_, _) => TagEditorPage.ShowAlbum(_shell, _album.Key);
         buttons.Children.Add(play);
         buttons.Children.Add(shuffle);
+        buttons.Children.Add(queue);
         buttons.Children.Add(toPlaylist);
         buttons.Children.Add(rename);
+        buttons.Children.Add(tags);
 
         var info = new StackPanel { Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta } };
         var header = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -141,8 +155,11 @@ public sealed class AlbumPage : UserControl
             row = PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
                 menu: () => new (string, Action)[]
                 {
+                    ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: true)),
+                    ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)),
                     ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
                     ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
+                    ("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)),
                 });
             _list.Children.Add(row);
         }

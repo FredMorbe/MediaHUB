@@ -66,7 +66,7 @@ public sealed class ModalHost : Grid
         };
         Children.Add(_scrim);
 
-        _panel.CornerRadius = new CornerRadius(22);
+        _panel.CornerRadius = new CornerRadius(28);
         _panel.BorderThickness = new Thickness(1);
         _panel.HorizontalAlignment = HorizontalAlignment.Center;
         _panel.VerticalAlignment = VerticalAlignment.Center;
@@ -116,7 +116,7 @@ public sealed class ModalHost : Grid
         layout.Children.Add(rule);
         layout.Children.Add(_body);
         // Der Inhalt endet an den runden Ecken des Panels (ein Rahmen beschneidet seinen Inhalt nicht selbst).
-        layout.SizeChanged += (_, _) => layout.Clip = new RectangleGeometry(new Rect(0, 0, layout.ActualWidth, layout.ActualHeight), 21, 21);
+        layout.SizeChanged += (_, _) => layout.Clip = new RectangleGeometry(new Rect(0, 0, layout.ActualWidth, layout.ActualHeight), 27, 27);
         _panel.Child = layout;
         Children.Add(_panel);
 

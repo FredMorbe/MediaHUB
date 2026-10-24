@@ -135,18 +135,18 @@ public sealed partial class LibraryDb
     }
 
     public void SaveEpisodeProgress(long episodeId, double positionSeconds, bool played) => Run("""
-        INSERT INTO podcast_progress (episode_id, position_sec, played, updated_utc) VALUES ($id, $pos, $played, $now)
-        ON CONFLICT (episode_id) DO UPDATE SET position_sec = excluded.position_sec, played = excluded.played, updated_utc = excluded.updated_utc
+        INSERT INTO podcast_progress (profile_id, episode_id, position_sec, played, updated_utc) VALUES ($profile, $id, $pos, $played, $now)
+        ON CONFLICT (profile_id, episode_id) DO UPDATE SET position_sec = excluded.position_sec, played = excluded.played, updated_utc = excluded.updated_utc
         """,
-        ("$id", episodeId), ("$pos", positionSeconds), ("$played", played ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
+        ("$profile", ActiveProfileId), ("$id", episodeId), ("$pos", positionSeconds), ("$played", played ? 1 : 0), ("$now", Utc(DateTime.UtcNow)));
 
     public Dictionary<long, EpisodeProgress> GetEpisodeProgress(long podcastId)
     {
         var map = new Dictionary<long, EpisodeProgress>();
         using var cmd = Command("""
             SELECT p.episode_id, p.position_sec, p.played
-            FROM podcast_progress p JOIN podcast_episodes e ON e.id = p.episode_id WHERE e.podcast_id = $p
-            """, ("$p", podcastId));
+            FROM podcast_progress p JOIN podcast_episodes e ON e.id = p.episode_id WHERE e.podcast_id = $p AND p.profile_id = $profile
+            """, ("$p", podcastId), ("$profile", ActiveProfileId));
         using var r = cmd.ExecuteReader();
         while (r.Read()) map[r.GetInt64(0)] = new EpisodeProgress(r.GetDouble(1), r.GetInt32(2) == 1);
         return map;

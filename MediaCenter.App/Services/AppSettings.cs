@@ -49,6 +49,15 @@ public sealed class AppSettings
     /// <summary>Lautstärke von Musik, Radio und Podcasts (0 bis 100).</summary>
     public double AudioVolume { get; set; } = 80;
 
+    /// <summary>Zuletzt benutztes Profil (Id); die App öffnet beim nächsten Start dieses.</summary>
+    public long LastProfileId { get; set; } = LibraryDb.DefaultProfileId;
+
+    /// <summary>Beim Start „Wer schaut?“ zeigen, sobald es mehr als ein Profil gibt (hat das letzte Profil eine PIN, fragt die App immer).</summary>
+    public bool AskProfileAtStart { get; set; } = true;
+
+    /// <summary>Länge der Überblendung zwischen zwei Musiktiteln in Sekunden (<see cref="Crossfade.Options"/>); 0 = aus (lückenlos ohne Überblendung).</summary>
+    public int AudioCrossfadeSeconds { get; set; }
+
     /// <summary>Bevorzugte Tonsprache (Schlüssel aus <see cref="Languages.All"/>); null nimmt die Spur, die die Datei vorgibt.</summary>
     public string? AudioLanguage { get; set; } = "de";
 
@@ -56,6 +65,9 @@ public sealed class AppSettings
     public SubtitleMode Subtitles { get; set; } = SubtitleMode.Foreign;
 
     public string SubtitleLanguage { get; set; } = "de";
+
+    /// <summary>Schrift, Größe, Farben und Hintergrund der Untertitel; gilt für alle Videos (Einstellungen → Wiedergabe oder Anpassen-Fenster im Player).</summary>
+    public SubtitleStyle SubtitleStyle { get; set; } = SubtitleStyle.Default;
 
     /// <summary>Nach einer Folge die nächste der Serie automatisch starten (mit Countdown).</summary>
     public bool AutoPlayNext { get; set; } = true;
@@ -120,6 +132,8 @@ public sealed class AppSettings
                 ?? throw new InvalidDataException("Datei ist leer.");
             _ = settings.Playback; // prüft die Sprachschlüssel
             _ = settings.OllamaUri;
+            settings.SubtitleStyle.Validated();
+            Crossfade.Validated(settings.AudioCrossfadeSeconds);
             Equalizer.Validated(settings.EqualizerGains);
             if (settings.GpuMode is not (GpuAuto or GpuOn or GpuOff))
                 throw new ArgumentException($"GpuMode „{settings.GpuMode}“ ist unbekannt (auto, on oder off).");

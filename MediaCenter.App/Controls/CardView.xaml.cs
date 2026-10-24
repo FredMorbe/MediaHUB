@@ -44,7 +44,7 @@ public partial class CardView : UserControl
         ToolTip = item.Title;
 
         // Der Rahmen schneidet seinen Inhalt nicht rund zu (anders als einen Hintergrund), also schneidet die Karte selbst.
-        PosterContent.SizeChanged += (_, e) => PosterContent.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 10.5, 10.5);
+        PosterContent.SizeChanged += (_, e) => PosterContent.Clip = new RectangleGeometry(new Rect(0, 0, e.NewSize.Width, e.NewSize.Height), 18.5, 18.5);
 
         if (item.Image is { } image)
         {

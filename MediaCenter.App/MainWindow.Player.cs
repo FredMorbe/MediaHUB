@@ -79,6 +79,7 @@ public partial class MainWindow
             _ = _mpv?.CommandAsync("set", type == "audio" ? "aid" : "sid", id < 0 ? "no" : id.ToString(CultureInfo.InvariantCulture));
         };
         _overlay.AdjustmentChanged += OnAdjustmentChanged;
+        _overlay.SubtitleStyleChanged += OnSubtitleStyleChanged;
         _overlay.PictureChanged += picture => _ = ApplyPictureAsync(picture);
         _overlay.ColorChanged += OnColorChanged;
         _overlay.LutImportRequested += PickLutFiles;
@@ -278,6 +279,7 @@ public partial class MainWindow
             _overlay.SetAdjustment(_adjustment);
             _overlay.SetCanEmbed(MkvSubtitleEmbedder.CanEmbedInto(path));
             await ApplyAdjustmentAsync(_adjustment);
+            await ApplySubtitleStyleAsync(Services.Settings.SubtitleStyle);
             await ResetPictureAsync();
             await LoadColorAsync(video);
             await _mpv.CommandAsync("loadfile", path, "replace", -1, $"start={start.ToString("0.###", CultureInfo.InvariantCulture)}");
@@ -650,6 +652,21 @@ public partial class MainWindow
         await _mpv.CommandAsync("set", "sub-delay", adjustment.DelaySeconds.ToString("0.###", CultureInfo.InvariantCulture));
         await _mpv.CommandAsync("set", "sub-scale", adjustment.Scale.ToString("0.###", CultureInfo.InvariantCulture));
         await _mpv.CommandAsync("set", "sub-pos", adjustment.Position.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Setzt das globale Aussehen der Untertitel (Schrift, Farben, Hintergrund) in mpv.</summary>
+    private async Task ApplySubtitleStyleAsync(SubtitleStyle style)
+    {
+        if (_mpv is null) return;
+
+        foreach (var (name, value) in style.ToMpvProperties()) await _mpv.CommandAsync("set", name, value);
+    }
+
+    private void OnSubtitleStyleChanged(SubtitleStyle style)
+    {
+        Services.Settings.SubtitleStyle = style;
+        Services.Settings.Save();
+        _ = ApplySubtitleStyleAsync(style);
     }
 
     private void FlushAdjustment()

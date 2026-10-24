@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 17;
+    private const int SchemaVersion = 19;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 18))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -400,6 +400,67 @@ public sealed partial class LibraryDb : IDisposable
                 );
                 CREATE INDEX collection_titles_title ON collection_titles(title_id);
                 """);
+            // Schema 18: Fingerabdruck der Datei (abgeleitete Daten). Der Scan holt ihn für vorhandene Dateien nach; damit findet er
+            // verschobene Dateien wieder und behält ihre Nutzerdaten.
+            if (version < 18) Run("""
+                ALTER TABLE files ADD COLUMN fingerprint TEXT;
+                CREATE INDEX files_fingerprint ON files(fingerprint);
+                """);
+            // Schema 19: Profile. Fortschritt, Merkliste und Podcast-Fortschritt gehören jetzt je einem Profil; alle bisherigen Daten dem ersten
+            // („Ich“). Die Tabellen werden neu aufgebaut, weil sich ihr Primärschlüssel ändert. kids_titles: für Kinderprofile freigegebene Titel.
+            if (version < 19) Run("""
+                CREATE TABLE profiles (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    color TEXT NOT NULL,
+                    kids INTEGER NOT NULL DEFAULT 0,
+                    pin_salt TEXT,
+                    pin_hash TEXT,
+                    created_utc TEXT NOT NULL
+                );
+                INSERT INTO profiles (id, name, color, kids, created_utc) VALUES (1, 'Ich', '#2EC4D6', 0, $now);
+
+                CREATE TABLE kids_titles (
+                    title_id INTEGER PRIMARY KEY REFERENCES titles(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE playback_new (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+                    position_sec REAL NOT NULL,
+                    watched INTEGER NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (profile_id, video_id)
+                );
+                INSERT INTO playback_new SELECT 1, video_id, position_sec, watched, updated_utc FROM playback;
+                DROP TABLE playback;
+                ALTER TABLE playback_new RENAME TO playback;
+                CREATE INDEX playback_video ON playback(video_id);
+
+                CREATE TABLE watchlist_new (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+                    added_utc TEXT NOT NULL,
+                    PRIMARY KEY (profile_id, title_id)
+                );
+                INSERT INTO watchlist_new SELECT 1, title_id, added_utc FROM watchlist;
+                DROP TABLE watchlist;
+                ALTER TABLE watchlist_new RENAME TO watchlist;
+                CREATE INDEX watchlist_title ON watchlist(title_id);
+
+                CREATE TABLE podcast_progress_new (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    episode_id INTEGER NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+                    position_sec REAL NOT NULL,
+                    played INTEGER NOT NULL,
+                    updated_utc TEXT NOT NULL,
+                    PRIMARY KEY (profile_id, episode_id)
+                );
+                INSERT INTO podcast_progress_new SELECT 1, episode_id, position_sec, played, updated_utc FROM podcast_progress;
+                DROP TABLE podcast_progress;
+                ALTER TABLE podcast_progress_new RENAME TO podcast_progress;
+                CREATE INDEX podcast_progress_episode ON podcast_progress(episode_id);
+                """, ("$now", Utc(DateTime.UtcNow)));
             Run($"PRAGMA user_version = {SchemaVersion};");
         });
     }

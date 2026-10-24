@@ -49,6 +49,23 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     public VolumeStatus Volumes { get; private set; } = new(new Dictionary<long, VolumeInfo>(), Array.Empty<UnresolvedVolume>());
 
+    /// <summary>Das aktive Profil beim letzten <see cref="Reload"/>. Ein Kinderprofil sieht nur freigegebene Titel und keine Musik, Sender oder Podcasts.</summary>
+    public ProfileRow Profile { get; private set; } = new(LibraryDb.DefaultProfileId, "Ich", "#2EC4D6", false, false);
+
+    /// <summary>Titel-Ids, die für Kinderprofile freigegeben sind (für alle Profile gleich).</summary>
+    public IReadOnlySet<long> KidsTitleIds { get; private set; } = new HashSet<long>();
+
+    /// <summary>Gibt Titel für Kinderprofile frei oder nimmt die Freigabe zurück.</summary>
+    public void SetKidsTitles(IReadOnlyCollection<long> titleIds, bool on)
+    {
+        db.SetKidsTitles(titleIds, on);
+        KidsTitleIds = db.GetKidsTitleIds();
+    }
+
+    private HashSet<long>? _allowed; // null = alles sichtbar
+
+    private bool Allowed(long titleId) => _allowed is null || _allowed.Contains(titleId);
+
     public IReadOnlyList<TitleRow> Titles { get; private set; } = Array.Empty<TitleRow>();
 
     public IReadOnlyDictionary<long, List<string>> Genres { get; private set; } = new Dictionary<long, List<string>>();
@@ -75,6 +92,11 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
     {
         Collections = db.ListCollections();
         CollectionItems = db.ListCollectionItems();
+        if (_allowed is null) return;
+
+        // Im Kinderprofil nur freigegebene Filme; Sammlungen ohne einen solchen verschwinden.
+        CollectionItems = CollectionItems.ToDictionary(c => c.Key, c => c.Value.Where(Allowed).ToList()).Where(c => c.Value.Count > 0).ToDictionary(c => c.Key, c => c.Value);
+        Collections = Collections.Where(c => CollectionItems.ContainsKey(c.Id)).ToList();
     }
 
     /// <summary>Die Sammlungen, in denen ein Film steht.</summary>
@@ -105,27 +127,30 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
     public void Reload()
     {
         Volumes = library.RefreshVolumes();
-        Titles = db.GetTitles();
+        Profile = db.GetProfile(db.ActiveProfileId);
+        KidsTitleIds = db.GetKidsTitleIds();
+        _allowed = Profile.Kids ? KidsTitleIds.ToHashSet() : null;
+        Titles = db.GetTitles().Where(t => Allowed(t.Id)).ToList();
         Genres = db.GetAllTitleGenres();
         Infos = db.ListTitleInfos();
-        Continue = db.GetContinueWatching();
-        Watchlist = db.GetWatchlist();
+        Continue = db.GetContinueWatching().Where(c => Allowed(c.TitleId)).ToList();
+        Watchlist = db.GetWatchlist().Where(Allowed).ToList();
         ReloadCollections();
 
         var videos = db.ListVideos();
-        Inbox = videos.Where(v => v.IsInbox).ToList();
-        VideosByTitle = videos.Where(v => !v.IsInbox).GroupBy(v => v.TitleId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+        Inbox = Profile.Kids ? Array.Empty<VideoRow>() : videos.Where(v => v.IsInbox).ToList();
+        VideosByTitle = videos.Where(v => !v.IsInbox && Allowed(v.TitleId!.Value)).GroupBy(v => v.TitleId!.Value).ToDictionary(g => g.Key, g => g.ToList());
 
         _art = db.GetAllArtwork().ToDictionary(a => (a.Owner, a.OwnerId, a.Kind), a => Path.Combine(artwork.CacheDir, a.File));
 
         LoadMusic();
-        Stations = db.ListStations();
-        Podcasts = db.ListPodcasts();
+        Stations = Profile.Kids ? Array.Empty<SavedStation>() : db.ListStations();
+        Podcasts = Profile.Kids ? Array.Empty<PodcastInfo>() : db.ListPodcasts();
     }
 
     private void LoadMusic()
     {
-        Tracks = db.ListTracks();
+        Tracks = Profile.Kids ? Array.Empty<TrackRow>() : db.ListTracks();
         Albums = MusicIndex.BuildAlbums(Tracks);
         Artists = MusicIndex.BuildArtists(Albums);
         _albumArt = db.GetAllAlbumArt().ToDictionary(a => a.Key, a => Path.Combine(artwork.CacheDir, a.Value.File));

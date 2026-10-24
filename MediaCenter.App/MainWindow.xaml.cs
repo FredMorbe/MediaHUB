@@ -53,11 +53,16 @@ public partial class MainWindow : Window, IShell
         PreviewKeyDown += OnPreviewKeyDown;
         FullscreenNavButton.Click += (_, _) => ToggleFullscreen();
         SearchNavButton.Click += (_, _) => OpenSearch();
+        ProfileNavButton.Click += (_, _) => ProfilePickerPage.Show(this, startup: false);
+        Services.Profiles.Changed += OnProfileChanged;
+        Services.Profiles.Edited += ApplyProfile;
         Loaded += (_, _) =>
         {
             Services.Model.Reload();
+            ApplyProfile();
             UpdateInboxBadge();
             Navigate(Section.Home);
+            if (Services.Profiles.ShouldAskAtStart) ProfilePickerPage.Show(this, startup: true);
             if (Services.RestoredPreviousState is { } previous)
                 ShowMessage($"Sicherung wiederhergestellt. Der bisherige Stand liegt in {previous}.");
             if (Services.Settings.StartFullscreen) SetFullscreen(true);
@@ -77,7 +82,7 @@ public partial class MainWindow : Window, IShell
     /// <summary>Lässt unten Platz für die Audio-Leiste, damit sie keine Inhalte verdeckt.</summary>
     private void UpdateBottomInset()
     {
-        var inset = Mini.IsVisible ? 72 : 0;
+        var inset = Mini.IsVisible ? 88 : 0;
         PageHost.Margin = new Thickness(0, 0, 0, inset);
         Toasts.Margin = new Thickness(0, 0, 0, 26 + inset);
     }
@@ -144,8 +149,34 @@ public partial class MainWindow : Window, IShell
         _navButtons[Section.Inbox].Content = new Grid { Children = { new TextBlock { Text = InboxGlyph }, badge } };
     }
 
+    /// <summary>Was ein Kinderprofil öffnen darf: Start, Filme und Serien.</summary>
+    private static bool KidsAllowed(Section section) => section is Section.Home or Section.Movies or Section.Series;
+
+    private void OnProfileChanged()
+    {
+        _ = Services.Audio.StopAsync(); // die Musik des einen Profils läuft nicht im anderen weiter
+        Services.Model.Reload();
+        ApplyProfile();
+        Navigate(Section.Home);
+    }
+
+    /// <summary>Profil-Knopf (Farbkreis mit Anfangsbuchstaben) und, im Kinderprofil, nur die erlaubten Reiter.</summary>
+    private void ApplyProfile()
+    {
+        var profile = Services.Profiles.Current;
+        ProfileNavButton.Content = ProfileAvatar.Create(profile, 28);
+        ProfileNavButton.ToolTip = $"Profil: {profile.Name} (Klick zum Wechseln)";
+        System.Windows.Automation.AutomationProperties.SetName(ProfileNavButton, "Profil wechseln");
+        foreach (var (section, button) in _navButtons) button.Visibility = profile.Kids && !KidsAllowed(section) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     public void Navigate(Section section)
     {
+        if (Services.Profiles.Current.Kids && !KidsAllowed(section))
+        {
+            ShowMessage("Im Kinderprofil nicht verfügbar.", isError: true);
+            return;
+        }
         if (Modal.IsOpen) Modal.Close();
         _history.Clear();
         Show(new PageEntry(() => section switch

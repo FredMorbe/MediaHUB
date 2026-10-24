@@ -20,6 +20,9 @@ public sealed record Source(long Id, long VolumeId, SourceKind Kind, string RelP
 
 public sealed record KnownFile(long Id, long Size, string MtimeUtc, bool Missing);
 
+/// <summary>Wo eine bekannte Datei zuletzt lag.</summary>
+public sealed record FileLocation(long FileId, long VolumeId, string RelPath);
+
 /// <summary>Ein Video mit abgeleiteten (Parsed*) und wirksamen (Title*, Season, Episode) Werten.</summary>
 /// <remarks>TitleId == null bedeutet: Inbox, noch nicht zugeordnet.</remarks>
 public sealed record VideoRow(

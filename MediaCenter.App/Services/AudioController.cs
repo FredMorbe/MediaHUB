@@ -41,6 +41,16 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
     private bool _starting;
     private bool _failed;
 
+    // Überblenden: der zweite Player (_spare) steht bereit, bis der Titel ausklingt; beim Überblenden wird er zum Hauptplayer,
+    // der bisherige (_fading) blendet aus und wird danach selbst zum Ersatzplayer.
+    private readonly DispatcherTimer _fadeTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private MpvPlayer? _spare;
+    private MpvPlayer? _fading;
+    private bool _preparing;
+    private bool _crossfading;
+    private DateTime _fadeStartedUtc;
+    private int _fadeSeconds;
+
     public IReadOnlyList<QueueItem> Queue => _queue;
 
     /// <summary>Position des laufenden Eintrags in der gesamten Warteschlange, -1 ohne Wiedergabe.</summary>
@@ -80,6 +90,7 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
 
         SaveProgress();
         await EnsureStartedAsync();
+        await CancelCrossfadeAsync();
 
         _queue = items.ToList();
         _offset = startIndex;
@@ -161,8 +172,95 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
     {
         SaveProgress();
         _saveTimer.Stop();
+        await CancelCrossfadeAsync();
         if (_mpv is not null) await _mpv.CommandAsync("stop");
         Clear();
+    }
+
+    // --- Warteschlange bearbeiten --------------------------------------------------------------------------
+
+    /// <summary>
+    /// Hängt Titel an die Warteschlange an oder schiebt sie direkt hinter den laufenden Titel („Als Nächstes“). Läuft nichts oder läuft Radio
+    /// oder ein Podcast, beginnt stattdessen die Wiedergabe dieser Titel.
+    /// </summary>
+    public async Task EnqueueAsync(IReadOnlyList<QueueItem> items, bool next)
+    {
+        if (items.Count == 0) throw new ArgumentException("Es gibt nichts hinzuzufügen.", nameof(items));
+        foreach (var item in items)
+        {
+            if (item.Kind != QueueKind.Track) throw new ArgumentException("Nur Musiktitel lassen sich in die Warteschlange legen.", nameof(items));
+            Validate(item);
+        }
+
+        if (_mpv is null || Current is not { Kind: QueueKind.Track })
+        {
+            await PlayAsync(items);
+            return;
+        }
+
+        var at = next ? Index + 1 : _queue.Count;
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (next) await _mpv.CommandAsync("loadfile", items[i].Source, "insert-at", at + i - _offset);
+            else await _mpv.CommandAsync("loadfile", items[i].Source, "append");
+        }
+        Edit(queue => queue.InsertRange(at, items));
+    }
+
+    /// <summary>Nimmt einen noch nicht gespielten Titel aus der Warteschlange.</summary>
+    public async Task RemoveUpcomingAsync(int queueIndex)
+    {
+        RequireUpcoming(queueIndex);
+        await _mpv!.CommandAsync("playlist-remove", queueIndex - _offset);
+        Edit(queue => queue.RemoveAt(queueIndex));
+    }
+
+    /// <summary>Verschiebt einen noch nicht gespielten Titel um einen Platz (-1 früher, +1 später); der laufende Titel bleibt, wo er ist.</summary>
+    public async Task MoveUpcomingAsync(int queueIndex, int delta)
+    {
+        if (delta is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(delta), delta, "Ein Platz nach oben (-1) oder unten (+1).");
+        RequireUpcoming(queueIndex);
+        var target = queueIndex + delta;
+        if (target <= Index || target >= _queue.Count) return;
+
+        // mpv stellt den Eintrag vor den Eintrag mit dem Zielindex; nach unten also hinter den Nachbarn.
+        await _mpv!.CommandAsync("playlist-move", queueIndex - _offset, target - _offset + (delta > 0 ? 1 : 0));
+        Edit(queue => (queue[queueIndex], queue[target]) = (queue[target], queue[queueIndex]));
+    }
+
+    /// <summary>Leert, was nach dem laufenden Titel kommt; der laufende Titel spielt weiter.</summary>
+    public async Task ClearUpcomingAsync()
+    {
+        if (_mpv is null || !IsActive || Index + 1 >= _queue.Count) return;
+
+        var index = Index;
+        await _mpv.CommandAsync("playlist-clear"); // behält nur den laufenden Eintrag
+        _offset = index;
+        _mpvPosition = 0;
+        Edit(queue => queue.RemoveRange(index + 1, queue.Count - index - 1));
+    }
+
+    /// <summary>Springt zu einem Eintrag der Warteschlange (auch einem schon gespielten).</summary>
+    public async Task JumpToAsync(int queueIndex)
+    {
+        if (_mpv is null || queueIndex < 0 || queueIndex >= _queue.Count) throw new ArgumentOutOfRangeException(nameof(queueIndex));
+        if (queueIndex >= _offset) await _mpv.CommandAsync("playlist-play-index", queueIndex - _offset);
+        else await PlayAsync(_queue, queueIndex);
+    }
+
+    private void RequireUpcoming(int queueIndex)
+    {
+        if (_mpv is null || !IsActive) throw new InvalidOperationException("Es läuft keine Warteschlange.");
+        if (queueIndex <= Index || queueIndex >= _queue.Count) throw new ArgumentOutOfRangeException(nameof(queueIndex), queueIndex, "Nur Titel nach dem laufenden lassen sich ändern.");
+    }
+
+    /// <summary>Ändert die Warteschlange auf einer Kopie, damit Anzeigen am neuen Objekt erkennen, dass sich etwas geändert hat.</summary>
+    private void Edit(Action<List<QueueItem>> change)
+    {
+        var copy = new List<QueueItem>(_queue);
+        change(copy);
+        _queue = copy;
+        Changed?.Invoke();
     }
 
     private void Clear()
@@ -189,24 +287,30 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
             settings.AudioVolume = Volume;
             settings.Save();
         };
+        _fadeTimer.Tick += (_, _) => OnFadeTick();
 
-        var mpv = await MpvPlayer.StartAsync(mpvPath, null, "audio");
-        mpv.PropertyChanged += (name, data) => _dispatcher.BeginInvoke(() => OnProperty(name, data));
+        // Erst die gespeicherte Lautstärke setzen, dann beobachten (StartPlayerAsync): das erste volume-Ereignis (mpv-Standard 100)
+        // würde sonst Volume überschreiben, bevor der gespeicherte Wert gesendet ist.
+        _mpv = await StartPlayerAsync("audio", Volume);
+    }
+
+    /// <summary>Startet eine Audio-Instanz. Ereignisse zählen nur, solange sie der Hauptplayer ist; die anderen sind Ersatz oder blenden gerade aus.</summary>
+    private async Task<MpvPlayer> StartPlayerAsync(string name, double volume)
+    {
+        var mpv = await MpvPlayer.StartAsync(mpvPath, null, name);
+        mpv.PropertyChanged += (property, data) => _dispatcher.BeginInvoke(() =>
+        {
+            if (ReferenceEquals(mpv, _mpv)) OnProperty(property, data);
+        });
         mpv.CommandFailed += message => _dispatcher.BeginInvoke(() => Error?.Invoke($"mpv-Befehl fehlgeschlagen: {message}"));
         mpv.FileFailed += message => _dispatcher.BeginInvoke(() =>
         {
+            if (!ReferenceEquals(mpv, _mpv)) return;
             _failed = true; // der Abbruch danach ist kein "zu Ende gehört"
             Error?.Invoke($"Wiedergabe nicht möglich: {message}");
         });
-        mpv.Ended += reason => _dispatcher.BeginInvoke(() =>
-        {
-            _mpv = null;
-            Clear();
-            Error?.Invoke($"Der Audio-Player (mpv) wurde beendet: {reason}");
-        });
-        // Erst die gespeicherte Lautstärke setzen, dann beobachten: das erste volume-Ereignis (mpv-Standard 100)
-        // würde sonst Volume überschreiben, bevor der gespeicherte Wert gesendet ist.
-        await mpv.CommandAsync("set", "volume", Volume.ToString("0.#", CultureInfo.InvariantCulture));
+        mpv.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(mpv, reason));
+        await mpv.CommandAsync("set", "volume", volume.ToString("0.#", CultureInfo.InvariantCulture));
         await mpv.CommandAsync("set", "af", sound.Filter ?? "");
         sound.Changed -= OnSoundChanged; // mpv kann neu gestartet werden; nur einmal anmelden
         sound.Changed += OnSoundChanged;
@@ -214,13 +318,30 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
         {
             await mpv.ObserveAsync(property);
         }
-        _mpv = mpv;
+        return mpv;
+    }
+
+    private void OnEnded(MpvPlayer mpv, string reason)
+    {
+        if (ReferenceEquals(mpv, _spare)) _spare = null;
+        else if (ReferenceEquals(mpv, _fading)) _fading = null;
+        else if (ReferenceEquals(mpv, _mpv))
+        {
+            _mpv = null;
+            _fadeTimer.Stop();
+            _crossfading = false;
+            Clear();
+            Error?.Invoke($"Der Audio-Player (mpv) wurde beendet: {reason}");
+        }
     }
 
     /// <summary>Der Equalizer wurde verstellt: ein laufender Titel klingt sofort anders.</summary>
     private async void OnSoundChanged()
     {
-        if (_mpv is not null) await _mpv.CommandAsync("set", "af", sound.Filter ?? "");
+        foreach (var mpv in new[] { _mpv, _spare, _fading })
+        {
+            if (mpv is not null) await mpv.CommandAsync("set", "af", sound.Filter ?? "");
+        }
     }
 
     private void OnProperty(string name, JsonElement? data)
@@ -230,6 +351,7 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
             case "time-pos" when data is { ValueKind: JsonValueKind.Number } v:
                 Position = v.GetDouble();
                 Tick?.Invoke();
+                MaybeCrossfade();
                 break;
             case "duration" when data is { ValueKind: JsonValueKind.Number } v:
                 Duration = v.GetDouble();
@@ -238,13 +360,14 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
             case "pause" when data is { } v:
                 Paused = v.ValueKind == JsonValueKind.True;
                 if (Paused) SaveProgress();
+                if (_fading is not null) _ = _fading.CommandAsync("set", "pause", Paused ? "yes" : "no"); // der ausklingende Titel hält mit an
                 Changed?.Invoke();
                 break;
             case "mute" when data is { } v:
                 Muted = v.ValueKind == JsonValueKind.True;
                 Changed?.Invoke();
                 break;
-            case "volume" when data is { ValueKind: JsonValueKind.Number } v:
+            case "volume" when !_crossfading && data is { ValueKind: JsonValueKind.Number } v: // beim Überblenden setzt die App die Lautstärke selbst
                 Volume = v.GetDouble();
                 Changed?.Invoke();
                 break;
@@ -271,6 +394,128 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
         }
     }
 
+    // --- Überblenden ---------------------------------------------------------------------------------------
+
+    /// <summary>Wird bei jedem Zeitschritt des Hauptplayers gefragt: Ersatzplayer bereitstellen, dann den nächsten Titel einsetzen lassen.</summary>
+    private void MaybeCrossfade()
+    {
+        if (_crossfading || Paused || _mpv is null) return;
+        var seconds = settings.AudioCrossfadeSeconds;
+        if (seconds <= 0 || Current is not { Kind: QueueKind.Track } || Index + 1 >= _queue.Count || _queue[Index + 1].Kind != QueueKind.Track) return;
+
+        if (!Crossfade.ShouldPrepare(Position, Duration, seconds)) return;
+        if (_spare is null)
+        {
+            if (!_preparing) _ = PrepareSpareAsync();
+            return;
+        }
+
+        if (Crossfade.ShouldStart(Position, Duration, seconds)) _ = BeginCrossfadeAsync(seconds);
+    }
+
+    private async Task PrepareSpareAsync()
+    {
+        _preparing = true;
+        try
+        {
+            // Der Ersatzplayer ist stumm, bis er einsetzt.
+            _spare = await StartPlayerAsync("audio2", 0);
+        }
+        catch (Exception ex) when (ex is IOException or TimeoutException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            Error?.Invoke($"Überblenden nicht möglich, der zweite Player ließ sich nicht starten: {ex.Message}");
+            settings.AudioCrossfadeSeconds = 0; // sonst käme die Meldung bei jedem Titel wieder
+            settings.Save();
+        }
+        finally
+        {
+            _preparing = false;
+        }
+    }
+
+    private async Task BeginCrossfadeAsync(int seconds)
+    {
+        if (_crossfading || _spare is not { } incoming || _mpv is not { } outgoing) return;
+        _crossfading = true;
+        var startIndex = Index + 1;
+        try
+        {
+            _spare = null;
+            await incoming.CommandAsync("set", "volume", "0");
+            await incoming.CommandAsync("set", "mute", Muted ? "yes" : "no");
+            await incoming.CommandAsync("set", "pause", "no");
+            await incoming.CommandAsync("loadfile", _queue[startIndex].Source, "replace", -1, "start=0");
+            for (var i = startIndex + 1; i < _queue.Count; i++) await incoming.CommandAsync("loadfile", _queue[i].Source, "append");
+            await outgoing.CommandAsync("playlist-clear"); // der ausklingende Titel soll nicht von selbst weiterspringen
+
+            // Ab jetzt ist der einsetzende Titel „der laufende“.
+            _mpv = incoming;
+            _fading = outgoing;
+            _offset = startIndex;
+            _mpvPosition = -1;
+            _starting = true; // idle-active des Ersatzplayers bis zum ersten playlist-pos nicht als Ende werten
+            Position = 0;
+            Duration = _queue[startIndex].Duration ?? 0;
+            StreamTitle = null;
+            _fadeSeconds = seconds;
+            _fadeStartedUtc = DateTime.UtcNow;
+            _fadeTimer.Start();
+            Changed?.Invoke();
+        }
+        catch
+        {
+            _crossfading = false;
+            throw;
+        }
+    }
+
+    private void OnFadeTick()
+    {
+        if (_mpv is not { } incoming) return;
+
+        var progress = (DateTime.UtcNow - _fadeStartedUtc).TotalSeconds / _fadeSeconds;
+        var (outGain, inGain) = Crossfade.Gains(progress);
+        var volume = Volume;
+        _ = incoming.CommandAsync("set", "volume", (volume * inGain).ToString("0.#", CultureInfo.InvariantCulture));
+        if (_fading is { } outgoing) _ = outgoing.CommandAsync("set", "volume", (volume * outGain).ToString("0.#", CultureInfo.InvariantCulture));
+        if (progress < 1) return;
+
+        _ = FinishCrossfadeAsync();
+    }
+
+    private async Task FinishCrossfadeAsync()
+    {
+        _fadeTimer.Stop();
+        var outgoing = _fading;
+        _fading = null;
+        if (_mpv is { } incoming) await incoming.CommandAsync("set", "volume", Volume.ToString("0.#", CultureInfo.InvariantCulture));
+        _crossfading = false;
+        await ParkAsync(outgoing);
+    }
+
+    /// <summary>Bricht eine laufende Überblendung ab (neue Wiedergabe, Stopp): der ausklingende Titel verstummt, der Hauptplayer bekommt die volle Lautstärke zurück.</summary>
+    private async Task CancelCrossfadeAsync()
+    {
+        _fadeTimer.Stop();
+        var outgoing = _fading;
+        _fading = null;
+        if (!_crossfading && outgoing is null) return;
+
+        _crossfading = false;
+        if (_mpv is { } mpv) await mpv.CommandAsync("set", "volume", Volume.ToString("0.#", CultureInfo.InvariantCulture));
+        await ParkAsync(outgoing);
+    }
+
+    /// <summary>Der ausgeblendete Player wartet stumm als Ersatz auf den nächsten Übergang.</summary>
+    private async Task ParkAsync(MpvPlayer? player)
+    {
+        if (player is null) return;
+
+        await player.CommandAsync("stop");
+        await player.CommandAsync("set", "volume", "0");
+        _spare = player;
+    }
+
     /// <summary>Merkt bei Podcast-Folgen Position und Gehört-Status; Radio und Musik haben keinen Fortschritt.</summary>
     private void SaveProgress(bool finished = false)
     {
@@ -286,7 +531,10 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
         sound.Changed -= OnSoundChanged;
         _saveTimer.Stop();
         _volumeTimer.Stop();
+        _fadeTimer.Stop();
         SaveProgress();
+        _fading?.Dispose();
+        _spare?.Dispose();
         _mpv?.Dispose();
     }
 }

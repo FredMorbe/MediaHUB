@@ -85,7 +85,12 @@ public sealed class MpvPlayer : IDisposable
         }
         else
         {
-            args.AddRange(new[] { "--no-video", "--force-window=no", "--audio-display=no", "--network-timeout=15", "--audio-client-name=Mediacenter" });
+            args.AddRange(new[]
+            {
+                "--no-video", "--force-window=no", "--audio-display=no", "--network-timeout=15", "--audio-client-name=Mediacenter",
+                // Lückenlose Übergänge: der nächste Titel der Playlist wird schon geöffnet, das Audiogerät bleibt dazwischen offen.
+                "--gapless-audio=yes", "--prefetch-playlist=yes",
+            });
         }
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 

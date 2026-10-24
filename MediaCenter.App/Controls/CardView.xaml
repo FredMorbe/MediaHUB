@@ -22,7 +22,7 @@
             </Ellipse.Fill>
         </Ellipse>
 
-        <Border x:Name="Poster" Height="300" CornerRadius="12" BorderThickness="1.5" BorderBrush="{DynamicResource GlassEdgeBrush}"
+        <Border x:Name="Poster" Height="300" CornerRadius="20" BorderThickness="1.5" BorderBrush="{DynamicResource GlassEdgeBrush}"
                 Background="{DynamicResource CardBgBrush}" SnapsToDevicePixels="True">
             <Grid x:Name="PosterContent">
                 <!-- Das Poster behält seine Breite, wenn die Karte beim Überfahren zur Seite wächst; das Video legt sich darüber -->

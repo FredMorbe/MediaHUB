@@ -13,7 +13,7 @@ namespace MediaCenter.App.Pages;
 /// <summary>Einstellungen in Reitern; jeder Reiter fasst zusammen, was zusammengehört (Darstellung, Bibliothek, Wiedergabe …).</summary>
 public sealed class SettingsPage : UserControl
 {
-    private static readonly string[] Tabs = { "Darstellung", "Bibliothek", "Wiedergabe", "Übersetzung", "Tastenkürzel", "Über" };
+    private static readonly string[] Tabs = { "Darstellung", "Bibliothek", "Wiedergabe", "Profile", "Übersetzung", "Tastenkürzel", "Über" };
 
     /// <summary>Der zuletzt gewählte Reiter bleibt beim Wiederöffnen der Seite erhalten.</summary>
     private static string _lastTab = Tabs[0];
@@ -82,6 +82,7 @@ public sealed class SettingsPage : UserControl
             "Darstellung" => Appearance(),
             "Bibliothek" => LibraryTab(),
             "Wiedergabe" => PlaybackSettings(),
+            "Profile" => new ProfileSettingsPanel(_shell),
             "Übersetzung" => TranslationSettings(),
             "Tastenkürzel" => Hotkeys(),
             "Über" => About(),
@@ -356,6 +357,7 @@ public sealed class SettingsPage : UserControl
         }.Select(m => (m.Item1, settings.Subtitles == m.Item2, (Action)(() => settings.Subtitles = m.Item2)));
         var language = Offered(settings.SubtitleLanguage).Select(l => (l.Name, settings.SubtitleLanguage == l.Id, (Action)(() => settings.SubtitleLanguage = l.Id)));
         var autoplay = new[] { ("An", true), ("Aus", false) }.Select(a => (a.Item1, settings.AutoPlayNext == a.Item2, (Action)(() => settings.AutoPlayNext = a.Item2)));
+        var crossfade = Crossfade.Options.Select(sec => (sec == 0 ? "Aus" : $"{sec} s", settings.AudioCrossfadeSeconds == sec, (Action)(() => settings.AudioCrossfadeSeconds = sec)));
         var castHevc = new[] { ("Umwandeln", false), ("Direkt senden", true) }.Select(a => (a.Item1, settings.CastHevc == a.Item2, (Action)(() => settings.CastHevc = a.Item2)));
 
         var note = PageParts.Muted(
@@ -379,11 +381,193 @@ public sealed class SettingsPage : UserControl
                         Choice("HEVC beim Übertragen", castHevc))),
                 note,
                 PageParts.Group(
-                    PageParts.SettingRow("Untertitel aus dem Internet", SubtitleAccountNote(), SubtitleAccount(), stacked: true)),
+                    PageParts.SettingRow("OpenSubtitles: API-Schlüssel und Konto", SubtitleAccountNote(), SubtitleAccount(), stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Untertitel-Aussehen",
+                        "Schrift, Größe, Farben und Hintergrund für alle Videos; die Vorschau zeigt eine helle und eine dunkle Szene. Zeit, Maßstab und Höhe stellst du pro Video im Player ein (Knopf „Anpassen“).",
+                        SubtitleLook(), stacked: true)),
+                PageParts.Group(
+                    PageParts.SettingRow("Musik: Überblenden",
+                        "Der nächste Titel setzt ein, während der laufende ausklingt (Sinus-Überblendung, gleichbleibende Lautstärke). „Aus“ spielt lückenlos hintereinander. " +
+                        "Gilt ab dem nächsten Titel; Titel unter dem Dreifachen der Länge sowie Radio und Podcasts werden nicht überblendet. Dafür läuft kurz vor dem Übergang ein zweiter Player (mpv).",
+                        Choice("Überblenden", crossfade))),
                 PageParts.Group(
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },
         };
+    }
+
+    // --- Untertitel-Aussehen -------------------------------------------------------------------------------
+
+    private static readonly (string Name, string Hex)[] TextColors =
+    {
+        ("Weiß", "#FFFFFF"), ("Hellgrau", "#E6E6E6"), ("Gelb", "#FFE14D"), ("Orange", "#FFB347"), ("Grün", "#9BFF9B"), ("Cyan", "#7FE7FF"),
+    };
+
+    private static readonly (string Name, string Hex)[] OutlineColors =
+    {
+        ("Schwarz", "#000000"), ("Dunkelgrau", "#333333"), ("Dunkelblau", "#0A1F44"), ("Weiß", "#FFFFFF"),
+    };
+
+    private static readonly string[] OfferedFonts = { "Arial", "Segoe UI", "Verdana", "Georgia", "Consolas" };
+
+    private UIElement SubtitleLook()
+    {
+        var settings = _shell.Services.Settings;
+        var building = true; // Setzen von Reglern und Wahlfeldern beim Aufbau oder nach einer Vorlage ist keine Eingabe des Nutzers
+        var refreshers = new List<Action>();
+        var preview = new Controls.SubtitlePreview { HorizontalAlignment = HorizontalAlignment.Left };
+
+        var saveTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        saveTimer.Tick += (_, _) =>
+        {
+            saveTimer.Stop();
+            settings.Save();
+        };
+
+        void Set(SubtitleStyle style)
+        {
+            settings.SubtitleStyle = style.Validated();
+            preview.Look = settings.SubtitleStyle;
+            saveTimer.Stop();
+            saveTimer.Start();
+        }
+
+        void Show()
+        {
+            building = true;
+            preview.Look = settings.SubtitleStyle;
+            foreach (var refresh in refreshers) refresh();
+            building = false;
+        }
+
+        UIElement Pick<T>(string name, IEnumerable<(string Text, T Value, Brush? Swatch)> items, Func<SubtitleStyle, T> read, Func<SubtitleStyle, T, SubtitleStyle> write)
+        {
+            var row = new WrapPanel();
+            var chips = new List<RadioButton>();
+            foreach (var (text, value, swatch) in items)
+            {
+                UIElement content = new TextBlock { Text = text };
+                if (swatch is not null)
+                {
+                    var dot = new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(7), Background = swatch, BorderThickness = new Thickness(1), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
+                    dot.SetResourceReference(Border.BorderBrushProperty, "GlassEdgeBrush");
+                    content = new StackPanel { Orientation = Orientation.Horizontal, Children = { dot, new TextBlock { Text = text } } };
+                }
+                var chip = new RadioButton { Content = content, GroupName = "sub-look-" + name, Tag = value };
+                chip.SetResourceReference(StyleProperty, "Chip");
+                AutomationProperties.SetName(chip, $"{name} {text}");
+                chip.Checked += (_, _) =>
+                {
+                    if (!building) Set(write(settings.SubtitleStyle, value));
+                };
+                chips.Add(chip);
+                row.Children.Add(chip);
+            }
+            refreshers.Add(() =>
+            {
+                foreach (var chip in chips) chip.IsChecked = Equals(chip.Tag, read(settings.SubtitleStyle));
+            });
+            return row;
+        }
+
+        UIElement Slide(string name, double min, double max, double step, Func<SubtitleStyle, double> read, Func<SubtitleStyle, double, SubtitleStyle> write, Func<double, string> format)
+        {
+            var slider = new Slider
+            {
+                Minimum = min, Maximum = max, TickFrequency = step, IsSnapToTickEnabled = true, SmallChange = step, LargeChange = step * 5,
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0),
+            };
+            slider.SetResourceReference(StyleProperty, "SeekSlider");
+            AutomationProperties.SetName(slider, "Untertitel " + name);
+            var value = PageParts.Muted("", 13);
+            value.VerticalAlignment = VerticalAlignment.Center;
+            value.TextAlignment = TextAlignment.Right;
+            slider.ValueChanged += (_, e) =>
+            {
+                value.Text = format(e.NewValue);
+                if (!building) Set(write(settings.SubtitleStyle, e.NewValue));
+            };
+            refreshers.Add(() => slider.Value = read(settings.SubtitleStyle));
+
+            var label = PageParts.Muted(name, 13);
+            label.VerticalAlignment = VerticalAlignment.Center;
+            var grid = new Grid { Margin = new Thickness(0, 2, 0, 2), Width = 520, HorizontalAlignment = HorizontalAlignment.Left };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+            Grid.SetColumn(slider, 1);
+            Grid.SetColumn(value, 2);
+            grid.Children.Add(label);
+            grid.Children.Add(slider);
+            grid.Children.Add(value);
+            return grid;
+        }
+
+        Brush Swatch(string hex) => new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+
+        IEnumerable<(string, string, Brush?)> Colors((string Name, string Hex)[] offered, string current) =>
+            offered.Concat(offered.Any(c => c.Hex.Equals(current, StringComparison.OrdinalIgnoreCase)) ? Array.Empty<(string, string)>() : new[] { ("Eigene", current) })
+                .Select(c => (c.Item1, c.Item2.ToUpperInvariant(), (Brush?)Swatch(c.Item2)));
+
+        var fonts = new (string, string?, Brush?)[] { ("Standard", null, null) }
+            .Concat(OfferedFonts.Concat(settings.SubtitleStyle.Font is { } own && !OfferedFonts.Contains(own) ? new[] { own } : Array.Empty<string>())
+                .Select(f => (f, (string?)f, (Brush?)null)));
+
+        var presets = new WrapPanel { Margin = new Thickness(0, 14, 0, 6) };
+        foreach (var (name, style) in SubtitleStyle.Presets)
+        {
+            var preset = style;
+            var button = PageParts.Compact(PageParts.Button(name, "GhostButton", (_, _) =>
+            {
+                Set(preset);
+                Show();
+            }, new Thickness(0, 0, 8, 8)));
+            AutomationProperties.SetName(button, "Untertitel-Vorlage " + name);
+            presets.Children.Add(button);
+        }
+
+        TextBlock Label(string text)
+        {
+            var block = PageParts.Muted(text, 13);
+            block.Margin = new Thickness(0, 10, 0, 6);
+            return block;
+        }
+
+        var panel = new StackPanel
+        {
+            Children =
+            {
+                preview,
+                presets,
+                Slide("Größe", SubtitleStyle.MinFontSize, SubtitleStyle.MaxFontSize, 1, s => s.FontSize, (s, v) => s with { FontSize = v }, v => $"{v:0}"),
+                Slide("Rand", 0, SubtitleStyle.MaxOutlineSize, 0.1, s => s.OutlineSize, (s, v) => s with { OutlineSize = Math.Round(v, 1) }, v => $"{v:0.0}"),
+                Slide("Schatten", 0, SubtitleStyle.MaxShadowOffset, 0.5, s => s.ShadowOffset, (s, v) => s with { ShadowOffset = v }, v => $"{v:0.0}"),
+                Slide("Hintergrund", 0, 100, 5, s => s.BackgroundOpacity, (s, v) => s with { BackgroundOpacity = (int)v }, v => $"{v:0} %"),
+                Label("Schriftfarbe"),
+                Pick("Schriftfarbe", Colors(TextColors, settings.SubtitleStyle.TextColor), s => s.TextColor.ToUpperInvariant(), (s, v) => s with { TextColor = v }),
+                Label("Randfarbe"),
+                Pick("Randfarbe", Colors(OutlineColors, settings.SubtitleStyle.OutlineColor), s => s.OutlineColor.ToUpperInvariant(), (s, v) => s with { OutlineColor = v }),
+                Label("Hintergrund"),
+                Pick("Hintergrund", new (string, SubtitleBackground, Brush?)[] { ("Rand und Schatten", SubtitleBackground.Outline, null), ("Kasten hinter dem Text", SubtitleBackground.Box, null) },
+                    s => s.Background, (s, v) => s with { Background = v }),
+                Label("Schrift"),
+                Pick("Schrift", fonts, s => s.Font, (s, v) => s with { Font = v }),
+                Label("Fettdruck"),
+                Pick("Fettdruck", new (string, bool, Brush?)[] { ("Aus", false, null), ("An", true, null) }, s => s.Bold, (s, v) => s with { Bold = v }),
+                Label("Eigene Stile von Untertiteln (ASS/SSA, oft bei Anime)"),
+                Pick("Eigene Stile", new (string, bool, Brush?)[] { ("Behalten", false, null), ("Durch dieses Aussehen ersetzen", true, null) }, s => s.ForceStyle, (s, v) => s with { ForceStyle = v }),
+            },
+        };
+
+        Show();
+        Unloaded += (_, _) =>
+        {
+            if (!saveTimer.IsEnabled) return;
+            saveTimer.Stop();
+            settings.Save();
+        };
+        return panel;
     }
 
     // --- Untertitel aus dem Internet -----------------------------------------------------------------------

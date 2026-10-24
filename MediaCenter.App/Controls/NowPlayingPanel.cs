@@ -171,12 +171,26 @@ public sealed class NowPlayingPanel : Border
 
         var next = PageParts.Semi("Als Nächstes", 13);
         next.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
-        next.Margin = new Thickness(0, 14, 0, 4);
-        _content.Children.Add(next);
+        next.VerticalAlignment = VerticalAlignment.Center;
+        var head = new Grid { Margin = new Thickness(0, 14, 0, 4) };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.Children.Add(next);
+        if (upcoming.Count > 0)
+        {
+            var clear = PageParts.Compact(PageParts.Button("Leeren", "GhostButton", (_, _) => Run(() => _audio.ClearUpcomingAsync()), new Thickness(0)));
+            clear.Padding = new Thickness(10, 3, 10, 3);
+            clear.FontSize = 12;
+            clear.ToolTip = "Alle folgenden Titel aus der Warteschlange nehmen; der laufende spielt weiter";
+            System.Windows.Automation.AutomationProperties.SetName(clear, "Warteschlange leeren");
+            Grid.SetColumn(clear, 1);
+            head.Children.Add(clear);
+        }
+        _content.Children.Add(head);
 
         if (upcoming.Count == 0)
         {
-            _content.Children.Add(PageParts.Muted("Das ist der letzte Titel der Warteschlange.", 13));
+            _content.Children.Add(PageParts.Muted("Das ist der letzte Titel der Warteschlange. Weitere kommen über Rechtsklick auf einen Titel oder ein Album („Als Nächstes spielen“, „Zur Warteschlange hinzufügen“).", 13));
             return;
         }
 
@@ -194,16 +208,46 @@ public sealed class NowPlayingPanel : Border
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var text = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Children = { name, artist } };
             Grid.SetColumn(text, 1);
             grid.Children.Add(thumb);
             grid.Children.Add(text);
 
             var captured = index;
+            var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            tools.Children.Add(Tool("\uE70E", "Eins nach oben", $"Warteschlange nach oben: {item.Title}", index > _audio.Index + 1, () => Run(() => _audio.MoveUpcomingAsync(captured, -1))));
+            tools.Children.Add(Tool("\uE70D", "Eins nach unten", $"Warteschlange nach unten: {item.Title}", index < queue.Count - 1, () => Run(() => _audio.MoveUpcomingAsync(captured, 1))));
+            tools.Children.Add(Tool("\uE711", "Aus der Warteschlange nehmen", $"Aus Warteschlange nehmen: {item.Title}", true, () => Run(() => _audio.RemoveUpcomingAsync(captured))));
+            Grid.SetColumn(tools, 2);
+            grid.Children.Add(tools);
+
             var row = PageParts.ClickableRow(grid, async () => await _shell.RunBusyAsync("Wiedergabe startet …", () => _audio.PlayAsync(_audio.Queue, captured)), new Thickness(-8, 0, -8, 0), item.Title);
             row.Padding = new Thickness(8, 4, 8, 4);
             row.CornerRadius = new CornerRadius(8);
             _content.Children.Add(row);
+        }
+    }
+
+    private static Button Tool(string glyph, string tip, string name, bool enabled, Action click)
+    {
+        var button = new Button { Content = glyph, Width = 24, Height = 24, FontSize = 10, Margin = new Thickness(2, 0, 0, 0), ToolTip = tip, IsEnabled = enabled };
+        button.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    /// <summary>Führt eine Änderung an der Warteschlange aus; ein Fehler (z. B. weil der Titel inzwischen gespielt wurde) wird gemeldet, nicht verschluckt.</summary>
+    private async void Run(Func<Task> change)
+    {
+        try
+        {
+            await change();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _shell.ShowMessage($"Die Warteschlange ließ sich nicht ändern: {ex.Message}", isError: true);
         }
     }
 

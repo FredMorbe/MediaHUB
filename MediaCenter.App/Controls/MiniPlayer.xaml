@@ -1,9 +1,10 @@
 <UserControl x:Class="MediaCenter.App.Controls.MiniPlayer"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- Durchgehende Leiste wie bei Spotify: links Titel, in der Mitte Steuerung mit Zeitleiste, rechts Lautstärke -->
-    <Border Height="72" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
-        <Grid Margin="16,0">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:MediaCenter.App.Controls">
+    <!-- Schwebende Glas-Insel (Liquid Glass): links Titel, in der Mitte Steuerung mit Zeitleiste, rechts Lautstärke -->
+    <c:GlassPanel Height="72" Margin="24,0,24,16" Padding="0" CornerRadius="36">
+        <Grid Margin="22,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="3*" MinWidth="200"/>
                 <ColumnDefinition Width="4*"/>
@@ -15,7 +16,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Border x:Name="CoverBox" Width="48" Height="48" CornerRadius="4" Background="{DynamicResource CardBgBrush}">
+                <Border x:Name="CoverBox" Width="48" Height="48" CornerRadius="12" Background="{DynamicResource CardBgBrush}">
                     <TextBlock x:Name="CoverGlyph" Text="&#xE8D6;" FontFamily="{StaticResource IconFont}" FontSize="22"
                                Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
@@ -59,5 +60,5 @@
                 <Button x:Name="CloseButton" Style="{StaticResource IconButton}" Width="32" Height="32" Content="&#xE711;" Margin="8,0,0,0" ToolTip="Wiedergabe beenden" AutomationProperties.Name="Wiedergabe beenden"/>
             </StackPanel>
         </Grid>
-    </Border>
+    </c:GlassPanel>
 </UserControl>

@@ -90,6 +90,9 @@ public partial class PlayerOverlay : Window
     /// <summary>Zeitversatz, Größe oder Höhe der Untertitel wurden geändert (Schaltflächen oder Tasten Z/X).</summary>
     public event Action<SubtitleAdjustment>? AdjustmentChanged;
 
+    /// <summary>Der Nutzer hat im Anpassen-Fenster ein anderes Aussehen der Untertitel gewählt (gilt für alle Videos).</summary>
+    public event Action<SubtitleStyle>? SubtitleStyleChanged;
+
     /// <summary>Einbetten eines selbst hinzugefügten Untertitels in die MKV (Spur-Id).</summary>
     public event Action<int>? SubtitleEmbedRequested;
 
@@ -609,7 +612,18 @@ public partial class PlayerOverlay : Window
             Value(_positionText, 72),
             Step("Tiefer", "Untertitel tiefer", () => Change(a => a with { Position = Math.Clamp(a.Position + 5, 0, 100) }))));
 
-        var reset = Step("Alles zurücksetzen", "Anpassung zurücksetzen", () => Change(_ => SubtitleAdjustment.Default));
+        AdjustContent.Children.Add(Label("Aussehen (für alle Videos; mehr unter Einstellungen → Wiedergabe)"));
+        var looks = new WrapPanel { MaxWidth = 380 };
+        foreach (var (name, style) in SubtitleStyle.Presets)
+        {
+            var preset = style;
+            var button = Step(name, $"Untertitel-Aussehen {name}", () => SubtitleStyleChanged?.Invoke(preset));
+            button.Margin = new Thickness(0, 0, 6, 6);
+            looks.Children.Add(button);
+        }
+        AdjustContent.Children.Add(looks);
+
+        var reset = Step("Zeit, Größe und Höhe zurücksetzen", "Anpassung zurücksetzen", () => Change(_ => SubtitleAdjustment.Default));
         reset.Margin = new Thickness(0, 14, 0, 0);
         reset.HorizontalAlignment = HorizontalAlignment.Left;
         AdjustContent.Children.Add(reset);

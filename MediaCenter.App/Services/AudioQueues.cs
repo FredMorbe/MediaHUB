@@ -57,6 +57,22 @@ public static class AudioQueues
         });
     }
 
+    /// <summary>Legt Titel hinter den laufenden („Als Nächstes“) oder ans Ende der Warteschlange; läuft keine Musik, beginnt damit die Wiedergabe.</summary>
+    public static async Task EnqueueTracksAsync(IShell shell, IReadOnlyList<TrackRow> tracks, bool next)
+    {
+        var items = ForTracks(shell.Services.Model, tracks);
+        if (items.Count == 0)
+        {
+            shell.ShowMessage("Keiner dieser Titel ist gerade erreichbar (Laufwerk abgesteckt oder Datei fehlt).", isError: true);
+            return;
+        }
+
+        var wasPlaying = shell.Services.Audio.Current is { Kind: QueueKind.Track };
+        await shell.Services.Audio.EnqueueAsync(items, next);
+        var what = items.Count == 1 ? $"„{items[0].Title}“" : $"{items.Count} Titel";
+        shell.ShowMessage(!wasPlaying ? $"Wiedergabe startet: {what}." : next ? $"{what} kommt als Nächstes." : $"{what} ans Ende der Warteschlange gelegt.");
+    }
+
     private const int MaxRecentAlbums = 24;
 
     /// <summary>Merkt das Album des gespielten Titels als zuletzt gehört (ohne Dopplung, die Liste bleibt kurz).</summary>

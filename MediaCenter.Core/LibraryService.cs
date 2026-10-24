@@ -3,8 +3,9 @@ namespace MediaCenter.Core;
 public sealed record ScanFailure(string Path, string Error);
 
 /// <param name="Offline">Das Laufwerk der Quelle ist nicht angeschlossen; es wurde nichts verändert.</param>
+/// <param name="Moved">Dateien, die der Scan an einem neuen Ort wiedergefunden hat; ihre Nutzerdaten sind mitgewandert (zählt nicht zu <paramref name="Added"/>).</param>
 public sealed record ScanResult(
-    int Added, int Updated, int Unchanged, int MarkedMissing, IReadOnlyList<ScanFailure> Failures, bool Offline = false)
+    int Added, int Updated, int Unchanged, int MarkedMissing, IReadOnlyList<ScanFailure> Failures, bool Offline = false, int Moved = 0)
 {
     public static ScanResult OfflineResult { get; } = new(0, 0, 0, 0, Array.Empty<ScanFailure>(), Offline: true);
 }
@@ -118,9 +119,11 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         var absolute = Path.Combine(volume.RootPath, source.RelPath);
         var known = db.GetFilesUnder(source.VolumeId, source.RelPath);
         var removed = db.GetRemovedFiles(source.VolumeId);
+        var withoutFingerprint = db.GetFileIdsWithoutFingerprint();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var movedIds = new HashSet<long>();
         var failures = new List<ScanFailure>();
-        int added = 0, updated = 0, unchanged = 0;
+        int added = 0, updated = 0, unchanged = 0, moved = 0;
 
         foreach (var path in EnumerateFiles(source, absolute))
         {
@@ -135,20 +138,41 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
                 existing.MtimeUtc == info.LastWriteTimeUtc.ToString("O"))
             {
                 if (existing.Missing) db.SetMissing(existing.Id, false);
+                if (withoutFingerprint.Contains(existing.Id))
+                {
+                    try
+                    {
+                        db.SetFingerprint(existing.Id, FileFingerprint.Compute(path));
+                    }
+                    catch (IOException ex)
+                    {
+                        failures.Add(new ScanFailure(path, ex.Message));
+                    }
+                }
                 unchanged++;
                 continue;
             }
 
             try
             {
+                var fingerprint = FileFingerprint.Compute(path);
+                var wasKnown = known.ContainsKey(rel);
+                if (!wasKnown && FindMovedFile(fingerprint, info.Length, status) is { } before)
+                {
+                    db.MoveFile(before.FileId, source.VolumeId, rel);
+                    movedIds.Add(before.FileId);
+                    moved++;
+                }
+
                 var result = await probe.ProbeAsync(path, ct);
                 var isAudio = AudioExtensions.Contains(Path.GetExtension(path));
                 if (isAudio && !result.HasAudio) throw new InvalidDataException("Datei enthält keinen Audiostream.");
                 if (!isAudio && result.Video is null) throw new InvalidDataException("Datei enthält keinen Videostream.");
-                var fileId = db.UpsertFile(source.VolumeId, rel, info.Length, info.LastWriteTimeUtc, result);
+                var fileId = db.UpsertFile(source.VolumeId, rel, info.Length, info.LastWriteTimeUtc, result, fingerprint);
                 if (isAudio) db.ApplyTrack(fileId, TrackTags.From(result.Tags, path));
                 else db.ApplyScanned(fileId, FileNameParser.Parse(path));
-                if (known.ContainsKey(rel)) updated++; else added++;
+                if (wasKnown) updated++;
+                else if (!movedIds.Contains(fileId)) added++;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -157,10 +181,25 @@ public sealed class LibraryService(LibraryDb db, IVolumeProvider volumes, IMedia
         }
 
         // Fehlt etwas auf einem angeschlossenen Laufwerk, wird es nur markiert, nie gelöscht.
-        var missing = known.Where(k => !seen.Contains(k.Key) && !k.Value.Missing).Select(k => k.Value.Id).ToList();
+        var missing = known.Where(k => !seen.Contains(k.Key) && !k.Value.Missing && !movedIds.Contains(k.Value.Id)).Select(k => k.Value.Id).ToList();
         foreach (var id in missing) db.SetMissing(id, true);
 
-        return new ScanResult(added, updated, unchanged, missing.Count, failures);
+        return new ScanResult(added, updated, unchanged, missing.Count, failures, Moved: moved);
+    }
+
+    /// <summary>
+    /// Eine bekannte Datei mit gleichem Fingerabdruck, die an ihrem alten Ort nicht mehr liegt: dann wurde sie verschoben.
+    /// Liegt das Laufwerk der alten Datei nicht an, bleibt es bei „unbekannt“ (die Datei könnte dort noch sein); Kopien, bei denen das
+    /// Original noch liegt, bleiben eigene Einträge.
+    /// </summary>
+    private FileLocation? FindMovedFile(string fingerprint, long size, VolumeStatus status)
+    {
+        foreach (var candidate in db.FindFilesByFingerprint(fingerprint, size))
+        {
+            var oldPath = status.ResolvePath(candidate.VolumeId, candidate.RelPath);
+            if (oldPath is not null && !File.Exists(oldPath)) return candidate;
+        }
+        return null;
     }
 
     private static IEnumerable<string> EnumerateFiles(Source source, string absolute)

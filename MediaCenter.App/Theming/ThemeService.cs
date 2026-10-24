@@ -85,6 +85,15 @@ public sealed class ThemeService
             res[name + "Brush"] = brush;
         }
 
+        // Verlauf von links oben nach rechts unten; ersetzt die Brush eines Namens (die Color bleibt die der Set-Variante).
+        void Gradient(string name, params (string Color, double Offset)[] stops)
+        {
+            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            foreach (var (color, offset) in stops) brush.GradientStops.Add(new GradientStop(Hex(color), offset));
+            brush.Freeze();
+            res[name + "Brush"] = brush;
+        }
+
         if (IsDark)
         {
             Set("Bg", Hex("#070d16"));
@@ -117,8 +126,25 @@ public sealed class ThemeService
             Set("Surface", Hex("#f5f7fa"));
             Set("ModalScrim", Hex("#8c0f172a"));
         }
+        // Liquid Glass: Die Kante ist kein gleichmäßiger Rand, sondern fängt Licht an zwei gegenüberliegenden Ecken;
+        // darüber liegt ein Glanz, der oben links am hellsten ist.
+        if (IsDark)
+        {
+            Gradient("GlassEdge", ("#78FFFFFF", 0), ("#1EFFFFFF", 0.38), ("#14FFFFFF", 0.62), ("#46FFFFFF", 1));
+            Gradient("GlassSheen", ("#3AFFFFFF", 0), ("#0EFFFFFF", 1));
+            Set("NavPill", Hex("#38FFFFFF"));
+        }
+        else
+        {
+            Gradient("GlassEdge", ("#380F172A", 0), ("#160F172A", 0.4), ("#160F172A", 0.6), ("#440F172A", 1));
+            Gradient("GlassSheen", ("#D0FFFFFF", 0), ("#70FFFFFF", 1));
+            Set("NavPill", Hex("#D8FFFFFF"));
+        }
         Set("Accent", accent);
         Set("Accent2", accent2);
+        // Kräftiger Farbschein hinter dem Glas (nur Hintergrund; AccentSoft bleibt für Auswahl-Hinterlegungen).
+        Set("AccentGlow", Color.FromArgb(IsDark ? (byte)0x5A : (byte)0x46, accent.R, accent.G, accent.B));
+        Set("Accent2Glow", Color.FromArgb(IsDark ? (byte)0x4C : (byte)0x3C, accent2.R, accent2.G, accent2.B));
         Set("AccentSoft", Color.FromArgb(IsDark ? (byte)0x22 : (byte)0x1c, accent.R, accent.G, accent.B));
         Set("AccentLine", Color.FromArgb(0x66, accent.R, accent.G, accent.B));
         Set("Accent2Soft", Color.FromArgb(IsDark ? (byte)0x22 : (byte)0x1a, accent2.R, accent2.G, accent2.B));
@@ -129,8 +155,41 @@ public sealed class ThemeService
         Set("OnAccent", Luminance(accent) > 0.5 ? Hex("#07131f") : Colors.White);
         Set("OnAccent2", Luminance(accent2) > 0.5 ? Hex("#07131f") : Colors.White);
 
+        // Dieselben Namen mit den dunklen Werten (Akzent der dunklen Palette): Flächen über Titelbildern (HeroArt) binden sie als
+        // Ressourcen ein, damit Text und Knöpfe auf dem dunklen Bild auch im hellen Modus hell und lesbar sind.
+        void ArtSet(string name, Color color)
+        {
+            ArtTheme[name + "Color"] = color;
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            ArtTheme[name + "Brush"] = brush;
+        }
+        void ArtGradient(string name, params (string Color, double Offset)[] stops)
+        {
+            var brush = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            foreach (var (color, offset) in stops) brush.GradientStops.Add(new GradientStop(Hex(color), offset));
+            brush.Freeze();
+            ArtTheme[name + "Brush"] = brush;
+        }
+        var artAccent = palette.DarkAccent;
+        ArtSet("Ink", Hex("#f4f7fb"));
+        ArtSet("Muted", Hex("#c3cedc"));
+        ArtSet("Faint", Hex("#94a3b8"));
+        ArtSet("Line", Hex("#22e2e8f0"));
+        ArtSet("Accent", artAccent);
+        ArtSet("Accent2", palette.DarkAccent2);
+        ArtSet("AccentSoft", Color.FromArgb(0x30, artAccent.R, artAccent.G, artAccent.B));
+        ArtSet("AccentLine", Color.FromArgb(0x66, artAccent.R, artAccent.G, artAccent.B));
+        ArtSet("OnAccent", Luminance(artAccent) > 0.5 ? Hex("#07131f") : Colors.White);
+        ArtSet("NavPill", Hex("#38FFFFFF"));
+        ArtGradient("GlassEdge", ("#78FFFFFF", 0), ("#1EFFFFFF", 0.38), ("#14FFFFFF", 0.62), ("#46FFFFFF", 1));
+        ArtGradient("GlassSheen", ("#3AFFFFFF", 0), ("#0EFFFFFF", 1));
+
         Changed?.Invoke();
     }
+
+    /// <summary>Dunkle Farbwerte für Flächen über Titelbildern; wird bei jedem Anwenden an Ort und Stelle aktualisiert.</summary>
+    public static ResourceDictionary ArtTheme { get; } = new();
 
     private static Color Hex(string hex) => (Color)ColorConverter.ConvertFromString(hex);
 

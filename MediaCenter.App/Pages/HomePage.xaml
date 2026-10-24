@@ -4,9 +4,10 @@
              xmlns:c="clr-namespace:MediaCenter.App.Controls">
     <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
         <StackPanel Margin="48,0,48,60">
-            <Grid x:Name="HeroZone" Height="480">
-                <!-- Mit Inhalten: Text direkt auf dem Titelbild, ohne Karte; das Bild läuft links, rechts und unten aus (MainWindow) -->
-                <Grid x:Name="HeroPanel" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34" Width="600">
+            <Grid x:Name="HeroZone" Height="440" Margin="0,76,0,28">
+                <!-- Titelbild als abgerundete Karte; Text und Knöpfe liegen darauf (dunkle Farben aus ThemeService.ArtTheme) -->
+                <c:HeroArt x:Name="Art"/>
+                <Grid x:Name="HeroPanel" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="52,0,0,44" Width="600">
                     <StackPanel>
                         <TextBlock x:Name="Kicker" Style="{StaticResource KickerText}" Margin="0,0,0,8"/>
                         <TextBlock x:Name="HeroTitle" Style="{StaticResource DisplayText}" FontSize="72" TextWrapping="Wrap" LineHeight="64" LineStackingStrategy="BlockLineHeight"/>
@@ -23,11 +24,11 @@
                 </Grid>
 
                 <!-- Leere Bibliothek -->
-                <Grid x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34" Width="620">
+                <Grid x:Name="EmptyPanel" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="52,0,0,44" Width="620">
                     <StackPanel>
                         <TextBlock Text="START" Style="{StaticResource KickerText}"/>
-                        <TextBlock Text="Noch nichts in der Bibliothek" Style="{StaticResource DisplayText}" FontSize="52" TextWrapping="Wrap"/>
-                        <TextBlock Style="{StaticResource MutedText}" FontSize="14" TextWrapping="Wrap" Margin="0,8,0,0"
+                        <TextBlock x:Name="EmptyTitle" Text="Noch nichts in der Bibliothek" Style="{StaticResource DisplayText}" FontSize="52" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="EmptyText" Style="{StaticResource MutedText}" FontSize="14" TextWrapping="Wrap" Margin="0,8,0,0"
                                    Text="Füge einen Ordner mit Filmen und Serien hinzu. Serien erkennt das Programm an Namen wie S01E03, alles Unklare landet in der Inbox."/>
                         <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
                             <Button x:Name="AddFolderButton" Style="{StaticResource PrimaryButton}" Content="Ordner hinzufügen"/>

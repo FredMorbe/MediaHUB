@@ -86,21 +86,22 @@ public sealed partial class LibraryDb
         || relPath.StartsWith(relRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Legt die Datei an oder aktualisiert sie an Ort und Stelle (die ID bleibt, damit Nutzerdaten hängen bleiben).</summary>
-    public long UpsertFile(long volumeId, string relPath, long size, DateTime mtimeUtc, ProbeResult probe) => InTransaction(() =>
+    public long UpsertFile(long volumeId, string relPath, long size, DateTime mtimeUtc, ProbeResult probe, string? fingerprint = null) => InTransaction(() =>
     {
         var video = probe.Video;
         var fileId = Scalar<long>("""
-            INSERT INTO files (volume_id, rel_path, size, mtime_utc, missing, duration_sec, container, width, height, video_codec, is_hdr)
-            VALUES ($vol, $rel, $size, $mtime, 0, $duration, $container, $width, $height, $codec, $hdr)
+            INSERT INTO files (volume_id, rel_path, size, mtime_utc, missing, duration_sec, container, width, height, video_codec, is_hdr, fingerprint)
+            VALUES ($vol, $rel, $size, $mtime, 0, $duration, $container, $width, $height, $codec, $hdr, $fingerprint)
             ON CONFLICT (volume_id, rel_path) DO UPDATE SET
                 size = excluded.size, mtime_utc = excluded.mtime_utc, missing = 0,
                 duration_sec = excluded.duration_sec, container = excluded.container,
-                width = excluded.width, height = excluded.height, video_codec = excluded.video_codec, is_hdr = excluded.is_hdr
+                width = excluded.width, height = excluded.height, video_codec = excluded.video_codec, is_hdr = excluded.is_hdr,
+                fingerprint = excluded.fingerprint
             RETURNING id
             """,
             ("$vol", volumeId), ("$rel", relPath), ("$size", size), ("$mtime", Utc(mtimeUtc)),
             ("$duration", probe.DurationSeconds), ("$container", probe.Container),
-            ("$width", video?.Width), ("$height", video?.Height), ("$codec", video?.Codec), ("$hdr", probe.IsHdr ? 1 : 0));
+            ("$width", video?.Width), ("$height", video?.Height), ("$codec", video?.Codec), ("$hdr", probe.IsHdr ? 1 : 0), ("$fingerprint", fingerprint));
 
         Run("DELETE FROM streams WHERE file_id = $file", ("$file", fileId));
         foreach (var s in probe.Streams)
@@ -115,6 +116,47 @@ public sealed partial class LibraryDb
         }
         return fileId;
     });
+
+    // --- Fingerabdruck und verschobene Dateien -------------------------------------------------------------
+
+    /// <summary>Dateien, für die noch kein Fingerabdruck berechnet wurde (nach der Migration oder einem älteren Scan).</summary>
+    public HashSet<long> GetFileIdsWithoutFingerprint()
+    {
+        var ids = new HashSet<long>();
+        using var cmd = Command("SELECT id FROM files WHERE fingerprint IS NULL");
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) ids.Add(r.GetInt64(0));
+        return ids;
+    }
+
+    public void SetFingerprint(long fileId, string fingerprint) =>
+        Run("UPDATE files SET fingerprint = $fp WHERE id = $id", ("$fp", fingerprint), ("$id", fileId));
+
+    /// <summary>Bekannte Dateien mit demselben Fingerabdruck und derselben Größe; ob sie noch am alten Ort liegen, prüft der Aufrufer.</summary>
+    public List<FileLocation> FindFilesByFingerprint(string fingerprint, long size)
+    {
+        var result = new List<FileLocation>();
+        using var cmd = Command("SELECT id, volume_id, rel_path FROM files WHERE fingerprint = $fp AND size = $size ORDER BY id",
+            ("$fp", fingerprint), ("$size", size));
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) result.Add(new FileLocation(r.GetInt64(0), r.GetInt64(1), r.GetString(2)));
+        return result;
+    }
+
+    /// <summary>
+    /// Die Datei liegt jetzt an einem anderen Ort: ändert den Pfad am bestehenden Eintrag, damit Datei-, Video- und Titel-Zuordnung samt
+    /// Nutzerdaten erhalten bleiben. Ein Scan danach liest Tags und Namen am neuen Ort neu aus.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Der neue Pfad gehört schon einer anderen Datei.</exception>
+    public void MoveFile(long fileId, long volumeId, string newRelPath)
+    {
+        var taken = Scalar<long?>("SELECT id FROM files WHERE volume_id = $vol AND rel_path = $rel AND id <> $id",
+            ("$vol", volumeId), ("$rel", newRelPath), ("$id", fileId));
+        if (taken is not null) throw new InvalidOperationException($"Der Pfad {newRelPath} gehört schon einer anderen Datei der Bibliothek.");
+
+        Run("UPDATE files SET volume_id = $vol, rel_path = $rel, missing = 0 WHERE id = $id",
+            ("$vol", volumeId), ("$rel", newRelPath), ("$id", fileId));
+    }
 
     public void SetMissing(long fileId, bool missing) =>
         Run("UPDATE files SET missing = $m WHERE id = $id", ("$m", missing ? 1 : 0), ("$id", fileId));

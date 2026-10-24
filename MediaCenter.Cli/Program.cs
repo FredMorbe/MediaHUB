@@ -199,7 +199,7 @@ static int PrintScan(string what, ScanResult r)
         Console.WriteLine($"{what}: Laufwerk nicht angeschlossen – übersprungen.");
         return 0;
     }
-    Console.WriteLine($"{what}: neu {r.Added}, aktualisiert {r.Updated}, unverändert {r.Unchanged}, als fehlend markiert {r.MarkedMissing}");
+    Console.WriteLine($"{what}: neu {r.Added}, aktualisiert {r.Updated}, unverändert {r.Unchanged}, als fehlend markiert {r.MarkedMissing}, verschoben {r.Moved}");
     foreach (var f in r.Failures) Console.Error.WriteLine($"FEHLER {f.Path}: {f.Error}");
     return r.Failures.Count == 0 ? 0 : 1;
 }

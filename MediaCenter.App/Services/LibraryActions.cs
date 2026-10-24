@@ -179,11 +179,26 @@ public static class LibraryActions
         shell.ShowMessage(watched ? $"„{title.Name}“ ist als gesehen markiert." : $"„{title.Name}“ ist als ungesehen markiert.");
     }
 
+    /// <summary>Gibt den Titel für Kinderprofile frei oder nimmt die Freigabe zurück und sagt es dem Nutzer.</summary>
+    public static void ToggleKidsRelease(IShell shell, long titleId)
+    {
+        var model = shell.Services.Model;
+        if (model.FindTitle(titleId) is not { } title)
+        {
+            shell.ShowMessage("Der Titel ist nicht mehr in der Bibliothek.", isError: true);
+            return;
+        }
+        var on = !model.KidsTitleIds.Contains(titleId);
+        model.SetKidsTitles(new[] { titleId }, on);
+        shell.ShowMessage(on ? $"„{title.Name}“ ist für Kinderprofile freigegeben." : $"„{title.Name}“ ist für Kinderprofile nicht mehr freigegeben.");
+    }
+
     /// <summary>Kontextmenü einer Titelkarte; leer für Karten ohne Titel in der Bibliothek (Alben, Podcasts, Sender).</summary>
     public static IReadOnlyList<(string Text, Action Click)> CardMenu(IShell shell, CardItem item)
     {
         if (item.TitleId <= 0 || item.Tag is not null) return Array.Empty<(string, Action)>();
 
+        var kids = shell.Services.Model.Profile.Kids;
         var menu = new List<(string, Action)>
         {
             (shell.Services.Model.IsOnWatchlist(item.TitleId) ? "Von „Meine Liste“ entfernen" : "Zu „Meine Liste“ hinzufügen", () => ToggleWatchlist(shell, item.TitleId)),
@@ -192,11 +207,17 @@ public static class LibraryActions
                 SetTitleWatched(shell, item.TitleId, shell.Services.Model.WatchStateOf(item.TitleId) != WatchState.Watched);
                 shell.ReloadView();
             }),
+        };
+        if (item.Kind == TitleKind.Series) menu.Insert(0, ("Folge wählen …", (Action)(() => Pages.EpisodePickerPage.Show(shell, item.TitleId))));
+        if (kids) return menu; // die Verwaltung (Poster, Umbenennen, Entfernen …) bleibt Erwachsenen-Profilen
+
+        menu.AddRange(new (string, Action)[]
+        {
+            (shell.Services.Model.KidsTitleIds.Contains(item.TitleId) ? "Kinderfreigabe zurücknehmen" : "Für Kinderprofile freigeben", () => ToggleKidsRelease(shell, item.TitleId)),
             ("Poster wählen …",async () => await ReplaceArtworkAsync(shell, item.TitleId, ArtworkKind.Poster)),
             ("Poster auf IMDb suchen", () => SearchPosterOnline(shell, item.TitleId)),
             ("Umbenennen …", () => RenameTitle(shell, item.TitleId)),
-        };
-        if (item.Kind == TitleKind.Series) menu.Insert(0, ("Folge wählen …", (Action)(() => Pages.EpisodePickerPage.Show(shell, item.TitleId))));
+        });
         if (item.Kind == TitleKind.Movie)
         {
             menu.Insert(1, ("Zu Sammlung hinzufügen …", () => Pages.CollectionPickerPage.Show(shell, item.TitleId)));
@@ -225,8 +246,10 @@ public static class LibraryActions
         var added = results.Sum(r => r.Added);
         var updated = results.Sum(r => r.Updated);
         var missing = results.Sum(r => r.MarkedMissing);
+        var moved = results.Sum(r => r.Moved);
         var offline = results.Count(r => r.Offline);
         var parts = new List<string> { $"{added} neu", $"{updated} aktualisiert" };
+        if (moved > 0) parts.Add($"{moved} verschoben (Fortschritt und Einstellungen bleiben)");
         if (missing > 0) parts.Add($"{missing} fehlen");
         if (offline > 0) parts.Add($"{offline} Quelle(n) offline");
         shell.ShowMessage("Scan fertig: " + string.Join(", ", parts) + ".");

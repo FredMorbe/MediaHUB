@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
+using MediaCenter.App.Theming;
 using MediaCenter.Core;
 
 namespace MediaCenter.App.Pages;
@@ -17,14 +18,25 @@ public partial class HomePage : UserControl
         _shell = shell;
         _model = shell.Services.Model;
 
-        SizeChanged += (_, _) => HeroZone.Height = Math.Max(440, ActualHeight * 0.56);
+        HeroZone.Resources.MergedDictionaries.Add(ThemeService.ArtTheme);
+        SizeChanged += (_, _) => HeroZone.Height = Math.Max(400, ActualHeight * 0.5);
         AddFolderButton.Click += async (_, _) => await LibraryActions.AddFolderAsync(_shell);
         AddFileButton.Click += async (_, _) => await LibraryActions.AddFileAsync(_shell);
-        var refresh = PageParts.LibraryRefreshButton(shell);
-        refresh.HorizontalAlignment = HorizontalAlignment.Right;
-        refresh.VerticalAlignment = VerticalAlignment.Top;
-        refresh.Margin = new Thickness(0, PageParts.NavInset + 18, 0, 0);
-        HeroZone.Children.Add(refresh);
+        if (_model.Profile.Kids)
+        {
+            AddFolderButton.Visibility = AddFileButton.Visibility = Visibility.Collapsed;
+            EmptyTitle.Text = "Noch nichts freigegeben";
+            EmptyText.Text = "Für dieses Profil sind noch keine Filme oder Serien freigegeben. Das geht in einem Erwachsenen-Profil: Einstellungen → Profile → Freigaben.";
+        }
+        else
+        {
+            var refresh = PageParts.LibraryRefreshButton(shell);
+            refresh.HorizontalAlignment = HorizontalAlignment.Right;
+            refresh.VerticalAlignment = VerticalAlignment.Top;
+            refresh.Margin = new Thickness(0, 20, 22, 0);
+        refresh.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x80, 0x04, 0x08, 0x10)); // liegt oft auf einer hellen Bildstelle
+            HeroZone.Children.Add(refresh);
+        }
 
         BuildHero();
         BuildRows();
@@ -89,8 +101,8 @@ public partial class HomePage : UserControl
             ChooseEpisodeButton.Click += (_, _) => EpisodePickerPage.Show(_shell, title.Id);
         }
 
-        // Das Querformat-Bild ist als Hintergrund gedacht; ein Poster wäre hier nur unscharf aufgeblasen.
-        _shell.SetBackdrop(_model.ArtPath(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape));
+        // Das Querformat-Bild füllt die Karte; ein Poster wäre hier nur unscharf aufgeblasen.
+        Art.Image = ImageCache.Load(_model.ArtPath(ArtworkOwner.Title, title.Id, ArtworkKind.Landscape), 1600);
     }
 
     private void BuildRows()

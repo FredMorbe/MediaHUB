@@ -18,6 +18,9 @@ public sealed class AppServices : IDisposable
 
     public required LibraryModel Model { get; init; }
 
+    /// <summary>Das aktive Profil und der Wechsel zwischen Profilen.</summary>
+    public required ProfileService Profiles { get; init; }
+
     public required string MpvPath { get; init; }
 
     public required AudioController Audio { get; init; }
@@ -181,6 +184,7 @@ public sealed class AppServices : IDisposable
             Theme = new ThemeService(settings),
             Db = db,
             Model = model,
+            Profiles = new ProfileService(db, settings),
             Previews = new PreviewClips(model, ffmpeg, settings, Path.Combine(AppSettings.DataDirectory, "previews")),
             MpvPath = mpvPath,
             Sound = sound,
@@ -207,6 +211,7 @@ public sealed class AppServices : IDisposable
             SubtitleText = SubtitleExtractor.FromEnvironment(),
         };
         services.RestoredPreviousState = restoredFrom;
+        services.Profiles.Initialize();
         services.LoadOmdb();
         services.ApplyOnlineCovers();
         services.ApplyOnlineLyrics();

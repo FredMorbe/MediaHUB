@@ -189,7 +189,10 @@ public sealed class PlaylistPage : UserControl
         if (index > 0) menu.Add(("Nach oben", () => Move(track, index - 1)));
         if (index < count - 1) menu.Add(("Nach unten", () => Move(track, index + 1)));
         menu.Add(("Zu anderer Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, owner, new[] { track }, _id)));
+        menu.Add(("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: true)));
+        menu.Add(("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)));
         menu.Add(("Song bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)));
+        menu.Add(("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)));
         menu.Add(("Aus Playlist entfernen", () =>
         {
             _model.Db.RemoveTrackFromPlaylist(_id, track.TrackId);

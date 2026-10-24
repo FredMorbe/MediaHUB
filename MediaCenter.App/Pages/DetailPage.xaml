@@ -4,14 +4,16 @@
              xmlns:c="clr-namespace:MediaCenter.App.Controls">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
         <StackPanel Margin="48,0,48,60">
-            <Grid x:Name="HeroZone" MinHeight="460">
+            <Grid x:Name="HeroZone" MinHeight="440" Margin="0,76,0,28">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
+                <!-- Titelbild als abgerundete Karte; Text und Knöpfe liegen darauf (dunkle Farben aus ThemeService.ArtTheme) -->
+                <c:HeroArt x:Name="Art" Grid.RowSpan="2"/>
                 <Button x:Name="BackButton" Style="{StaticResource IconButton}" Content="&#xE72B;" HorizontalAlignment="Left"
-                        VerticalAlignment="Top" Margin="0,88,0,24" ToolTip="Zurück (Esc)"/>
-                <Grid Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,34">
+                        VerticalAlignment="Top" Margin="22,22,0,0" ToolTip="Zurück (Esc)"/>
+                <Grid Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="52,0,0,44">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="680"/>

@@ -184,7 +184,15 @@ public sealed class MusicPage : UserControl
 
     /// <summary>Menü einer Albumkarte.</summary>
     private IReadOnlyList<(string Text, Action Click)> AlbumCardMenu(CardItem item) =>
-        item.Tag is AlbumInfo album ? new (string, Action)[] { ("Bearbeiten …", () => MusicRenamePage.ShowAlbum(_shell, album.Key)) } : Array.Empty<(string, Action)>();
+        item.Tag is AlbumInfo album
+            ? new (string, Action)[]
+            {
+                ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, album.Tracks, next: true)),
+                ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, album.Tracks, next: false)),
+                ("Bearbeiten …", () => MusicRenamePage.ShowAlbum(_shell, album.Key)),
+                ("Tags in den Dateien ändern …", () => TagEditorPage.ShowAlbum(_shell, album.Key)),
+            }
+            : Array.Empty<(string, Action)>();
 
     private void Render(bool animate)
     {
@@ -425,8 +433,11 @@ public sealed class MusicPage : UserControl
                 row = PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
                     menu: () => new (string, Action)[]
                     {
+                        ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: true)),
+                        ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)),
                         ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
                         ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
+                        ("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)),
                     });
                 list.Children.Add(row);
             }

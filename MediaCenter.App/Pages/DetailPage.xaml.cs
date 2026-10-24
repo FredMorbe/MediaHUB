@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
+using MediaCenter.App.Theming;
 using MediaCenter.Core;
 using Microsoft.Win32;
 
@@ -26,7 +27,8 @@ public partial class DetailPage : UserControl
         _model = shell.Services.Model;
         _title = _model.FindTitle(titleId) ?? throw new InvalidOperationException($"Titel {titleId} existiert nicht (mehr).");
 
-        SizeChanged += (_, _) => HeroZone.MinHeight = Math.Max(460, ActualHeight * 0.52);
+        HeroZone.Resources.MergedDictionaries.Add(ThemeService.ArtTheme);
+        SizeChanged += (_, _) => HeroZone.MinHeight = Math.Max(440, ActualHeight * 0.5);
         BackButton.Click += (_, _) => _shell.Back();
 
         Kicker.Text = _title.Kind == TitleKind.Movie ? "FILM" : "SERIE";
@@ -42,7 +44,7 @@ public partial class DetailPage : UserControl
         BuildEditButton();
         if (_title.Kind == TitleKind.Series) BuildEpisodes();
 
-        _shell.SetBackdrop(_model.ArtPath(ArtworkOwner.Title, _title.Id, ArtworkKind.Landscape));
+        Art.Image = ImageCache.Load(_model.ArtPath(ArtworkOwner.Title, _title.Id, ArtworkKind.Landscape), 1600);
     }
 
     private string BuildMeta()
@@ -203,6 +205,7 @@ public partial class DetailPage : UserControl
     {
         PageParts.Compact(EditButton);
         EditButton.Click += (_, _) => OpenEditModal();
+        if (_model.Profile.Kids) EditButton.Visibility = Visibility.Collapsed;
     }
 
     // --- Meine Liste ---------------------------------------------------------------------------------------
@@ -226,7 +229,8 @@ public partial class DetailPage : UserControl
         GenrePanel.Children.Clear();
         foreach (var genre in _model.GenresOf(_title.Id))
         {
-            var chip = new ToggleButton { Content = $"{genre}  ✕", IsChecked = true, ToolTip = "Genre entfernen" };
+            var kids = _model.Profile.Kids; // ein Kinderprofil zeigt die Genres nur
+            var chip = new ToggleButton { Content = kids ? genre : $"{genre}  ✕", IsChecked = true, ToolTip = kids ? null : "Genre entfernen", IsHitTestVisible = !kids };
             chip.SetResourceReference(StyleProperty, "Chip");
             chip.Click += (_, _) => ChangeGenres(() => _model.Db.RemoveGenre(_title.Id, genre));
             GenrePanel.Children.Add(chip);
@@ -314,6 +318,11 @@ public partial class DetailPage : UserControl
                 }),
             },
         };
+        manage.Children.Add(EditAction(_model.KidsTitleIds.Contains(_title.Id) ? "Kinderfreigabe zurücknehmen" : "Für Kinderprofile freigeben", () =>
+        {
+            LibraryActions.ToggleKidsRelease(_shell, _title.Id);
+            return Task.CompletedTask;
+        }));
         if (_title.Kind == TitleKind.Movie)
         {
             manage.Children.Add(EditAction("Zu Sammlung hinzufügen …", () =>
@@ -564,7 +573,8 @@ public partial class DetailPage : UserControl
         grid.Children.Add(info);
         grid.Children.Add(watchedToggle);
 
-        if (MkvEditor.CanEdit(video.RelPath))
+        var canManage = !_model.Profile.Kids;
+        if (canManage && MkvEditor.CanEdit(video.RelPath))
         {
             var editButton = new Button { Content = "", Style = (Style)FindResource("IconButton"), ToolTip = "MKV bearbeiten …", VerticalAlignment = VerticalAlignment.Center };
             AutomationProperties.SetName(editButton, $"Bearbeiten: {caption}");
@@ -586,10 +596,11 @@ public partial class DetailPage : UserControl
         row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
         row.MouseLeftButtonUp += async (_, _) => await _shell.PlayAsync(video, resume: true);
         var menu = new List<(string, Action)>();
-        if (MkvEditor.CanEdit(video.RelPath)) menu.Add(("Bearbeiten …", () => LibraryActions.EditVideo(_shell, video)));
-        menu.Add(("Aus Mediacenter entfernen …", () => RemoveEpisode(video)));
+        if (canManage && MkvEditor.CanEdit(video.RelPath)) menu.Add(("Bearbeiten …", () => LibraryActions.EditVideo(_shell, video)));
+        if (canManage) menu.Add(("Aus Mediacenter entfernen …", () => RemoveEpisode(video)));
         row.MouseRightButtonUp += (_, e) =>
         {
+            if (menu.Count == 0) return;
             ContextPopup.Show(row, menu, caption);
             e.Handled = true;
         };

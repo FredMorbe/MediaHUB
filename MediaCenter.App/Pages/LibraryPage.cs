@@ -77,8 +77,8 @@ public sealed class LibraryPage : UserControl
         actions.Children.Add(_watchButton);
         var refresh = PageParts.LibraryRefreshButton(_shell);
         refresh.Margin = new Thickness(8, 0, 0, 8);
-        actions.Children.Add(refresh);
-        if (kind == TitleKind.Movie)
+        if (!_model.Profile.Kids) actions.Children.Add(refresh);
+        if (kind == TitleKind.Movie && !_model.Profile.Kids)
         {
             var collections = PageParts.Compact(PageParts.Button("Sammlungen", "GhostButton", (_, _) => _shell.Open(() => new CollectionsPage(_shell)), new Thickness(8, 0, 0, 8)));
             collections.VerticalAlignment = VerticalAlignment.Top;
