@@ -10,6 +10,11 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.3", "26.10.2026", new[]
+        {
+            "Profilbild: Nach der Dateiwahl erscheint das Bild hinter einem runden Ausschnitt. Ziehen verschiebt es, Mausrad oder Regler zoomen; das Bild bedeckt den Kreis immer ganz. „Übernehmen“ speichert genau diesen Ausschnitt. Fotos vom Handy werden nach ihren Drehungsdaten richtig herum gezeigt.",
+            "Fix: Eine Datenbank von 0.17.0 oder 0.17.1 (Schema 23 oder 24) ließ sich nicht öffnen („Datenbank hat Schema 23, erwartet wird 25“); sie wird wieder migriert.",
+        }),
         new ChangelogEntry("0.17.2", "26.10.2026", new[]
         {
             "Player: Der Ton lässt sich zum Bild verschieben, wenn er nicht passt. Im Fenster „Untertitel anpassen“ gibt es den Abschnitt „Ton synchronisieren“ (±10 und ±100 ms), die Tasten G („Ton früher“, wenn er hinterherhinkt) und H („Ton später“, wenn er vorauseilt) ändern ihn in 50-ms-Schritten. Der Wert wird pro Video gemerkt und beim nächsten Abspielen wieder gesetzt. Während der Übertragung auf den Fernseher und im Live-TV gibt es ihn nicht.",

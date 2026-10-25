@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
@@ -156,6 +157,7 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
     private bool _avatarChanged;      // Bild gewählt oder entfernt
     private readonly ContentControl _preview = new() { HorizontalAlignment = HorizontalAlignment.Left };
     private Button? _removeAvatar;
+    private UIElement? _editor;       // der Editor selbst, solange der Bildausschnitt gewählt wird
 
     public string? BlockClose => null;
 
@@ -199,7 +201,7 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
             row.Children.Add(delete);
         }
         stack.Children.Add(row);
-        Content = stack;
+        Content = _editor = stack;
     }
 
     private static TextBlock Label(string text)
@@ -247,17 +249,48 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
             Filter = "Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|Alle Dateien|*.*",
         };
         if (dialog.ShowDialog() != true) return;
+        BitmapSource image;
         try
         {
-            _avatar = AvatarImage.FromFile(dialog.FileName);
+            image = AvatarImage.Load(dialog.FileName);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             _shell.ShowMessage(ex.Message, isError: true);
             return;
         }
-        _avatarChanged = true;
-        RefreshAvatar();
+        ShowCropper(image);
+    }
+
+    /// <summary>Ersetzt den Editor, bis der Ausschnitt übernommen oder verworfen ist: Bild verschieben und zoomen, bis der Kreis passt.</summary>
+    private void ShowCropper(BitmapSource image)
+    {
+        var cropper = new AvatarCropper(image) { HorizontalAlignment = HorizontalAlignment.Center };
+        var note = PageParts.Muted("Ziehen verschiebt das Bild, Mausrad oder Regler zoomen. Im Kreis liegt das spätere Profilbild.", 12);
+        note.Margin = new Thickness(0, 10, 0, 0);
+        note.TextWrapping = TextWrapping.Wrap;
+
+        var apply = PageParts.Button("Übernehmen", "PrimaryButton", (_, _) =>
+        {
+            try
+            {
+                _avatar = cropper.ToPng();
+            }
+            catch (InvalidDataException ex)
+            {
+                _shell.ShowMessage(ex.Message, isError: true);
+                return;
+            }
+            _avatarChanged = true;
+            Content = _editor;
+            RefreshAvatar();
+        }, new Thickness(0, 18, 10, 0));
+        AutomationProperties.SetName(apply, "Ausschnitt übernehmen");
+        var cancel = PageParts.Button("Abbrechen", "GhostButton", (_, _) => Content = _editor, new Thickness(0, 18, 0, 0));
+        AutomationProperties.SetName(cancel, "Ausschnitt verwerfen");
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Children = { apply, cancel } };
+        Content = new StackPanel { Children = { Label("Bildausschnitt"), cropper, note, buttons } };
     }
 
     private UIElement Colors()
