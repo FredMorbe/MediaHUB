@@ -80,6 +80,30 @@ public sealed class ProfileAvatarTests : IDisposable
         Assert.Throws<ArgumentException>(() => _db.SetProfileAvatar(LibraryDb.DefaultProfileId, big));
     }
 
+    [Theory]
+    [InlineData(23)]
+    [InlineData(24)]
+    public void A_database_of_the_previous_schemas_is_migrated(int version)
+    {
+        var path = Path.Combine(_base, $"old{version}.db");
+        using (new LibraryDb(path)) { }
+        SqliteConnection.ClearAllPools();
+        using (var connection = new SqliteConnection($"Data Source={path}"))
+        {
+            connection.Open();
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DROP TABLE profile_avatars;" + (version == 23 ? " DROP TABLE audio_settings;" : "") + $" PRAGMA user_version = {version};";
+            cmd.ExecuteNonQuery();
+        }
+        SqliteConnection.ClearAllPools();
+
+        using var migrated = new LibraryDb(path);
+        migrated.SetProfileAvatar(LibraryDb.DefaultProfileId, Png);
+
+        Assert.Equal(Png, migrated.GetProfileAvatar(LibraryDb.DefaultProfileId));
+        Assert.Equal(0, migrated.GetAudioDelay(1));
+    }
+
     [Fact]
     public void An_unknown_profile_is_an_error()
     {
