@@ -179,6 +179,24 @@ public sealed class MusicIndexTests
         Assert.Equal(new[] { "Alpha", "Zebra" }, artists.Select(a => a.Name));
         Assert.Equal(2, artists[1].Albums.Count);
     }
+
+    [Fact]
+    public void Song_artists_group_by_the_artist_of_the_track_even_inside_a_compilation_album()
+    {
+        var tracks = new[]
+        {
+            Track(1, "Eins", "Alpha", "Verschiedene Interpreten", "Sampler", 1),
+            Track(2, "Zwei", "alpha", "Verschiedene Interpreten", "Sampler", 2),
+            Track(3, "Drei", "Zebra", "Verschiedene Interpreten", "Sampler", 3),
+            Track(4, "Ohne", null, "Beta", "Solo", 1),
+        };
+
+        var artists = MusicIndex.BuildSongArtists(tracks);
+
+        Assert.Equal(new[] { "Alpha", "Beta", "Zebra" }, artists.Select(a => a.Name));
+        Assert.Equal(new long[] { 1, 2 }, artists[0].Tracks.Select(t => t.TrackId));
+        Assert.Equal(new long[] { 4 }, artists[1].Tracks.Select(t => t.TrackId)); // ohne Titel-Künstler gilt der Album-Künstler
+    }
 }
 
 public sealed class MusicLibraryTests : IDisposable

@@ -46,6 +46,9 @@ public sealed class AppSettings
     /// <summary>Schlüssel der zuletzt gespielten Alben, das neueste zuerst (für „Zuletzt gehört“ auf der Musik-Seite).</summary>
     public List<string> RecentAlbums { get; set; } = new();
 
+    /// <summary>Die Künstlerliste der Musik-Seite führt die Künstler der Titel statt die der Alben (Schalter „Nach Song“).</summary>
+    public bool ArtistsBySong { get; set; }
+
     /// <summary>Lautstärke von Musik, Radio und Podcasts (0 bis 100).</summary>
     public double AudioVolume { get; set; } = 80;
 

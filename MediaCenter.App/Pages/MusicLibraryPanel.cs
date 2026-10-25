@@ -34,6 +34,7 @@ internal sealed class MusicLibraryPanel : Border
     private readonly StackPanel _list = new();
     private readonly ScrollViewer _scroll;
     private readonly TextBox _search;
+    private readonly Border _basis;
     private readonly Dictionary<string, TextBlock> _albumNames = new();
     private readonly Dictionary<string, Border> _selection = new();
     private List<Func<UIElement>> _rows = new();
@@ -43,7 +44,8 @@ internal sealed class MusicLibraryPanel : Border
     private string? _playingAlbum;
     private long? _playingTrack;
 
-    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks, Action<long> openPlaylist, Action newPlaylist)
+    /// <param name="artistBasisChanged">Der Schalter „Nach Album / Nach Song“ wurde umgelegt; die Musik-Seite baut Start und Künstlerliste neu.</param>
+    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks, Action<long> openPlaylist, Action newPlaylist, Action artistBasisChanged)
     {
         _shell = shell;
         _model = shell.Services.Model;
@@ -81,10 +83,24 @@ internal sealed class MusicLibraryPanel : Border
         header.Children.Add(refresh);
         header.Children.Add(add);
 
+        var settings = shell.Services.Settings;
+        _basis = PageParts.Segmented("musicartists",
+            new[] { (false, "Nach Album"), (true, "Nach Song") }.Select(m => (m.Item2, m.Item1 == settings.ArtistsBySong, (Action)(() =>
+            {
+                settings.ArtistsBySong = m.Item1;
+                settings.Save();
+                Fill();
+                artistBasisChanged();
+            }))),
+            "Künstler");
+        _basis.Margin = new Thickness(12, 0, 12, 6);
+        _basis.Visibility = Visibility.Collapsed;
+
         var modes = PageParts.Segmented("musiclib",
             new[] { (Mode.Albums, "Alben"), (Mode.Artists, "Künstler"), (Mode.Playlists, "Playlists") }.Select(m => (m.Item2, m.Item1 == _mode, (Action)(() =>
             {
                 _mode = m.Item1;
+                _basis.Visibility = _mode == Mode.Artists ? Visibility.Visible : Visibility.Collapsed;
                 Fill();
             }))),
             "Bibliothek");
@@ -108,12 +124,15 @@ internal sealed class MusicLibraryPanel : Border
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         Grid.SetRow(modes, 1);
-        Grid.SetRow(field, 2);
-        Grid.SetRow(_scroll, 3);
+        Grid.SetRow(_basis, 2);
+        Grid.SetRow(field, 3);
+        Grid.SetRow(_scroll, 4);
         layout.Children.Add(header);
         layout.Children.Add(modes);
+        layout.Children.Add(_basis);
         layout.Children.Add(field);
         layout.Children.Add(_scroll);
         Child = layout;
@@ -224,12 +243,25 @@ internal sealed class MusicLibraryPanel : Border
         }
         else
         {
-            foreach (var artist in _model.Artists.Where(a => text.Length == 0 || a.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))
+            if (_shell.Services.Settings.ArtistsBySong)
             {
-                var captured = artist;
-                var cover = captured.Albums.Select(a => _model.AlbumArtPath(a.Key)).FirstOrDefault(p => p is not null);
-                var count = $"Künstler · {captured.Albums.Count} {(captured.Albums.Count == 1 ? "Album" : "Alben")}";
-                _rows.Add(() => Row($"artist:{captured.Name}", ImageCache.Load(cover, 96), true, count, captured.Name, () => _openArtist(captured.Name), null));
+                foreach (var artist in _model.SongArtists.Where(a => text.Length == 0 || a.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))
+                {
+                    var captured = artist;
+                    var cover = captured.Tracks.Select(t => _model.AlbumArtPath(MusicIndex.AlbumKeyOf(t))).FirstOrDefault(p => p is not null);
+                    var count = $"Künstler · {captured.Tracks.Count} Titel";
+                    _rows.Add(() => Row($"artist:{captured.Name}", ImageCache.Load(cover, 96), true, count, captured.Name, () => _openArtist(captured.Name), null));
+                }
+            }
+            else
+            {
+                foreach (var artist in _model.Artists.Where(a => text.Length == 0 || a.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))
+                {
+                    var captured = artist;
+                    var cover = captured.Albums.Select(a => _model.AlbumArtPath(a.Key)).FirstOrDefault(p => p is not null);
+                    var count = $"Künstler · {captured.Albums.Count} {(captured.Albums.Count == 1 ? "Album" : "Alben")}";
+                    _rows.Add(() => Row($"artist:{captured.Name}", ImageCache.Load(cover, 96), true, count, captured.Name, () => _openArtist(captured.Name), null));
+                }
             }
         }
 

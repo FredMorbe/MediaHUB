@@ -113,6 +113,8 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
 
     public IReadOnlyList<ArtistInfo> Artists { get; private set; } = Array.Empty<ArtistInfo>();
 
+    public IReadOnlyList<SongArtistInfo> SongArtists { get; private set; } = Array.Empty<SongArtistInfo>();
+
     public IReadOnlyList<PlaylistInfo> Playlists { get; private set; } = Array.Empty<PlaylistInfo>();
 
     /// <summary>Eine Playlist wurde angelegt, umbenannt, gelöscht oder ihre Titel haben sich geändert (<see cref="ReloadPlaylists"/>).</summary>
@@ -153,6 +155,7 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Tracks = Profile.Kids ? Array.Empty<TrackRow>() : db.ListTracks();
         Albums = MusicIndex.BuildAlbums(Tracks);
         Artists = MusicIndex.BuildArtists(Albums);
+        SongArtists = MusicIndex.BuildSongArtists(Tracks);
         _albumArt = db.GetAllAlbumArt().ToDictionary(a => a.Key, a => Path.Combine(artwork.CacheDir, a.Value.File));
         Playlists = MusicIndex.BuildPlaylists(db.ListPlaylists(), db.ListPlaylistItems(), Tracks);
     }

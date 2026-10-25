@@ -10,6 +10,10 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.1", "25.10.2026", new[]
+        {
+            "Musik: In der Bibliothek gibt es unter „Künstler“ den Schalter „Nach Album / Nach Song“. „Nach Album“ (Standard) führt wie bisher die Album-Künstler; „Nach Song“ führt die Künstler der einzelnen Titel, auch aus Sammelalben wie „Verschiedene Interpreten“. Die Künstlerseite zeigt dann die Titel des Künstlers statt seiner Alben. Der Schalter gilt auch für Start und die Seite „Künstler“ und bleibt gespeichert.",
+        }),
         new ChangelogEntry("0.17.0", "25.10.2026", new[]
         {
             "Bibliothek aktualisiert sich selbst: Neue, entfernte und umbenannte Dateien in den Ordnern unter „Laufwerke“ nimmt die App nach einer Ruhepause von 8 Sekunden auf (Meldung „Bibliothek aktualisiert: …“); beim Start und bei einem angeschlossenen Laufwerk gleicht sie alles einmal ab. Während ein Video läuft oder ein Fenster offen ist, wartet sie. Eine noch kopierte Datei wird später nochmal versucht. Einstellungen → Bibliothek → „Ordner überwachen“.",

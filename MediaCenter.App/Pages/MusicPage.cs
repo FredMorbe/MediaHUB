@@ -29,6 +29,7 @@ public sealed class MusicPage : UserControl
         Tracks,
         Album,
         Artist,
+        ArtistSongs,
         Playlist,
     }
 
@@ -56,8 +57,8 @@ public sealed class MusicPage : UserControl
         _fromOutside = openAlbumKey is not null;
         if (openAlbumKey is not null) _view = new View(Kind.Album, openAlbumKey);
 
-        _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(new View(Kind.Artist, name)), () => Go(new View(Kind.Tracks)),
-            id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist)
+        _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(ArtistView(name)), () => Go(new View(Kind.Tracks)),
+            id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist, OnArtistBasisChanged)
         {
             Margin = new Thickness(0, 0, 6, 0),
         };
@@ -124,6 +125,15 @@ public sealed class MusicPage : UserControl
             e.Handled = true;
         };
         Render(animate: false);
+    }
+
+    /// <summary>Seite eines Künstlers aus der Künstlerliste: je nach Schalter seine Alben oder seine Titel.</summary>
+    private View ArtistView(string name) => new(_shell.Services.Settings.ArtistsBySong ? Kind.ArtistSongs : Kind.Artist, name);
+
+    /// <summary>Der Schalter „Nach Album / Nach Song“ wurde umgelegt: Start und Künstlerliste zeigen die andere Art Künstler; eine offene Künstlerseite bleibt.</summary>
+    private void OnArtistBasisChanged()
+    {
+        if (_view.Kind is Kind.Home or Kind.Artists) Render(animate: false);
     }
 
     private void Go(View next)
@@ -206,6 +216,7 @@ public sealed class MusicPage : UserControl
             Kind.Tracks => BuildTracks(),
             Kind.Album => new AlbumPage(_shell, _view.Key!, name => Go(new View(Kind.Artist, name))),
             Kind.Artist => BuildArtist(_view.Key!),
+            Kind.ArtistSongs => BuildArtistSongs(_view.Key!),
             Kind.Playlist => new PlaylistPage(_shell, long.Parse(_view.Key!), OnPlaylistDeleted, startRenaming),
             _ => throw new InvalidOperationException($"Unbekannte Ansicht {_view.Kind}."),
         };
@@ -218,7 +229,7 @@ public sealed class MusicPage : UserControl
         _library.Select(_view.Kind switch
         {
             Kind.Album => $"album:{_view.Key}",
-            Kind.Artist => $"artist:{_view.Key}",
+            Kind.Artist or Kind.ArtistSongs => $"artist:{_view.Key}",
             Kind.Playlist => $"playlist:{_view.Key}",
             Kind.Tracks => "tracks",
             _ => null,
@@ -256,10 +267,10 @@ public sealed class MusicPage : UserControl
 
         if (recent.Count > 0) AddRow(stack, "Zuletzt gehört", recent.Take(RowItems), null);
         AddRow(stack, "Neu hinzugefügt", newest.Take(RowItems), () => Go(new View(Kind.Albums)));
-        if (_model.Artists.Count > 0)
+        var artists = ArtistCards().Take(RowItems).ToList();
+        if (artists.Count > 0)
         {
-            var artists = _model.Artists.Take(RowItems).Select(ArtistCard).ToList();
-            stack.Children.Add(new CardRow("Künstler", artists, card => Go(new View(Kind.Artist, card.Title)), null, () => Go(new View(Kind.Artists)), compact: true)
+            stack.Children.Add(new CardRow("Künstler", artists, card => Go(ArtistView(card.Title)), null, () => Go(new View(Kind.Artists)), compact: true)
             {
                 Margin = new Thickness(0, 12, 0, 0),
             });
@@ -320,21 +331,24 @@ public sealed class MusicPage : UserControl
         return new Grid { Margin = new Thickness(0, 0, 10, 10), Children = { rest, row } };
     }
 
-    private CardItem ArtistCard(ArtistInfo artist)
-    {
-        var cover = artist.Albums.Select(a => _model.AlbumArtPath(a.Key)).FirstOrDefault(p => p is not null);
-        return new CardItem
+    /// <summary>Karten der Künstler, je nach Schalter nach Alben oder nach Titeln.</summary>
+    private IEnumerable<CardItem> ArtistCards() =>
+        _shell.Services.Settings.ArtistsBySong
+            ? _model.SongArtists.Select(a => ArtistCard(a.Name, $"{a.Tracks.Count} Titel", a.Tracks.Select(t => _model.AlbumArtPath(MusicIndex.AlbumKeyOf(t))), a))
+            : _model.Artists.Select(a => ArtistCard(a.Name, $"{a.Albums.Count} {(a.Albums.Count == 1 ? "Album" : "Alben")}", a.Albums.Select(x => _model.AlbumArtPath(x.Key)), a));
+
+    private static CardItem ArtistCard(string name, string meta, IEnumerable<string?> covers, object tag) =>
+        new()
         {
             TitleId = 0,
-            Title = artist.Name,
-            Meta = $"{artist.Albums.Count} {(artist.Albums.Count == 1 ? "Album" : "Alben")}",
+            Title = name,
+            Meta = meta,
             Kind = TitleKind.Movie,
-            Image = ImageCache.Load(cover, 360),
+            Image = ImageCache.Load(covers.FirstOrDefault(p => p is not null), 360),
             Square = true,
             SquareSize = 140,
-            Tag = artist,
+            Tag = tag,
         };
-    }
 
     // --- Gesamtlisten, Künstler ----------------------------------------------------------------------------
 
@@ -349,16 +363,30 @@ public sealed class MusicPage : UserControl
     private FrameworkElement BuildArtists()
     {
         var stack = new StackPanel();
-        stack.Children.Add(PageParts.Header("Bibliothek", "Künstler", $"{_model.Artists.Count} Künstler", 36));
+        var cards = ArtistCards().ToList();
+        stack.Children.Add(PageParts.Header("Bibliothek", "Künstler", $"{cards.Count} Künstler", 36));
         var grid = new WrapPanel();
-        foreach (var artist in _model.Artists)
+        foreach (var item in cards)
         {
-            var card = new CardView(ArtistCard(artist)) { Margin = new Thickness(0, 0, 14, 14) };
-            var name = artist.Name;
-            card.Activated += _ => Go(new View(Kind.Artist, name));
+            var card = new CardView(item) { Margin = new Thickness(0, 0, 14, 14) };
+            var name = item.Title;
+            card.Activated += _ => Go(ArtistView(name));
             grid.Children.Add(card);
         }
         stack.Children.Add(grid);
+        return stack;
+    }
+
+    /// <summary>Seite eines Künstlers nach Titeln: alle Titel, deren Künstler so heißt, auch aus Sammelalben.</summary>
+    private FrameworkElement BuildArtistSongs(string name)
+    {
+        // Wie bei den Alben: ist der Künstler nach einer Änderung verschwunden (Titel umbenannt), bleibt die Seite leer.
+        var tracks = _model.SongArtists.FirstOrDefault(a => string.Equals(a.Name, name, StringComparison.CurrentCultureIgnoreCase))?.Tracks.ToList() ?? new List<TrackRow>();
+        var stack = new StackPanel();
+        stack.Children.Add(PageParts.Header("Künstler", name, $"{tracks.Count} Titel", 36));
+        var (table, fill) = TrackTable();
+        stack.Children.Add(table);
+        fill(tracks, true);
         return stack;
     }
 
@@ -397,15 +425,11 @@ public sealed class MusicPage : UserControl
         field.Margin = new Thickness(0, 0, 0, 8);
         stack.Children.Add(field);
 
-        var columns = new[] { new GridLength(40), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) };
-        stack.Children.Add(PageParts.TableHeader(columns, "#", "Titel", "Künstler", "Album", "Dauer"));
-        var list = new StackPanel();
-        stack.Children.Add(list);
-        var shown = TracksPerPage;
+        var (table, fillTable) = TrackTable();
+        stack.Children.Add(table);
 
         void Fill()
         {
-            list.Children.Clear();
             var text = box.Text.Trim();
             var tracks = _model.Tracks
                 .Where(t => text.Length == 0
@@ -415,6 +439,31 @@ public sealed class MusicPage : UserControl
                 .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
             count.Text = $"{tracks.Count} Titel";
+            fillTable(tracks, true);
+        }
+
+        box.TextChanged += (_, _) => Fill();
+        Fill();
+        return stack;
+    }
+
+    /// <summary>
+    /// Tabelle mit Titeln (Kopf und Zeilen). <c>fill(tracks, reset)</c> füllt sie neu; mit <c>reset</c> beginnt sie wieder bei den ersten
+    /// <see cref="TracksPerPage"/> Zeilen, „Weitere anzeigen“ holt jeweils die nächsten.
+    /// </summary>
+    private (StackPanel Table, Action<List<TrackRow>, bool> Fill) TrackTable()
+    {
+        var columns = new[] { new GridLength(40), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) };
+        var table = new StackPanel();
+        table.Children.Add(PageParts.TableHeader(columns, "#", "Titel", "Künstler", "Album", "Dauer"));
+        var list = new StackPanel();
+        table.Children.Add(list);
+        var shown = TracksPerPage;
+
+        void Fill(List<TrackRow> tracks, bool reset)
+        {
+            if (reset) shown = TracksPerPage;
+            list.Children.Clear();
 
             foreach (var (track, index) in tracks.Take(shown).Select((t, i) => (t, i)))
             {
@@ -447,17 +496,11 @@ public sealed class MusicPage : UserControl
                 list.Children.Add(PageParts.Button($"Weitere anzeigen ({tracks.Count - shown})", "GhostButton", (_, _) =>
                 {
                     shown += TracksPerPage;
-                    Fill();
+                    Fill(tracks, false);
                 }, new Thickness(0, 10, 0, 0)));
             }
         }
 
-        box.TextChanged += (_, _) =>
-        {
-            shown = TracksPerPage;
-            Fill();
-        };
-        Fill();
-        return stack;
+        return (table, Fill);
     }
 }

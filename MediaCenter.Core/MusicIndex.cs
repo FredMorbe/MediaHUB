@@ -19,6 +19,9 @@ public sealed record AlbumInfo(string Key, string Title, string Artist, int? Yea
 
 public sealed record ArtistInfo(string Name, IReadOnlyList<AlbumInfo> Albums);
 
+/// <summary>Künstler nach den Titeln: alle Titel, deren Künstler (nicht der des Albums) so heißt, auch aus Sammelalben.</summary>
+public sealed record SongArtistInfo(string Name, IReadOnlyList<TrackRow> Tracks);
+
 /// <param name="Tracks">In der Reihenfolge der Playlist.</param>
 public sealed record PlaylistInfo(long Id, string Name, IReadOnlyList<TrackRow> Tracks);
 
@@ -110,5 +113,24 @@ public static partial class MusicIndex
             .GroupBy(a => a.Artist, StringComparer.CurrentCultureIgnoreCase)
             .Select(g => new ArtistInfo(g.First().Artist, g.ToList()))
             .OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+    /// <summary>Künstler des einzelnen Titels; ohne Titel-Künstler der des Albums.</summary>
+    public static string SongArtistOf(TrackRow track) => !string.IsNullOrWhiteSpace(track.Artist) ? track.Artist! : ArtistOf(track);
+
+    /// <summary>Gruppiert die Titel nach dem Künstler des Titels (ohne Rücksicht auf Groß- und Kleinschreibung); die Titel jedes Künstlers nach Album und Nummer.</summary>
+    public static IReadOnlyList<SongArtistInfo> BuildSongArtists(IEnumerable<TrackRow> tracks) =>
+        tracks
+            .GroupBy(SongArtistOf, StringComparer.CurrentCultureIgnoreCase)
+            .Select(g => new SongArtistInfo(g.Key, SortForArtist(g)))
+            .OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+    private static List<TrackRow> SortForArtist(IEnumerable<TrackRow> tracks) =>
+        tracks
+            .OrderBy(t => t.Album ?? UnknownAlbum, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(t => t.DiscNo ?? 1)
+            .ThenBy(t => t.TrackNo ?? int.MaxValue)
+            .ThenBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 }
