@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 23;
+    private const int SchemaVersion = 25;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -529,6 +529,20 @@ public sealed partial class LibraryDb : IDisposable
                 CREATE TABLE trakt_pushed (
                     video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
                     pushed_utc TEXT NOT NULL
+                );
+                """);
+            // Schema 24: Ton-Zeitversatz pro Video (Nutzerdaten; fehlt die Zeile, läuft der Ton unverschoben).
+            if (version < 24) Run("""
+                CREATE TABLE audio_settings (
+                    video_id INTEGER PRIMARY KEY REFERENCES videos(id) ON DELETE CASCADE,
+                    delay_sec REAL NOT NULL
+                );
+                """);
+            // Schema 25: Profilbilder (hochgeladen, als PNG); ohne Zeile zeigt das Profil seinen Farbkreis mit Anfangsbuchstaben.
+            if (version < 25) Run("""
+                CREATE TABLE profile_avatars (
+                    profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+                    image BLOB NOT NULL
                 );
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");

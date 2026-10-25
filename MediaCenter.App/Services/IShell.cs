@@ -18,12 +18,42 @@ public enum Section
     History,
 }
 
+/// <summary>Namen der Reiter in der Navigation (Leiste und Einstellungen).</summary>
+public static class SectionLabels
+{
+    /// <summary>Alle Reiter, die sich ausblenden lassen, in der Reihenfolge der Leiste; „Einstellungen“ fehlt absichtlich (sonst käme man nicht zurück).</summary>
+    public static IReadOnlyList<Section> Hideable { get; } = new[]
+    {
+        Section.Home, Section.Movies, Section.Series, Section.Music, Section.Radio, Section.Live, Section.Podcasts,
+        Section.Sources, Section.Inbox, Section.History,
+    };
+
+    public static string Of(Section section) => section switch
+    {
+        Section.Home => "Start",
+        Section.Movies => "Filme",
+        Section.Series => "Serien",
+        Section.Music => "Musik",
+        Section.Radio => "Radio",
+        Section.Live => "Live-TV",
+        Section.Podcasts => "Podcasts",
+        Section.Sources => "Laufwerke",
+        Section.Inbox => "Inbox",
+        Section.History => "Verlauf und Statistik",
+        Section.Settings => "Einstellungen",
+        _ => throw new ArgumentOutOfRangeException(nameof(section), section, null),
+    };
+}
+
 /// <summary>Was die Seiten vom Hauptfenster brauchen.</summary>
 public interface IShell
 {
     AppServices Services { get; }
 
     void Navigate(Section section);
+
+    /// <summary>Zeigt die Reiter der Leiste neu an, nachdem sich in den Einstellungen geändert hat, welche ausgeblendet sind.</summary>
+    void RefreshNavigation();
 
     void OpenTitle(long titleId);
 

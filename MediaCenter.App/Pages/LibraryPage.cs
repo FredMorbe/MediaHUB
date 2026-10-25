@@ -75,9 +75,6 @@ public sealed class LibraryPage : UserControl
         UpdateButtons();
         actions.Children.Add(_sortButton);
         actions.Children.Add(_watchButton);
-        var refresh = PageParts.LibraryRefreshButton(_shell);
-        refresh.Margin = new Thickness(8, 0, 0, 8);
-        if (!_model.Profile.Kids) actions.Children.Add(refresh);
         if (kind == TitleKind.Series && !_model.Profile.Kids)
         {
             var calendar = PageParts.Compact(PageParts.Button("Kalender", "GhostButton", (_, _) => _shell.Open(() => new CalendarPage(_shell)), new Thickness(8, 0, 0, 8)));

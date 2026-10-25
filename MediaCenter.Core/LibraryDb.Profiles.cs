@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 namespace MediaCenter.Core;
 
 /// <param name="Kids">Kinderprofil: sieht nur freigegebene Titel (<see cref="LibraryDb.SetKidsTitles"/>) und keine Verwaltung.</param>
-public sealed record ProfileRow(long Id, string Name, string Color, bool Kids, bool HasPin);
+/// <param name="HasAvatar">Das Profil hat ein hochgeladenes Bild (<see cref="LibraryDb.GetProfileAvatar"/>) statt des Farbkreises.</param>
+public sealed record ProfileRow(long Id, string Name, string Color, bool Kids, bool HasPin, bool HasAvatar = false);
 
 // Profile: wer schaut, hat eigenen Fortschritt (playback), eigene Meine Liste (watchlist) und eigenen Podcast-Fortschritt. Alles andere
 // (Titel, Cover, Sammlungen, Playlists, Untertitel- und Farbeinstellungen je Video) teilen sich die Profile. Die Abfragen dieser drei
@@ -11,6 +12,11 @@ public sealed record ProfileRow(long Id, string Name, string Color, bool Kids, b
 public sealed partial class LibraryDb
 {
     public const int MaxProfileNameLength = 30;
+
+    /// <summary>Größte Datei eines Profilbilds; die App speichert 256 × 256 Pixel, das ist weit darunter.</summary>
+    public const int MaxAvatarBytes = 1024 * 1024;
+
+    private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
 
     /// <summary>Das Profil, das die Migration anlegt und dem alle bisherigen Daten gehören.</summary>
     public const long DefaultProfileId = 1;
@@ -36,9 +42,9 @@ public sealed partial class LibraryDb
     public List<ProfileRow> ListProfiles()
     {
         var rows = new List<ProfileRow>();
-        using var cmd = Command("SELECT id, name, color, kids, pin_hash IS NOT NULL FROM profiles ORDER BY id");
+        using var cmd = Command("SELECT id, name, color, kids, pin_hash IS NOT NULL, EXISTS (SELECT 1 FROM profile_avatars a WHERE a.profile_id = profiles.id) FROM profiles ORDER BY id");
         using var r = cmd.ExecuteReader();
-        while (r.Read()) rows.Add(new ProfileRow(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt32(3) == 1, r.GetInt32(4) == 1));
+        while (r.Read()) rows.Add(new ProfileRow(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt32(3) == 1, r.GetInt32(4) == 1, r.GetInt32(5) == 1));
         return rows;
     }
 
@@ -96,6 +102,34 @@ public sealed partial class LibraryDb
     {
         _ = GetProfile(id);
         Run("UPDATE profiles SET color = $color WHERE id = $id", ("$color", ValidColor(color)), ("$id", id));
+    }
+
+    /// <summary>Das Bild des Profils als PNG, null ohne Bild.</summary>
+    public byte[]? GetProfileAvatar(long id)
+    {
+        using var cmd = Command("SELECT image FROM profile_avatars WHERE profile_id = $id", ("$id", id));
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? (byte[])r["image"] : null;
+    }
+
+    /// <summary>Setzt das Bild des Profils (PNG, höchstens <see cref="MaxAvatarBytes"/>); null entfernt es.</summary>
+    /// <exception cref="ArgumentException">Kein PNG oder zu groß.</exception>
+    /// <exception cref="InvalidOperationException">Das Profil gibt es nicht.</exception>
+    public void SetProfileAvatar(long id, byte[]? png)
+    {
+        _ = GetProfile(id);
+        if (png is null)
+        {
+            Run("DELETE FROM profile_avatars WHERE profile_id = $id", ("$id", id));
+            return;
+        }
+        if (png.Length > MaxAvatarBytes) throw new ArgumentException($"Das Bild ist größer als {MaxAvatarBytes / 1024} KiB.", nameof(png));
+        if (png.Length < PngSignature.Length || !png.AsSpan(0, PngSignature.Length).SequenceEqual(PngSignature))
+            throw new ArgumentException("Das Bild ist kein PNG.", nameof(png));
+        Run("""
+            INSERT INTO profile_avatars (profile_id, image) VALUES ($id, $image)
+            ON CONFLICT (profile_id) DO UPDATE SET image = excluded.image
+            """, ("$id", id), ("$image", png));
     }
 
     /// <exception cref="InvalidOperationException">

@@ -17,13 +17,6 @@ internal sealed class MusicLibraryPanel : Border
     private const string AddGlyph = "\uE710";
     private const string NoteGlyph = "\uE8D6";
 
-    private enum Mode
-    {
-        Albums,
-        Artists,
-        Playlists,
-    }
-
     private readonly IShell _shell;
     private readonly LibraryModel _model;
     private readonly Action<string> _openAlbum;
@@ -39,7 +32,7 @@ internal sealed class MusicLibraryPanel : Border
     private readonly Dictionary<string, Border> _selection = new();
     private List<Func<UIElement>> _rows = new();
     private int _shown;
-    private Mode _mode = Mode.Albums;
+    private MusicLibraryMode _mode;
     private string? _selectedKey;
     private string? _playingAlbum;
     private long? _playingTrack;
@@ -54,6 +47,7 @@ internal sealed class MusicLibraryPanel : Border
         _openTracks = openTracks;
         _openPlaylist = openPlaylist;
         _newPlaylist = newPlaylist;
+        _mode = shell.Services.Settings.MusicLibraryMode; // die Auswahl vom letzten Mal
 
         Width = 280;
         CornerRadius = new CornerRadius(12);
@@ -69,18 +63,14 @@ internal sealed class MusicLibraryPanel : Border
         add.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(add, "Ordner mit Musik hinzufügen");
         add.Click += async (_, _) => await LibraryActions.AddFolderAsync(_shell);
-        var refresh = PageParts.LibraryRefreshButton(shell, iconOnly: true);
-        Grid.SetColumn(refresh, 2);
-        Grid.SetColumn(add, 3);
+        Grid.SetColumn(add, 2);
         var header = new Grid { Margin = new Thickness(16, 10, 10, 6) };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(title, 1);
         header.Children.Add(icon);
         header.Children.Add(title);
-        header.Children.Add(refresh);
         header.Children.Add(add);
 
         var settings = shell.Services.Settings;
@@ -94,13 +84,15 @@ internal sealed class MusicLibraryPanel : Border
             }))),
             "Künstler");
         _basis.Margin = new Thickness(12, 0, 12, 6);
-        _basis.Visibility = Visibility.Collapsed;
+        _basis.Visibility = _mode == MusicLibraryMode.Artists ? Visibility.Visible : Visibility.Collapsed;
 
         var modes = PageParts.Segmented("musiclib",
-            new[] { (Mode.Albums, "Alben"), (Mode.Artists, "Künstler"), (Mode.Playlists, "Playlists") }.Select(m => (m.Item2, m.Item1 == _mode, (Action)(() =>
+            new[] { (MusicLibraryMode.Albums, "Alben"), (MusicLibraryMode.Artists, "Künstler"), (MusicLibraryMode.Playlists, "Playlists") }.Select(m => (m.Item2, m.Item1 == _mode, (Action)(() =>
             {
                 _mode = m.Item1;
-                _basis.Visibility = _mode == Mode.Artists ? Visibility.Visible : Visibility.Collapsed;
+                shell.Services.Settings.MusicLibraryMode = _mode;
+                shell.Services.Settings.Save();
+                _basis.Visibility = _mode == MusicLibraryMode.Artists ? Visibility.Visible : Visibility.Collapsed;
                 Fill();
             }))),
             "Bibliothek");
@@ -169,7 +161,7 @@ internal sealed class MusicLibraryPanel : Border
     /// <summary>Die Liste der Playlists hat sich geändert; ist sie sichtbar, baut sie sich neu auf, ohne dass die Liste nach oben springt.</summary>
     private void OnPlaylistsChanged()
     {
-        if (_mode != Mode.Playlists) return;
+        if (_mode != MusicLibraryMode.Playlists) return;
         var offset = _scroll.VerticalOffset;
         Fill();
         _scroll.UpdateLayout();
@@ -217,7 +209,7 @@ internal sealed class MusicLibraryPanel : Border
             _rows.Add(() => Row("tracks", null, false, $"{_model.Tracks.Count} Titel", "Alle Titel", _openTracks, null, accentTile: true));
         }
 
-        if (_mode == Mode.Albums)
+        if (_mode == MusicLibraryMode.Albums)
         {
             // Zuletzt gehörte Alben zuerst, danach der Rest in der Reihenfolge der Bibliothek.
             var recent = _shell.Services.Settings.RecentAlbums;
@@ -231,7 +223,7 @@ internal sealed class MusicLibraryPanel : Border
                 _rows.Add(() => Row($"album:{captured.Key}", ImageCache.Load(_model.AlbumArtPath(captured.Key), 96), false, $"Album · {captured.Artist}", captured.Title, () => _openAlbum(captured.Key), captured.Key));
             }
         }
-        else if (_mode == Mode.Playlists)
+        else if (_mode == MusicLibraryMode.Playlists)
         {
             if (text.Length == 0) _rows.Add(() => Row("new-playlist", null, false, "Leere Playlist anlegen", "Neue Playlist", _newPlaylist, null, accentTile: true, symbol: AddGlyph));
             foreach (var playlist in _model.Playlists.Where(p => text.Length == 0 || p.Name.Contains(text, StringComparison.CurrentCultureIgnoreCase)))

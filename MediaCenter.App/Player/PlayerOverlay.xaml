@@ -216,8 +216,10 @@
 
         <!-- Untertitel anpassen: Zeitversatz, Größe, Höhe (Inhalt entsteht im Code) -->
         <Border x:Name="AdjustPanel" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,28,176"
-                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14" MinWidth="380">
-            <StackPanel x:Name="AdjustContent"/>
+                CornerRadius="16" Background="#F00B1220" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="18,14,10,14" MinWidth="380">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="AdjustContent" Margin="0,0,8,0"/>
+            </ScrollViewer>
         </Border>
 
         <!-- Bild: Seitenverhältnis, Tempo, Zoom und Ausschnitt, Drehen (Inhalt entsteht im Code) -->

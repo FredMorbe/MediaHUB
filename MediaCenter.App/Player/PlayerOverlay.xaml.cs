@@ -33,7 +33,9 @@ public partial class PlayerOverlay : Window
     private bool _building;
     private bool _canEmbed;
     private SubtitleAdjustment _adjustment = SubtitleAdjustment.Default;
+    private double _audioDelay;
     private readonly TextBlock _delayText = new();
+    private readonly TextBlock _audioDelayText = new();
     private readonly TextBlock _sizeText = new();
     private readonly TextBlock _positionText = new();
     private static readonly CultureInfo German = new("de-DE");
@@ -90,6 +92,9 @@ public partial class PlayerOverlay : Window
 
     /// <summary>Zeitversatz, Größe oder Höhe der Untertitel wurden geändert (Schaltflächen oder Tasten Z/X).</summary>
     public event Action<SubtitleAdjustment>? AdjustmentChanged;
+
+    /// <summary>Der Ton-Zeitversatz wurde geändert (Schaltflächen oder Tasten G/H); Sekunden, positiv = Ton später.</summary>
+    public event Action<double>? AudioDelayChanged;
 
     /// <summary>Der Nutzer hat im Anpassen-Fenster ein anderes Aussehen der Untertitel gewählt (gilt für alle Videos).</summary>
     public event Action<SubtitleStyle>? SubtitleStyleChanged;
@@ -225,8 +230,13 @@ public partial class PlayerOverlay : Window
             e.Handled = true;
         };
         PreviewMouseMove += (_, _) => Activity?.Invoke();
+        // Doppelklick beim Drücken erkennen: Beim Loslassen meldet WPF keinen Klickzähler von 2 (der zweite Klick wäre sonst
+        // nur eine zweite Pause-Umschaltung, ohne Vollbild).
+        Root.PreviewMouseLeftButtonDown += (_, e) => _doubleClick = e.ClickCount == 2;
         Root.MouseLeftButtonUp += OnRootClick;
     }
+
+    private bool _doubleClick;
 
     private void OnRootClick(object sender, MouseButtonEventArgs e)
     {
@@ -245,10 +255,12 @@ public partial class PlayerOverlay : Window
         }
         // Einfacher Klick pausiert; ein Doppelklick wechselt den Vollbildmodus und macht die Pause des ersten Klicks wieder rückgängig.
         // Schloss der erste Klick eines Doppelklicks ein Fenster, gab es keine Pause, die zurückzunehmen wäre.
-        var skipPause = e.ClickCount == 2 && _panelClosedByClick;
+        var doubleClick = _doubleClick;
+        _doubleClick = false;
+        var skipPause = doubleClick && _panelClosedByClick;
         _panelClosedByClick = false;
         if (!skipPause) PlayPauseClicked?.Invoke();
-        if (e.ClickCount == 2) FullscreenClicked?.Invoke();
+        if (doubleClick) FullscreenClicked?.Invoke();
     }
 
     private bool _panelClosedByClick;
@@ -548,6 +560,30 @@ public partial class PlayerOverlay : Window
         ShowNotice($"Untertitel-Zeitversatz: {DelayText(_adjustment.DelaySeconds)}", isError: false);
     }
 
+    /// <summary>Zeigt den gespeicherten Ton-Zeitversatz des Videos an, ohne <see cref="AudioDelayChanged"/> auszulösen.</summary>
+    public void SetAudioDelay(double seconds)
+    {
+        _audioDelay = seconds;
+        _audioDelayText.Text = AudioDelayText(_audioDelay);
+    }
+
+    /// <summary>Taste G / H: Ton-Zeitversatz um einen Schritt ändern und den neuen Wert kurz einblenden.</summary>
+    public void NudgeAudioDelay(double seconds)
+    {
+        ChangeAudioDelay(_audioDelay + seconds);
+        ShowNotice($"Ton-Zeitversatz: {AudioDelayText(_audioDelay)}", isError: false);
+    }
+
+    private void ChangeAudioDelay(double seconds)
+    {
+        var next = Math.Round(Math.Clamp(seconds, -AudioSync.MaxDelaySeconds, AudioSync.MaxDelaySeconds), 2);
+        if (next == _audioDelay) return;
+        SetAudioDelay(next);
+        AudioDelayChanged?.Invoke(next);
+    }
+
+    private static string AudioDelayText(double seconds) => $"{Math.Round(seconds * 1000).ToString("+0;-0;0", German)} ms";
+
     private static double ClampDelay(double seconds) =>
         Math.Round(Math.Clamp(seconds, -SubtitleAdjustment.MaxDelaySeconds, SubtitleAdjustment.MaxDelaySeconds), 1);
 
@@ -635,6 +671,18 @@ public partial class PlayerOverlay : Window
             Value(_positionText, 72),
             Step("Tiefer", "Untertitel tiefer", () => Change(a => a with { Position = Math.Clamp(a.Position + 5, 0, 100) }))));
 
+        var audioHeading = new TextBlock { Text = "Ton synchronisieren", FontSize = 22, Margin = new Thickness(0, 22, 0, 4) };
+        audioHeading.SetResourceReference(TextBlock.FontFamilyProperty, "DisplayFont");
+        AdjustContent.Children.Add(audioHeading);
+        AdjustContent.Children.Add(Label("Ton-Zeitversatz (positiv = Ton später; wird für dieses Video gemerkt)"));
+        AdjustContent.Children.Add(Row(
+            Step("−100", "Ton-Zeitversatz minus 100 Millisekunden", () => ChangeAudioDelay(_audioDelay - 0.1)),
+            Step("−10", "Ton-Zeitversatz minus 10 Millisekunden", () => ChangeAudioDelay(_audioDelay - 0.01)),
+            Value(_audioDelayText, 84),
+            Step("+10", "Ton-Zeitversatz plus 10 Millisekunden", () => ChangeAudioDelay(_audioDelay + 0.01)),
+            Step("+100", "Ton-Zeitversatz plus 100 Millisekunden", () => ChangeAudioDelay(_audioDelay + 0.1)),
+            Step("0", "Ton-Zeitversatz zurücksetzen", () => ChangeAudioDelay(0))));
+
         AdjustContent.Children.Add(Label("Aussehen (für alle Videos; mehr unter Einstellungen → Wiedergabe)"));
         var looks = new WrapPanel { MaxWidth = 380 };
         foreach (var (name, style) in SubtitleStyle.Presets)
@@ -651,6 +699,7 @@ public partial class PlayerOverlay : Window
         reset.HorizontalAlignment = HorizontalAlignment.Left;
         AdjustContent.Children.Add(reset);
         RefreshAdjustment();
+        SetAudioDelay(_audioDelay);
     }
 
     // --- Fortschrittsanzeige -------------------------------------------------------------------------------

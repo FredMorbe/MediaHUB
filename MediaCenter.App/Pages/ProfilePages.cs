@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -151,6 +152,10 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
     private readonly TextBox _name;
     private string _color;
     private bool _kids;
+    private byte[]? _avatar;          // neu hochgeladenes Bild, wirkt mit „Speichern“
+    private bool _avatarChanged;      // Bild gewählt oder entfernt
+    private readonly ContentControl _preview = new() { HorizontalAlignment = HorizontalAlignment.Left };
+    private Button? _removeAvatar;
 
     public string? BlockClose => null;
 
@@ -180,7 +185,7 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
             Save();
         };
 
-        var stack = new StackPanel { Children = { Label("Name"), nameField, Label("Farbe"), Colors(), Label("Art"), Kind() } };
+        var stack = new StackPanel { Children = { Label("Name"), nameField, Label("Bild"), AvatarPicker(), Label("Farbe"), Colors(), Label("Art"), Kind() } };
 
         if (profile is not null && !profile.Kids) stack.Children.Add(PinSection(profile));
 
@@ -204,6 +209,57 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
         return label;
     }
 
+    /// <summary>Das Bild des Profils: Vorschau, „Bild wählen …“ (Upload) und „Bild entfernen“. Ohne Bild zeigt das Profil seinen Farbkreis.</summary>
+    private UIElement AvatarPicker()
+    {
+        var choose = PageParts.Compact(PageParts.Button("Bild wählen …", "GhostButton", (_, _) => ChooseAvatar(), new Thickness(14, 0, 0, 0)));
+        AutomationProperties.SetName(choose, "Profilbild wählen");
+        _removeAvatar = PageParts.Compact(PageParts.Button("Bild entfernen", "GhostButton", (_, _) =>
+        {
+            _avatar = null;
+            _avatarChanged = true;
+            RefreshAvatar();
+        }, new Thickness(8, 0, 0, 0)));
+        AutomationProperties.SetName(_removeAvatar, "Profilbild entfernen");
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Children = { choose, _removeAvatar } };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Children = { _preview, buttons } };
+        var note = PageParts.Muted("Ein Foto oder Bild (PNG, JPG, BMP, GIF, TIFF); die App schneidet die Mitte quadratisch zu. Ohne Bild zeigt das Profil seinen Farbkreis mit dem Anfangsbuchstaben.", 12);
+        note.Margin = new Thickness(0, 6, 0, 0);
+        RefreshAvatar();
+        return new StackPanel { Children = { row, note } };
+    }
+
+    /// <summary>Zeigt in der Vorschau das gewählte Bild, sonst das gespeicherte, sonst den Farbkreis in der gewählten Farbe.</summary>
+    private void RefreshAvatar()
+    {
+        var showsImage = _avatarChanged ? _avatar is not null : _profile?.HasAvatar == true;
+        if (_avatarChanged && _avatar is not null) _preview.Content = ProfileAvatar.Create(_avatar, 64);
+        else if (showsImage) _preview.Content = ProfileAvatar.Create(_profile!, 64);
+        else _preview.Content = ProfileAvatar.Create(_name.Text, _color, 64);
+        if (_removeAvatar is not null) _removeAvatar.IsEnabled = showsImage;
+    }
+
+    private void ChooseAvatar()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Profilbild wählen",
+            Filter = "Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff|Alle Dateien|*.*",
+        };
+        if (dialog.ShowDialog() != true) return;
+        try
+        {
+            _avatar = AvatarImage.FromFile(dialog.FileName);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            _shell.ShowMessage(ex.Message, isError: true);
+            return;
+        }
+        _avatarChanged = true;
+        RefreshAvatar();
+    }
+
     private UIElement Colors()
     {
         var row = new WrapPanel();
@@ -216,7 +272,11 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
             chip.SetResourceReference(StyleProperty, "Chip");
             AutomationProperties.SetName(chip, $"Farbe {color}");
             var captured = color;
-            chip.Checked += (_, _) => _color = captured;
+            chip.Checked += (_, _) =>
+            {
+                _color = captured;
+                RefreshAvatar(); // der Farbkreis in der Vorschau folgt der Farbe
+            };
             row.Children.Add(chip);
         }
         return row;
@@ -293,7 +353,11 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
 
         if (_profile is null)
         {
-            if (!TryDb(() => db.CreateProfile(name, _color, _kids))) return;
+            if (!TryDb(() =>
+                {
+                    var id = db.CreateProfile(name, _color, _kids);
+                    if (_avatarChanged && _avatar is not null) db.SetProfileAvatar(id, _avatar);
+                })) return;
             _shell.Services.Profiles.Refresh();
             _shell.CloseModal();
             _shell.ShowMessage($"Profil „{name.Trim()}“ angelegt.");
@@ -305,6 +369,11 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
                 if (name.Trim() != _profile.Name) db.RenameProfile(_profile.Id, name);
                 if (_color != _profile.Color) db.SetProfileColor(_profile.Id, _color);
                 if (_kids != _profile.Kids) db.SetProfileKids(_profile.Id, _kids);
+                if (_avatarChanged)
+                {
+                    db.SetProfileAvatar(_profile.Id, _avatar);
+                    ProfileAvatar.Forget(_profile.Id);
+                }
             })) return;
 
         _shell.Services.Profiles.Refresh();
@@ -319,6 +388,7 @@ public sealed class ProfileEditorPage : UserControl, IModalContent
                        "• Titel, Cover, Sammlungen und Playlists bleiben; sie gehören allen.";
         if (!_shell.Confirm("Profil löschen?", question, "Löschen", danger: true)) return;
         if (!TryDb(() => _shell.Services.Db.DeleteProfile(profile.Id))) return;
+        ProfileAvatar.Forget(profile.Id);
 
         _shell.Services.Profiles.Refresh();
         _shell.CloseModal();

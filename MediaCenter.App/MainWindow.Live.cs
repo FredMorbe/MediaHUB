@@ -89,6 +89,10 @@ public partial class MainWindow
             _overlay.SetAdjustment(_adjustment);
             _overlay.SetCanEmbed(false);
             await ApplyAdjustmentAsync(_adjustment);
+            _audioDelay = 0;
+            _audioDirty = false;
+            _overlay.SetAudioDelay(_audioDelay);
+            await ApplyAudioDelayAsync(_audioDelay);
             await ApplySubtitleStyleAsync(Services.Settings.SubtitleStyle);
             await ResetPictureAsync();
             _color = ColorSettings.Default;

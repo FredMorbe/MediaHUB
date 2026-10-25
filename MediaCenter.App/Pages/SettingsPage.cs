@@ -127,6 +127,26 @@ public sealed class SettingsPage : UserControl
                 settings.Save();
             }))),
             "Immer im Vollbild starten");
+        var tabs = new WrapPanel();
+        foreach (var section in SectionLabels.Hideable)
+        {
+            var captured = section;
+            var chip = new System.Windows.Controls.Primitives.ToggleButton { Content = SectionLabels.Of(captured), IsChecked = !settings.IsSectionHidden(captured) };
+            chip.SetResourceReference(StyleProperty, "Chip");
+            System.Windows.Automation.AutomationProperties.SetName(chip, $"Reiter {SectionLabels.Of(captured)}");
+            // Checked/Unchecked statt Click: auch das Umschalten per Bedienhilfe oder Automation wirkt.
+            RoutedEventHandler changed = (_, _) =>
+            {
+                var shown = chip.IsChecked == true;
+                settings.HiddenSections.Remove(captured.ToString());
+                if (!shown) settings.HiddenSections.Add(captured.ToString());
+                settings.Save();
+                _shell.RefreshNavigation();
+            };
+            chip.Checked += changed;
+            chip.Unchecked += changed;
+            tabs.Children.Add(chip);
+        }
         var gpuNote = settings.GpuMode == AppSettings.GpuAuto
             ? settings.GpuAutoResult switch
             {
@@ -142,6 +162,7 @@ public sealed class SettingsPage : UserControl
                 PageParts.Group(
                     PageParts.SettingRow("Modus", "„System“ folgt der Einstellung von Windows.", modes),
                     PageParts.SettingRow("Farbstil", "Akzentfarbe für Knöpfe, Hervorhebungen und Farbverläufe; je Modus auf Kontrast abgestimmt.", _paletteTiles, stacked: true),
+                    PageParts.SettingRow("Reiter in der Leiste", "Hervorgehoben sind die Reiter, die oben erscheinen; ein Klick blendet einen aus oder wieder ein. „Einstellungen“ bleibt immer sichtbar. Der Start öffnet weiterhin die Startseite.", tabs, stacked: true),
                     PageParts.SettingRow("Immer im Vollbild starten", "Die App öffnet sich ohne Fensterrahmen über den ganzen Bildschirm. Im Betrieb schaltet der Knopf oben rechts in der Navigation (oder F11) das Vollbild um.", fullscreen),
                     PageParts.SettingRow("GPU-Beschleunigung", "Oberfläche über die Grafikkarte zeichnen. Automatisch nutzt sie und prüft einmal, ob das Fenster etwas zeigt: Auf manchen Rechnern (z. B. Intel Arc mit NVIDIA) bleibt es sonst weiß, dann wechselt die App von selbst auf Software. Gilt nach einem Neustart; bei weißem Fenster in settings.json „GpuMode“ auf „off“ setzen. Videos laufen immer über die GPU." + gpuNote, gpu)),
             },

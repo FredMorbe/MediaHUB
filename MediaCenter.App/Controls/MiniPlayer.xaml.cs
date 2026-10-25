@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
@@ -30,14 +31,16 @@ public partial class MiniPlayer : UserControl
         SleepButton.Click += (_, _) => ContextPopup.Show(SleepButton, SleepItems(), "Einschlaf-Timer");
         SoundButton.Click += (_, _) => ContextPopup.Show(SoundButton, SoundItems(), "Klang");
 
-        SeekSlider.PreviewMouseLeftButtonDown += (_, _) => _seeking = true;
-        SeekSlider.PreviewMouseLeftButtonUp += (_, _) =>
+        // handledEventsToo: Ein Klick auf die Linie wird vom Slider selbst behandelt (IsMoveToPointEnabled) und als erledigt
+        // markiert; ohne diese Anmeldung bliebe _seeking aus, und die nächste Positionsmeldung setzte den Regler zurück.
+        SeekSlider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), handledEventsToo: true);
+        SeekSlider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) =>
             // Wert erst nach der eigenen Behandlung des Sliders lesen.
             Dispatcher.BeginInvoke(async () =>
             {
                 await Audio.SeekAsync(SeekSlider.Value);
                 _seeking = false;
-            });
+            })), handledEventsToo: true);
         VolumeSlider.ValueChanged += async (_, e) =>
         {
             if (!_updatingVolume) await Audio.SetVolumeAsync(e.NewValue);

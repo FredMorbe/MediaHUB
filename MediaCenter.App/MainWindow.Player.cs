@@ -37,6 +37,8 @@ public partial class MainWindow
     private MpvPlayer? _mpv;
     private SubtitleAdjustment _adjustment = SubtitleAdjustment.Default;
     private bool _adjustDirty;
+    private double _audioDelay;
+    private bool _audioDirty;
     private bool _embedding;
     private CancellationTokenSource? _embedCts;
     private (long VideoId, string Title)? _selectEmbedded;
@@ -79,6 +81,7 @@ public partial class MainWindow
             _ = _mpv?.CommandAsync("set", type == "audio" ? "aid" : "sid", id < 0 ? "no" : id.ToString(CultureInfo.InvariantCulture));
         };
         _overlay.AdjustmentChanged += OnAdjustmentChanged;
+        _overlay.AudioDelayChanged += OnAudioDelayChanged;
         _overlay.SubtitleStyleChanged += OnSubtitleStyleChanged;
         _overlay.PictureChanged += picture => _ = ApplyPictureAsync(picture);
         _overlay.ColorChanged += OnColorChanged;
@@ -264,6 +267,9 @@ public partial class MainWindow
             {
                 // Nächste Folge während der Übertragung: sie läuft weiter auf dem Fernseher, mpv bleibt ruhig.
                 _castAudioStream = null;
+                _audioDelay = 0; // der Ton-Zeitversatz wirkt nur in mpv, nicht auf dem Fernseher
+                _audioDirty = false;
+                _overlay.SetAudioDelay(_audioDelay);
                 await LoadCastAsync(video, start);
                 _lastActivity = DateTime.UtcNow;
                 _idleTimer.Start();
@@ -290,6 +296,11 @@ public partial class MainWindow
             _overlay.SetAdjustment(_adjustment);
             _overlay.SetCanEmbed(MkvSubtitleEmbedder.CanEmbedInto(path));
             await ApplyAdjustmentAsync(_adjustment);
+            // Ton-Zeitversatz, den der Nutzer für dieses Video gemerkt hat (mpv behielte sonst den Wert des vorigen Videos)
+            _audioDelay = Services.Db.GetAudioDelay(video.VideoId);
+            _audioDirty = false;
+            _overlay.SetAudioDelay(_audioDelay);
+            await ApplyAudioDelayAsync(_audioDelay);
             await ApplySubtitleStyleAsync(Services.Settings.SubtitleStyle);
             await ResetPictureAsync();
             await LoadColorAsync(video);
@@ -689,6 +700,28 @@ public partial class MainWindow
         await _mpv.CommandAsync("set", "sub-pos", adjustment.Position.ToString(CultureInfo.InvariantCulture));
     }
 
+    private void OnAudioDelayChanged(double seconds)
+    {
+        if (_casting)
+        {
+            _overlay.SetAudioDelay(_audioDelay);
+            _overlay.ShowNotice("Während der Übertragung lässt sich der Ton nicht verschieben.", isError: false);
+            return;
+        }
+        _audioDelay = seconds;
+        _ = ApplyAudioDelayAsync(seconds);
+        _audioDirty = true;
+        _adjustSaveTimer.Stop();
+        _adjustSaveTimer.Start(); // gespeichert wird, wenn 0,6 s nichts mehr geändert wurde
+    }
+
+    private async Task ApplyAudioDelayAsync(double seconds)
+    {
+        if (_mpv is null) return;
+
+        await _mpv.CommandAsync("set", "audio-delay", seconds.ToString("0.###", CultureInfo.InvariantCulture));
+    }
+
     /// <summary>Setzt das globale Aussehen der Untertitel (Schrift, Farben, Hintergrund) in mpv.</summary>
     private async Task ApplySubtitleStyleAsync(SubtitleStyle style)
     {
@@ -706,10 +739,18 @@ public partial class MainWindow
 
     private void FlushAdjustment()
     {
-        if (!_adjustDirty || _playing is null) return;
+        if (_playing is null) return;
 
-        Services.Db.SaveSubtitleAdjustment(_playing.VideoId, _adjustment);
-        _adjustDirty = false;
+        if (_adjustDirty)
+        {
+            Services.Db.SaveSubtitleAdjustment(_playing.VideoId, _adjustment);
+            _adjustDirty = false;
+        }
+        if (_audioDirty)
+        {
+            Services.Db.SaveAudioDelay(_playing.VideoId, _audioDelay);
+            _audioDirty = false;
+        }
     }
 
     // --- Untertitel in die MKV einbetten ---------------------------------------------------------------------
@@ -994,6 +1035,8 @@ public partial class MainWindow
             case PlayerAction.AudioCycle: CycleTrack("audio"); break;
             case PlayerAction.SubtitleEarlier: _overlay.NudgeDelay(-0.1); break;
             case PlayerAction.SubtitleLater: _overlay.NudgeDelay(0.1); break;
+            case PlayerAction.AudioEarlier: _overlay.NudgeAudioDelay(-0.05); break;
+            case PlayerAction.AudioLater: _overlay.NudgeAudioDelay(0.05); break;
             case PlayerAction.NextAspect: _overlay.NextAspect(); break;
             case PlayerAction.Rotate: _overlay.Rotate(large ? -90 : 90); break;
             case PlayerAction.ZoomIn: _overlay.StepZoom(1); break;

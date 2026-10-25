@@ -161,6 +161,32 @@ public sealed partial class LibraryDb
             ("$id", videoId), ("$delay", adjustment.DelaySeconds), ("$scale", adjustment.Scale), ("$pos", adjustment.Position));
     }
 
+    // --- Ton-Zeitversatz ---------------------------------------------------------------------------------------
+
+    /// <summary>Gespeicherter Ton-Zeitversatz des Videos in Sekunden (positiv = Ton später), sonst 0.</summary>
+    public double GetAudioDelay(long videoId)
+    {
+        using var cmd = Command("SELECT delay_sec FROM audio_settings WHERE video_id = $id", ("$id", videoId));
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? AudioSync.Validated(r.GetDouble(0)) : 0;
+    }
+
+    /// <summary>Speichert den Ton-Zeitversatz; 0 löscht die Zeile.</summary>
+    public void SaveAudioDelay(long videoId, double seconds)
+    {
+        AudioSync.Validated(seconds);
+        if (seconds == 0)
+        {
+            Run("DELETE FROM audio_settings WHERE video_id = $id", ("$id", videoId));
+            return;
+        }
+        Run("""
+            INSERT INTO audio_settings (video_id, delay_sec) VALUES ($id, $delay)
+            ON CONFLICT (video_id) DO UPDATE SET delay_sec = excluded.delay_sec
+            """,
+            ("$id", videoId), ("$delay", seconds));
+    }
+
     // --- Farbeinstellungen -----------------------------------------------------------------------------------
 
     /// <summary>Gespeicherte Farbeinstellungen des Videos, sonst die Standardwerte.</summary>

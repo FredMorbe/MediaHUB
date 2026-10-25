@@ -528,7 +528,7 @@ public sealed class TmdbDatabaseTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE trakt_pushed; DROP TABLE episode_air; DROP TABLE series_schedule; DROP TABLE live_epg; DROP TABLE live_channels; DROP TABLE live_sources; ALTER TABLE title_info DROP COLUMN trailer; PRAGMA user_version = 19;";
+            cmd.CommandText = "DROP TABLE profile_avatars; DROP TABLE audio_settings; DROP TABLE trakt_pushed; DROP TABLE episode_air; DROP TABLE series_schedule; DROP TABLE live_epg; DROP TABLE live_channels; DROP TABLE live_sources; ALTER TABLE title_info DROP COLUMN trailer; PRAGMA user_version = 19;";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();

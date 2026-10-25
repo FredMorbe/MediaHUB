@@ -10,7 +10,7 @@
     <AssemblyName>MediaCenter</AssemblyName>
     <RootNamespace>MediaCenter.App</RootNamespace>
     <!-- Die Version der App; bei jeder neuen Version auch einen Eintrag in Services\Changelog.cs anlegen. -->
-    <Version>0.17.1</Version>
+    <Version>0.17.2</Version>
     <!-- Erzeugt von Assets\make_icon.py -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>

@@ -28,15 +28,6 @@ public partial class HomePage : UserControl
             EmptyTitle.Text = "Noch nichts freigegeben";
             EmptyText.Text = "Für dieses Profil sind noch keine Filme oder Serien freigegeben. Das geht in einem Erwachsenen-Profil: Einstellungen → Profile → Freigaben.";
         }
-        else
-        {
-            var refresh = PageParts.LibraryRefreshButton(shell);
-            refresh.HorizontalAlignment = HorizontalAlignment.Right;
-            refresh.VerticalAlignment = VerticalAlignment.Top;
-            refresh.Margin = new Thickness(0, 20, 22, 0);
-        refresh.Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0x80, 0x04, 0x08, 0x10)); // liegt oft auf einer hellen Bildstelle
-            HeroZone.Children.Add(refresh);
-        }
 
         BuildHero();
         BuildRows();

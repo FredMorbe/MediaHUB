@@ -5,6 +5,14 @@ using MediaCenter.Core;
 
 namespace MediaCenter.App.Services;
 
+/// <summary>Was die Liste „Bibliothek“ auf der Musik-Seite zeigt.</summary>
+public enum MusicLibraryMode
+{
+    Albums,
+    Artists,
+    Playlists,
+}
+
 /// <summary>Nutzereinstellungen der Oberfläche; liegen als JSON neben der Datenbank.</summary>
 public sealed class AppSettings
 {
@@ -48,6 +56,15 @@ public sealed class AppSettings
 
     /// <summary>Die Künstlerliste der Musik-Seite führt die Künstler der Titel statt die der Alben (Schalter „Nach Song“).</summary>
     public bool ArtistsBySong { get; set; }
+
+    /// <summary>Zuletzt gewählte Ansicht der Liste „Bibliothek“ auf der Musik-Seite (Alben, Künstler, Playlists).</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public MusicLibraryMode MusicLibraryMode { get; set; } = MusicLibraryMode.Albums;
+
+    /// <summary>Reiter der Navigation, die ausgeblendet sind (Namen aus <see cref="Section"/>); „Einstellungen“ lässt sich nicht ausblenden.</summary>
+    public List<string> HiddenSections { get; set; } = new();
+
+    public bool IsSectionHidden(Section section) => HiddenSections.Contains(section.ToString());
 
     /// <summary>Lautstärke von Musik, Radio und Podcasts (0 bis 100).</summary>
     public double AudioVolume { get; set; } = 80;
@@ -162,6 +179,12 @@ public sealed class AppSettings
             Equalizer.Validated(settings.EqualizerGains);
             if (settings.HomeServerPort is < 1024 or > 65535)
                 throw new ArgumentException($"HomeServerPort {settings.HomeServerPort} ist ungültig (1024 bis 65535).");
+            settings.HiddenSections ??= new();
+            foreach (var name in settings.HiddenSections)
+            {
+                if (!Enum.TryParse<Section>(name, out var hidden) || !SectionLabels.Hideable.Contains(hidden))
+                    throw new ArgumentException($"Der Reiter „{name}“ in HiddenSections lässt sich nicht ausblenden oder existiert nicht.");
+            }
             settings.KeyBindings ??= new();
             PlayerKeys.Resolve(settings.KeyBindings);
             foreach (var key in settings.KeyBindings.Values.SelectMany(k => k))

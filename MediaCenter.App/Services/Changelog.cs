@@ -10,6 +10,16 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.2", "26.10.2026", new[]
+        {
+            "Player: Der Ton lässt sich zum Bild verschieben, wenn er nicht passt. Im Fenster „Untertitel anpassen“ gibt es den Abschnitt „Ton synchronisieren“ (±10 und ±100 ms), die Tasten G („Ton früher“, wenn er hinterherhinkt) und H („Ton später“, wenn er vorauseilt) ändern ihn in 50-ms-Schritten. Der Wert wird pro Video gemerkt und beim nächsten Abspielen wieder gesetzt. Während der Übertragung auf den Fernseher und im Live-TV gibt es ihn nicht.",
+            "Player: Der Doppelklick aufs Video schaltet das Vollbild jetzt wirklich um (vorher pausierte und setzte er nur fort).",
+            "„Aktualisieren“ sitzt jetzt als Symbol oben in der Leiste (neben der Suche) und gilt für die ganze Bibliothek; die Knöpfe auf Startseite, Filme, Serien und in der Musik-Bibliothek entfallen.",
+            "Musik: Die Auswahl „Alben / Künstler / Playlists“ in der Bibliothek merkt sich die App für das nächste Mal.",
+            "Einstellungen → Darstellung → „Reiter in der Leiste“: Jeder Reiter (Start, Filme, Serien, Musik, Radio, Live-TV, Podcasts, Laufwerke, Inbox, Verlauf) lässt sich einzeln aus- und wieder einblenden. „Einstellungen“ bleibt immer sichtbar.",
+            "Profile: Ein Profil kann ein eigenes Bild bekommen. Im Profil-Editor „Bild wählen …“ lädt ein Foto hoch (PNG, JPG, BMP, GIF, TIFF); die App schneidet die Mitte quadratisch zu und speichert es verkleinert in der Datenbank, die Sicherung nimmt es mit. „Bild entfernen“ bringt den Farbkreis zurück.",
+            "Musik, Radio und Podcasts: Ein Klick oder Ziehen auf den Fortschrittsbalken der Leiste unten springt jetzt wirklich an die Stelle; vorher setzte die nächste Positionsmeldung den Regler zurück.",
+        }),
         new ChangelogEntry("0.17.1", "25.10.2026", new[]
         {
             "Musik: In der Bibliothek gibt es unter „Künstler“ den Schalter „Nach Album / Nach Song“. „Nach Album“ (Standard) führt wie bisher die Album-Künstler; „Nach Song“ führt die Künstler der einzelnen Titel, auch aus Sammelalben wie „Verschiedene Interpreten“. Die Künstlerseite zeigt dann die Titel des Künstlers statt seiner Alben. Der Schalter gilt auch für Start und die Seite „Künstler“ und bleibt gespeichert.",

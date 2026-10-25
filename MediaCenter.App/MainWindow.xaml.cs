@@ -44,6 +44,7 @@ public partial class MainWindow : Window, IShell
             if (reported.Add(message)) ShowMessage(message, isError: true);
         };
         Modal.Blocked = reason => ShowMessage(reason, isError: true);
+        ProfileAvatar.Loader = Services.Db.GetProfileAvatar;
         BuildNav();
         VersionButton.Content = "v" + AppInfo.Version;
         VersionButton.Click += (_, _) => ChangelogPage.Show(this);
@@ -54,6 +55,11 @@ public partial class MainWindow : Window, IShell
         PreviewKeyDown += OnPreviewKeyDown;
         FullscreenNavButton.Click += (_, _) => ToggleFullscreen();
         SearchNavButton.Click += (_, _) => OpenSearch();
+        _refreshNavButton = PageParts.LibraryRefreshButton(this, iconOnly: true);
+        _refreshNavButton.Width = _refreshNavButton.Height = 40; // wie die anderen Symbole der Leiste
+        _refreshNavButton.Margin = new Thickness(0, 0, 4, 0);
+        _refreshNavButton.VerticalAlignment = VerticalAlignment.Center;
+        NavTools.Children.Insert(NavTools.Children.IndexOf(SearchNavButton) + 1, _refreshNavButton);
         ProfileNavButton.Click += (_, _) => ProfilePickerPage.Show(this, startup: false);
         Services.Profiles.Changed += OnProfileChanged;
         Services.Profiles.Edited += ApplyProfile;
@@ -107,14 +113,15 @@ public partial class MainWindow : Window, IShell
 
     private void BuildNav()
     {
-        var items = new (Section Section, string Label, Panel Host, string? Glyph)[]
+        var items = new (Section Section, Panel Host, string? Glyph)[]
         {
-            (Section.Home, "Start", NavItems, null), (Section.Movies, "Filme", NavItems, null), (Section.Series, "Serien", NavItems, null),
-            (Section.Music, "Musik", NavItems, null), (Section.Radio, "Radio", NavItems, null), (Section.Live, "Live-TV", NavItems, null), (Section.Podcasts, "Podcasts", NavItems, null),
-            (Section.Sources, "Laufwerke", UtilItems, DriveGlyph), (Section.Inbox, "Inbox", UtilItems, InboxGlyph), (Section.History, "Verlauf und Statistik", UtilItems, HistoryGlyph), (Section.Settings, "Einstellungen", UtilItems, SettingsGlyph),
+            (Section.Home, NavItems, null), (Section.Movies, NavItems, null), (Section.Series, NavItems, null),
+            (Section.Music, NavItems, null), (Section.Radio, NavItems, null), (Section.Live, NavItems, null), (Section.Podcasts, NavItems, null),
+            (Section.Sources, UtilItems, DriveGlyph), (Section.Inbox, UtilItems, InboxGlyph), (Section.History, UtilItems, HistoryGlyph), (Section.Settings, UtilItems, SettingsGlyph),
         };
-        foreach (var (section, label, host, glyph) in items)
+        foreach (var (section, host, glyph) in items)
         {
+            var label = SectionLabels.Of(section);
             var button = new RadioButton { Content = glyph ?? label, GroupName = "nav", Height = 60 };
             button.SetResourceReference(StyleProperty, glyph is null ? "StripToggle" : "StripIcon");
             if (glyph is not null) button.ToolTip = label;
@@ -168,6 +175,8 @@ public partial class MainWindow : Window, IShell
         Navigate(Section.Home);
     }
 
+    private readonly Button _refreshNavButton;
+
     /// <summary>Profil-Knopf (Farbkreis mit Anfangsbuchstaben) und, im Kinderprofil, nur die erlaubten Reiter.</summary>
     private void ApplyProfile()
     {
@@ -175,7 +184,16 @@ public partial class MainWindow : Window, IShell
         ProfileNavButton.Content = ProfileAvatar.Create(profile, 28);
         ProfileNavButton.ToolTip = $"Profil: {profile.Name} (Klick zum Wechseln)";
         System.Windows.Automation.AutomationProperties.SetName(ProfileNavButton, "Profil wechseln");
-        foreach (var (section, button) in _navButtons) button.Visibility = profile.Kids && !KidsAllowed(section) ? Visibility.Collapsed : Visibility.Visible;
+        _refreshNavButton.Visibility = profile.Kids ? Visibility.Collapsed : Visibility.Visible; // Kinder scannen die Bibliothek nicht
+        RefreshNavigation();
+    }
+
+    /// <summary>Im Kinderprofil nur die erlaubten Reiter, sonst alle, die in den Einstellungen nicht ausgeblendet sind.</summary>
+    public void RefreshNavigation()
+    {
+        var profile = Services.Profiles.Current;
+        foreach (var (section, button) in _navButtons)
+            button.Visibility = (profile.Kids && !KidsAllowed(section)) || Services.Settings.IsSectionHidden(section) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void Navigate(Section section)
