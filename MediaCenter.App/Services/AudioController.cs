@@ -311,7 +311,7 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
         });
         mpv.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(mpv, reason));
         await mpv.CommandAsync("set", "volume", volume.ToString("0.#", CultureInfo.InvariantCulture));
-        await mpv.CommandAsync("set", "af", sound.Filter ?? "");
+        await mpv.CommandAsync("set", "af", sound.MusicFilter ?? "");
         sound.Changed -= OnSoundChanged; // mpv kann neu gestartet werden; nur einmal anmelden
         sound.Changed += OnSoundChanged;
         foreach (var property in new[] { "time-pos", "duration", "pause", "volume", "mute", "playlist-pos", "metadata/by-key/icy-title", "idle-active" })
@@ -340,7 +340,7 @@ public sealed class AudioController(string mpvPath, LibraryDb db, AppSettings se
     {
         foreach (var mpv in new[] { _mpv, _spare, _fading })
         {
-            if (mpv is not null) await mpv.CommandAsync("set", "af", sound.Filter ?? "");
+            if (mpv is not null) await mpv.CommandAsync("set", "af", sound.MusicFilter ?? "");
         }
     }
 

@@ -419,6 +419,28 @@ public sealed class MusicPage : UserControl
         var stack = new StackPanel();
         stack.Children.Add(PageParts.Header("", "Titel", count, 30));
 
+        // Abspielen und Zufällig beziehen sich auf die gerade angezeigte (gesuchte) Liste.
+        var shown = new List<TrackRow>();
+        var play = new Button { Content = "", Width = 44, Height = 44, FontSize = 18, ToolTip = "Alle angezeigten Titel abspielen" };
+        play.SetResourceReference(StyleProperty, "AccentIconButton");
+        System.Windows.Automation.AutomationProperties.SetName(play, "Alle Titel abspielen");
+        play.Click += async (_, _) => await PlayShown(shuffle: false);
+        var random = PageParts.Compact(PageParts.Button("Zufällig", "GhostButton", async (_, _) => await PlayShown(shuffle: true), new Thickness(8, 0, 0, 0)));
+        random.VerticalAlignment = VerticalAlignment.Center;
+        random.ToolTip = "Alle angezeigten Titel in zufälliger Reihenfolge abspielen";
+        System.Windows.Automation.AutomationProperties.SetName(random, "Alle Titel zufällig abspielen");
+        stack.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12), Children = { play, random } });
+
+        async Task PlayShown(bool shuffle)
+        {
+            if (shown.Count == 0)
+            {
+                _shell.ShowMessage("Es gibt keine Titel zum Abspielen.", isError: true);
+                return;
+            }
+            await AudioQueues.PlayTracksAsync(_shell, shown, 0, shuffle);
+        }
+
         var (field, box) = PageParts.HintBox("Titel suchen …", 280, 13);
         box.Height = 32;
         field.HorizontalAlignment = HorizontalAlignment.Left;
@@ -439,6 +461,7 @@ public sealed class MusicPage : UserControl
                 .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
                 .ToList();
             count.Text = $"{tracks.Count} Titel";
+            shown = tracks;
             fillTable(tracks, true);
         }
 

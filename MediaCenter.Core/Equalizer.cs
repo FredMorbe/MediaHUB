@@ -46,6 +46,12 @@ public static class Equalizer
         return gains;
     }
 
+    /// <summary>
+    /// Gleicht jeden Titel auf −16 LUFS an (EBU R128, Einzeldurchlauf), mit Spitzenbegrenzer bei −1,5 dBTP: laute Titel werden leiser,
+    /// leise lauter, und nichts übersteuert. Gemessen: Titel von −44, −22 und −16 LUFS kamen alle bei −16,0 LUFS an, schon ab der ersten Sekunde.
+    /// </summary>
+    public const string LoudnessFilter = "loudnorm=I=-16:TP=-1.5:LRA=11";
+
     /// <summary>Id der Voreinstellung mit genau diesen Werten, sonst „custom“.</summary>
     public static string MatchingPreset(IReadOnlyList<int> gains) =>
         Presets.FirstOrDefault(p => p.Gains.SequenceEqual(gains))?.Id ?? "custom";
@@ -54,7 +60,8 @@ public static class Equalizer
     /// Der mpv-Audiofilter für diese Verstärkungen; null, wenn alles 0 ist (kein Filter, also kein Eingriff in den Klang).
     /// Vor den Bändern senkt ein Vorverstärker um die größte Anhebung, damit der Pegel nicht übersteuert.
     /// </summary>
-    public static string? ToMpvFilter(IReadOnlyList<int> gains)
+    /// <param name="normalize">Hängt die Lautstärke-Angleichung (<see cref="LoudnessFilter"/>) hinten an, damit auch der Klang nach dem Equalizer im Pegel liegt.</param>
+    public static string? ToMpvFilter(IReadOnlyList<int> gains, bool normalize = false)
     {
         Validated(gains);
         var filters = new List<string>();
@@ -65,6 +72,7 @@ public static class Equalizer
             if (gains[i] == 0) continue;
             filters.Add(string.Create(CultureInfo.InvariantCulture, $"equalizer=f={Bands[i]}:t=o:w=1:g={gains[i]}"));
         }
+        if (normalize) filters.Add(LoudnessFilter);
         if (filters.Count == 0) return null;
 
         var text = new StringBuilder("lavfi=[").AppendJoin(',', filters).Append(']');

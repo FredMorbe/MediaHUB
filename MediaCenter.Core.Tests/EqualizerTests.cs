@@ -34,6 +34,16 @@ public sealed class EqualizerTests
         Assert.Equal("lavfi=[equalizer=f=250:t=o:w=1:g=-4]", Equalizer.ToMpvFilter(gains));
     }
 
+    [Fact]
+    public void Normalizing_alone_is_a_filter_and_comes_after_the_bands()
+    {
+        Assert.Equal($"lavfi=[{Equalizer.LoudnessFilter}]", Equalizer.ToMpvFilter(Zeros(), normalize: true));
+
+        var gains = Zeros();
+        gains[3] = -4;
+        Assert.Equal($"lavfi=[equalizer=f=250:t=o:w=1:g=-4,{Equalizer.LoudnessFilter}]", Equalizer.ToMpvFilter(gains, normalize: true));
+    }
+
     [Theory]
     [InlineData(9)]
     [InlineData(11)]

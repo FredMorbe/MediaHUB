@@ -78,6 +78,9 @@ public sealed class AppSettings
     /// <summary>Länge der Überblendung zwischen zwei Musiktiteln in Sekunden (<see cref="Crossfade.Options"/>); 0 = aus (lückenlos ohne Überblendung).</summary>
     public int AudioCrossfadeSeconds { get; set; }
 
+    /// <summary>Musik, Radio und Podcasts auf gleiche Lautstärke bringen (<see cref="Equalizer.LoudnessFilter"/>); gilt nicht für Video.</summary>
+    public bool AudioNormalize { get; set; } = true;
+
     /// <summary>Bevorzugte Tonsprache (Schlüssel aus <see cref="Languages.All"/>); null nimmt die Spur, die die Datei vorgibt.</summary>
     public string? AudioLanguage { get; set; } = "de";
 

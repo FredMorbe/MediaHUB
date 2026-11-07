@@ -196,17 +196,14 @@ public partial class PlayerOverlay : Window
 
         // handledEventsToo: Ein Klick auf die Linie wird vom Slider selbst behandelt (IsMoveToPointEnabled) und als erledigt
         // markiert; ohne diese Anmeldung bliebe _seeking aus, und die nächste Positionsmeldung setzte den Regler zurück.
-        SeekSlider.MouseMove += (_, e) => ShowSeekTip(e.GetPosition(SeekSlider).X);
+        SeekSlider.MouseMove += (_, e) => ShowSeekTip(SeekSlider, SeekTip, SeekTipText, e.GetPosition(SeekSlider).X);
         SeekSlider.MouseLeave += (_, _) => SeekTip.Visibility = Visibility.Collapsed;
         SeekSlider.SizeChanged += (_, _) => BuildChapterMarks();
-        SeekSlider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), handledEventsToo: true);
-        SeekSlider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) =>
-            // Wert erst nach der eigenen Behandlung des Sliders lesen.
-            Dispatcher.BeginInvoke(() =>
-            {
-                SeekAbsolute?.Invoke(SeekSlider.Value);
-                _seeking = false;
-            })), handledEventsToo: true);
+        WireSeekClick(SeekSlider);
+        // Zeitleiste im schwebenden Fenster: gleiches Verhalten wie die große.
+        CompactSeekSlider.MouseMove += (_, e) => ShowSeekTip(CompactSeekSlider, CompactSeekTip, CompactSeekTipText, e.GetPosition(CompactSeekSlider).X);
+        CompactSeekSlider.MouseLeave += (_, _) => CompactSeekTip.Visibility = Visibility.Collapsed;
+        WireSeekClick(CompactSeekSlider);
         VolumeSlider.ValueChanged += (_, e) =>
         {
             if (!_settingVolume) VolumeChanged?.Invoke(e.NewValue);
@@ -237,6 +234,18 @@ public partial class PlayerOverlay : Window
     }
 
     private bool _doubleClick;
+
+    private void WireSeekClick(Slider slider)
+    {
+        slider.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, _) => _seeking = true), handledEventsToo: true);
+        slider.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) =>
+            // Wert erst nach der eigenen Behandlung des Sliders lesen.
+            Dispatcher.BeginInvoke(() =>
+            {
+                SeekAbsolute?.Invoke(slider.Value);
+                _seeking = false;
+            })), handledEventsToo: true);
+    }
 
     private void OnRootClick(object sender, MouseButtonEventArgs e)
     {
@@ -315,7 +324,7 @@ public partial class PlayerOverlay : Window
     {
         PositionText.Text = Format(seconds);
         if (SeekRow.Visibility == Visibility.Visible) CompactTime.Text = $"{Format(seconds)} / {DurationText.Text}";
-        if (!_seeking) SeekSlider.Value = seconds;
+        if (!_seeking) SeekSlider.Value = CompactSeekSlider.Value = seconds;
         _lastPosition = seconds;
         RefreshChapterText();
         RefreshIntroCard();
@@ -324,7 +333,7 @@ public partial class PlayerOverlay : Window
     public void SetDuration(double seconds)
     {
         DurationText.Text = Format(seconds);
-        SeekSlider.Maximum = Math.Max(seconds, 1);
+        SeekSlider.Maximum = CompactSeekSlider.Maximum = Math.Max(seconds, 1);
         _duration = seconds;
         _introRange = ChapterList.FindIntro(_chapters, _duration);
         BuildChapterMarks();
@@ -374,16 +383,16 @@ public partial class PlayerOverlay : Window
     private const double SeekThumbWidth = 14;
 
     /// <summary>Zeigt über der Zeitleiste die Zeit (und das Kapitel), auf die ein Klick an dieser Stelle springt.</summary>
-    private void ShowSeekTip(double x)
+    private void ShowSeekTip(Slider slider, Border tip, TextBlock tipText, double x)
     {
-        if (_duration <= 0 || SeekSlider.ActualWidth <= SeekThumbWidth) return;
-        var fraction = Math.Clamp((x - SeekThumbWidth / 2) / (SeekSlider.ActualWidth - SeekThumbWidth), 0, 1);
+        if (_duration <= 0 || slider.ActualWidth <= SeekThumbWidth) return;
+        var fraction = Math.Clamp((x - SeekThumbWidth / 2) / (slider.ActualWidth - SeekThumbWidth), 0, 1);
         var seconds = fraction * _duration;
         var index = _chapters.Count > 1 ? ChapterList.IndexAt(_chapters, seconds) : -1;
-        SeekTipText.Text = index < 0 ? Format(seconds) : $"{Format(seconds)}  ·  {_chapters[index].Label}";
-        SeekTip.Visibility = Visibility.Visible;
-        SeekTip.UpdateLayout();
-        SeekTip.Margin = new Thickness(Math.Clamp(x - SeekTip.ActualWidth / 2, 0, Math.Max(0, SeekSlider.ActualWidth - SeekTip.ActualWidth)), -40, 0, 0);
+        tipText.Text = index < 0 ? Format(seconds) : $"{Format(seconds)}  ·  {_chapters[index].Label}";
+        tip.Visibility = Visibility.Visible;
+        tip.UpdateLayout();
+        tip.Margin = new Thickness(Math.Clamp(x - tip.ActualWidth / 2, 0, Math.Max(0, slider.ActualWidth - tip.ActualWidth)), tip.Margin.Top, 0, 0);
     }
 
     /// <summary>Großes Zeichen in der Bildmitte, das nach einer Pause oder einem Start ausblendet.</summary>
@@ -477,7 +486,7 @@ public partial class PlayerOverlay : Window
     /// </summary>
     public void SetLive(bool live)
     {
-        SeekRow.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+        SeekRow.Visibility = CompactSeekRow.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
         BackButton10.Visibility = ForwardButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
         CastButton.Visibility = IntroSkipButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
         ChannelPrevButton.Visibility = live ? Visibility.Visible : Visibility.Collapsed;

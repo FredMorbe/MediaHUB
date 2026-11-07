@@ -558,6 +558,7 @@ public sealed class SettingsPage : UserControl
         var language = Offered(settings.SubtitleLanguage).Select(l => (l.Name, settings.SubtitleLanguage == l.Id, (Action)(() => settings.SubtitleLanguage = l.Id)));
         var autoplay = new[] { ("An", true), ("Aus", false) }.Select(a => (a.Item1, settings.AutoPlayNext == a.Item2, (Action)(() => settings.AutoPlayNext = a.Item2)));
         var crossfade = Crossfade.Options.Select(sec => (sec == 0 ? "Aus" : $"{sec} s", settings.AudioCrossfadeSeconds == sec, (Action)(() => settings.AudioCrossfadeSeconds = sec)));
+        var normalize = new[] { ("An", true), ("Aus", false) }.Select(a => (a.Item1, settings.AudioNormalize == a.Item2, (Action)(() => _shell.Services.Sound.SetNormalize(a.Item2))));
         var hdr = new[] { ("Automatisch", HdrOutput.Auto), ("Immer SDR", HdrOutput.Sdr) }.Select(h => (h.Item1, settings.Hdr == h.Item2, (Action)(() => settings.Hdr = h.Item2)));
         var castHevc = new[] { ("Umwandeln", false), ("Direkt senden", true) }.Select(a => (a.Item1, settings.CastHevc == a.Item2, (Action)(() => settings.CastHevc = a.Item2)));
 
@@ -593,6 +594,11 @@ public sealed class SettingsPage : UserControl
                         "Der nächste Titel setzt ein, während der laufende ausklingt (Sinus-Überblendung, gleichbleibende Lautstärke). „Aus“ spielt lückenlos hintereinander. " +
                         "Gilt ab dem nächsten Titel; Titel unter dem Dreifachen der Länge sowie Radio und Podcasts werden nicht überblendet. Dafür läuft kurz vor dem Übergang ein zweiter Player (mpv).",
                         Choice("Überblenden", crossfade))),
+                PageParts.Group(
+                    PageParts.SettingRow("Musik: Lautstärke angleichen",
+                        "Bringt Musik, Radio und Podcasts auf gleiche Lautstärke (−16 LUFS, EBU R128): laute Titel werden leiser, leise lauter, ein Begrenzer verhindert Übersteuern. " +
+                        "Wirkt sofort und gilt nicht für Video. Auch im Menü des Knopfs „Klang“ in der Musikleiste umschaltbar.",
+                        Choice("Lautstärke angleichen", normalize))),
                 PageParts.Group(
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },

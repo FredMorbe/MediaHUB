@@ -1104,38 +1104,66 @@ public partial class MainWindow
 
     private WindowState _stateBeforeFullscreen = WindowState.Normal;
 
-    /// <summary>Steuerung zeigen bei Bewegung, Taste oder Pause; nach drei Sekunden Ruhe ausblenden.</summary>
+    private bool _cursorOverPictureInPicture;
+
+    /// <summary>
+    /// Steuerung zeigen bei Bewegung, Taste oder Pause; nach drei Sekunden Ruhe ausblenden. Im schwebenden Fenster
+    /// zählt nur die Maus über dem Fenster, ausgeblendet wird nach zehn Sekunden (auch bei Pause); kommt die Maus wieder über das Fenster, erscheint die Steuerung.
+    /// </summary>
     private void UpdateControlsVisibility()
     {
-        if (GetCursorPos(out var cursor) && (cursor.X != _lastCursor.X || cursor.Y != _lastCursor.Y))
+        var compact = PictureInPictureActive;
+        var over = false;
+        if (GetCursorPos(out var cursor))
         {
+            over = compact && PointFromScreen(new Point(cursor.X, cursor.Y)) is { } point
+                && point.X >= 0 && point.Y >= 0 && point.X < ActualWidth && point.Y < ActualHeight;
+            var moved = cursor.X != _lastCursor.X || cursor.Y != _lastCursor.Y;
             _lastCursor = cursor;
-            _lastActivity = DateTime.UtcNow;
+            if ((moved && (!compact || over)) || (over && !_cursorOverPictureInPicture)) _lastActivity = DateTime.UtcNow;
         }
-        var idle = DateTime.UtcNow - _lastActivity > TimeSpan.FromSeconds(3);
-        _overlay.SetControlsVisible(!(idle && !_paused && !_overlay.IsMenuOpen
-            && !(PictureInPictureActive && _overlay.IsNextCountdownVisible)));
+        _cursorOverPictureInPicture = over;
+        var idle = DateTime.UtcNow - _lastActivity > TimeSpan.FromSeconds(compact ? 10 : 3);
+        _overlay.SetControlsVisible(!(idle && (compact || !_paused) && !_overlay.IsMenuOpen
+            && !(compact && _overlay.IsNextCountdownVisible)));
     }
 
-    /// <summary>Legt das Overlay-Fenster exakt über den Video-Host.</summary>
+    private bool _overlayUpdatePending;
+
+    /// <summary>
+    /// Legt das Overlay-Fenster exakt über den Video-Host. Beim Ziehen am Fensterrand kommen mehrere Ereignisse je Bild:
+    /// sie werden zu einer Aktualisierung zusammengefasst, und Position samt Größe setzt ein einziges SetWindowPos
+    /// (die WPF-Eigenschaften Left/Top/Width/Height lösten je eine eigene Fensterbewegung aus).
+    /// </summary>
     private void UpdateOverlay()
     {
-        if (!IsLoaded || !PlayerActive || WindowState == WindowState.Minimized) return;
+        if (!IsLoaded || !PlayerActive || WindowState == WindowState.Minimized || _overlayUpdatePending) return;
+        _overlayUpdatePending = true;
 
         // Layout muss durchgelaufen sein, bevor Position und Größe des Hosts stimmen.
         Dispatcher.BeginInvoke(() =>
         {
+            _overlayUpdatePending = false;
             if (!PlayerActive || WindowState == WindowState.Minimized) return;
             var host = PlayerLayer.VideoHost;
             var source = PresentationSource.FromVisual(host)
                 ?? throw new InvalidOperationException("Video-Host hat keine PresentationSource.");
-            var topLeft = source.CompositionTarget.TransformFromDevice.Transform(host.PointToScreen(new Point(0, 0)));
-            _overlay.Left = topLeft.X;
-            _overlay.Top = topLeft.Y;
-            _overlay.Width = host.ActualWidth;
-            _overlay.Height = host.ActualHeight;
+            var handle = new System.Windows.Interop.WindowInteropHelper(_overlay).Handle;
+            if (handle == IntPtr.Zero) throw new InvalidOperationException("Das Overlay-Fenster ist noch nicht geöffnet.");
+            var topLeft = host.PointToScreen(new Point(0, 0));
+            var size = source.CompositionTarget.TransformToDevice.Transform(new Vector(host.ActualWidth, host.ActualHeight));
+            if (!SetWindowPos(handle, IntPtr.Zero, (int)Math.Round(topLeft.X), (int)Math.Round(topLeft.Y),
+                    (int)Math.Round(size.X), (int)Math.Round(size.Y), SwpNoZOrder | SwpNoActivate))
+                throw new InvalidOperationException($"SetWindowPos für das Overlay ist fehlgeschlagen (Win32-Fehler {Marshal.GetLastWin32Error()}).");
         }, DispatcherPriority.Render);
     }
+
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     private void ClosePlayer()
     {

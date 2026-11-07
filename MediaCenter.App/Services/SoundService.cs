@@ -19,6 +19,19 @@ public sealed class SoundService(AppSettings settings)
     /// <summary>mpv-Audiofilter; null = kein Filter.</summary>
     public string? Filter => Equalizer.ToMpvFilter(settings.EqualizerGains);
 
+    /// <summary>Gleiche Lautstärke für Musik, Radio und Podcasts an?</summary>
+    public bool Normalize => settings.AudioNormalize;
+
+    /// <summary>Filter des Audioplayers (Musik, Radio, Podcasts): Equalizer plus, wenn eingeschaltet, die Lautstärke-Angleichung. Video nutzt <see cref="Filter"/>.</summary>
+    public string? MusicFilter => Equalizer.ToMpvFilter(settings.EqualizerGains, settings.AudioNormalize);
+
+    public void SetNormalize(bool on)
+    {
+        settings.AudioNormalize = on;
+        settings.Save();
+        Changed?.Invoke();
+    }
+
     /// <param name="save">false beim Ziehen eines Reglers: der Klang ändert sich sofort, gespeichert wird später per <see cref="Save"/>.</param>
     /// <exception cref="ArgumentException">Falsche Anzahl Bänder oder Werte außerhalb von ±12 dB.</exception>
     public void SetGains(IReadOnlyList<int> gains, bool save = true)

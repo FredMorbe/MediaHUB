@@ -205,6 +205,14 @@
                         </StackPanel>
                         <TextBlock x:Name="CompactNextHint" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
+                    <!-- Zeitleiste: ein Klick springt an die Stelle; beim Überfahren steht die Zeit darüber -->
+                    <Grid x:Name="CompactSeekRow" Margin="2,0,2,2">
+                        <Slider x:Name="CompactSeekSlider" Style="{StaticResource SeekSlider}" Background="#40FFFFFF" Minimum="0" Maximum="1" AutomationProperties.Name="Zeitleiste"/>
+                        <Border x:Name="CompactSeekTip" Visibility="Collapsed" IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-34,0,0"
+                                CornerRadius="10" Background="#F2000000" BorderBrush="#33FFFFFF" BorderThickness="1" Padding="8,3">
+                            <TextBlock x:Name="CompactSeekTipText" FontSize="12" FontFamily="{StaticResource BodySemiFont}" Foreground="White"/>
+                        </Border>
+                    </Grid>
                     <DockPanel>
                         <Button x:Name="CompactPlayPause" DockPanel.Dock="Left" Style="{StaticResource IconButton}" Foreground="White" Width="32" Height="32" Content="&#xE769;" ToolTip="Wiedergabe / Pause (Leertaste)" AutomationProperties.Name="Wiedergabe oder Pause"/>
                         <Button x:Name="CompactMute" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Foreground="White" Width="32" Height="32" Content="&#xE767;" ToolTip="Ton aus / an (M)" AutomationProperties.Name="Stumm schalten"/>

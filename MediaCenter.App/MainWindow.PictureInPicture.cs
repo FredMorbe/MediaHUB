@@ -52,6 +52,8 @@ public partial class MainWindow
         // Das Overlay fängt Klicks ab. Ein freier Rand lässt Windows weiterhin die Größe ändern.
         PlayerLayer.Margin = new Thickness(6);
         PictureInPictureFrame.Visibility = Visibility.Visible;
+        // Die Oberfläche darunter ist verdeckt; sie würde bei jeder Größenänderung (Verläufe, Milchglas) trotzdem neu berechnet.
+        Stage.Visibility = Visibility.Collapsed;
         Topmost = true;
         _overlay.SetCompact(true);
 
@@ -78,6 +80,7 @@ public partial class MainWindow
         MinHeight = restore.MinHeight;
         PlayerLayer.Margin = restore.PlayerMargin;
         PictureInPictureFrame.Visibility = Visibility.Collapsed;
+        Stage.Visibility = Visibility.Visible;
         Left = restore.Bounds.Left;
         Top = restore.Bounds.Top;
         Width = restore.Bounds.Width;

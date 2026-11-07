@@ -9,10 +9,12 @@ public sealed class MpvHost : HwndHost
     private const int WS_CHILD = 0x40000000;
     private const int WS_VISIBLE = 0x10000000;
     private const int WS_CLIPCHILDREN = 0x02000000;
+    // Schwarzes Rechteck: Beim Vergrößern füllt das Steuerelement die neue Fläche schwarz statt weiß, bis mpv nachgezeichnet hat.
+    private const int SS_BLACKRECT = 0x00000004;
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        var handle = CreateWindowEx(0, "static", "", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        var handle = CreateWindowEx(0, "static", "", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | SS_BLACKRECT,
             0, 0, 0, 0, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (handle == IntPtr.Zero)
         {

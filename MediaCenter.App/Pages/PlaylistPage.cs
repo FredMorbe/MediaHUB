@@ -13,7 +13,6 @@ namespace MediaCenter.App.Pages;
 public sealed class PlaylistPage : UserControl
 {
     private const string PlayGlyph = "\uE768";
-    private const string ShuffleGlyph = "\uE8B1";
     private const string RenameGlyph = "\uE70F";
     private const string DeleteGlyph = "\uE74D";
     private const string NoteGlyph = "\uE8D6";
@@ -93,7 +92,12 @@ public sealed class PlaylistPage : UserControl
         System.Windows.Automation.AutomationProperties.SetName(play, "Playlist abspielen");
         play.Click += async (_, _) => await AudioQueues.PlayTracksAsync(_shell, Current.Tracks, 0);
         buttons.Children.Add(play);
-        buttons.Children.Add(IconButton(ShuffleGlyph, "Zufällig", "Playlist zufällig abspielen", async () => await AudioQueues.PlayTracksAsync(_shell, Current.Tracks, 0, shuffle: true)));
+        // Beschriftet statt nur mit Symbol: der Zufalls-Knopf blieb sonst leicht unbemerkt neben „Abspielen“.
+        var shuffle = PageParts.Compact(PageParts.Button("Zufällig", "GhostButton", async (_, _) => await AudioQueues.PlayTracksAsync(_shell, Current.Tracks, 0, shuffle: true), new Thickness(8, 0, 0, 0)));
+        shuffle.VerticalAlignment = VerticalAlignment.Center;
+        shuffle.ToolTip = "Playlist in zufälliger Reihenfolge abspielen";
+        System.Windows.Automation.AutomationProperties.SetName(shuffle, "Playlist zufällig abspielen");
+        buttons.Children.Add(shuffle);
         buttons.Children.Add(IconButton(RenameGlyph, "Umbenennen", "Playlist umbenennen", StartRename));
         buttons.Children.Add(IconButton(DeleteGlyph, "Playlist löschen", "Playlist löschen", Delete));
 

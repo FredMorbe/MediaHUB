@@ -102,6 +102,7 @@ public partial class MiniPlayer : UserControl
             items.Add(((sound.Preset == id ? "✓ " : "") + preset.Name, () => sound.SetPreset(id)));
         }
         if (sound.Preset == "custom") items.Add(("✓ Eigene Einstellung", () => { }));
+        items.Add(((sound.Normalize ? "✓ " : "") + "Lautstärke angleichen", () => sound.SetNormalize(!sound.Normalize)));
         items.Add(("Equalizer einstellen …", _openSoundSettings ?? throw new InvalidOperationException("MiniPlayer ist noch nicht mit den Diensten verbunden.")));
         return items;
     }

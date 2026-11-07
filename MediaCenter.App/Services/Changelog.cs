@@ -10,6 +10,14 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.4", "08.11.2026", new[]
+        {
+            "Schwebender Player: Er hat jetzt eine Zeitleiste. Ein Klick springt an die Stelle im Film, beim Überfahren steht die Zeit (und das Kapitel) darüber. Im Live-TV entfällt sie.",
+            "Musik: „Lautstärke angleichen“ bringt Musik, Radio und Podcasts auf gleiche Lautstärke (−16 LUFS, EBU R128, mit Spitzenbegrenzer): kein Titel haut mehr laut dazwischen, keiner ist so leise, dass man nachregeln muss. Ein- und ausschaltbar im Menü des Knopfs „Klang“ in der Musikleiste und in den Einstellungen („Musik: Lautstärke angleichen“); standardmäßig an, wirkt sofort und gilt nicht für Video.",
+            "Musik: „Alle Titel“ hat jetzt „Abspielen“ und „Zufällig“ (beides für die gerade angezeigte, ggf. gesuchte Liste). In Playlists steht „Zufällig“ jetzt als beschrifteter Knopf neben „Abspielen“ statt als bloßes Symbol.",
+            "Schwebender Player: Die Größe lässt sich flüssiger ändern. Die verdeckte Oberfläche der Bibliothek wird währenddessen nicht mehr neu berechnet, das Bedienfenster folgt in einem Schritt, und frisch freigelegte Flächen sind schwarz statt weiß.",
+            "Schwebender Player: Titelzeile und Bedienung blenden sich nach 10 Sekunden aus, auch bei Pause. Sie erscheinen wieder, sobald die Maus über das Fenster kommt oder sich darin bewegt; Mausbewegungen außerhalb des Fensters halten sie nicht mehr sichtbar.",
+        }),
         new ChangelogEntry("0.17.3", "26.10.2026", new[]
         {
             "Profilbild: Nach der Dateiwahl erscheint das Bild hinter einem runden Ausschnitt. Ziehen verschiebt es, Mausrad oder Regler zoomen; das Bild bedeckt den Kreis immer ganz. „Übernehmen“ speichert genau diesen Ausschnitt. Fotos vom Handy werden nach ihren Drehungsdaten richtig herum gezeigt.",
