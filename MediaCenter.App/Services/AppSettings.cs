@@ -81,6 +81,9 @@ public sealed class AppSettings
     /// <summary>Musik, Radio und Podcasts auf gleiche Lautstärke bringen (<see cref="Equalizer.LoudnessFilter"/>); gilt nicht für Video.</summary>
     public bool AudioNormalize { get; set; } = true;
 
+    /// <summary>Stärke des Nachtmodus für Video in Prozent (0 bis 100): Action leiser, Sprache verständlich; 0 lässt den Ton unberührt.</summary>
+    public int VideoNightStrength { get; set; } = NightMode.Off;
+
     /// <summary>Bevorzugte Tonsprache (Schlüssel aus <see cref="Languages.All"/>); null nimmt die Spur, die die Datei vorgibt.</summary>
     public string? AudioLanguage { get; set; } = "de";
 
@@ -180,6 +183,7 @@ public sealed class AppSettings
             settings.SubtitleStyle.Validated();
             Crossfade.Validated(settings.AudioCrossfadeSeconds);
             Equalizer.Validated(settings.EqualizerGains);
+            NightMode.Validated(settings.VideoNightStrength);
             if (settings.HomeServerPort is < 1024 or > 65535)
                 throw new ArgumentException($"HomeServerPort {settings.HomeServerPort} ist ungültig (1024 bis 65535).");
             settings.HiddenSections ??= new();

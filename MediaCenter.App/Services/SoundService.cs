@@ -17,7 +17,19 @@ public sealed class SoundService(AppSettings settings)
     public string Preset => Equalizer.MatchingPreset(settings.EqualizerGains);
 
     /// <summary>mpv-Audiofilter; null = kein Filter.</summary>
-    public string? Filter => Equalizer.ToMpvFilter(settings.EqualizerGains);
+    public string? Filter => Equalizer.ToMpvFilter(settings.EqualizerGains, night: NightMode.Filter(settings.VideoNightStrength));
+
+    /// <summary>Stärke des Nachtmodus für Video in Prozent, 0 = aus.</summary>
+    public int Night => settings.VideoNightStrength;
+
+    /// <param name="save">false beim Ziehen eines Reglers: der Ton ändert sich sofort, gespeichert wird später per <see cref="Save"/>.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Außerhalb von 0 bis 100.</exception>
+    public void SetNight(int strength, bool save = true)
+    {
+        settings.VideoNightStrength = NightMode.Validated(strength);
+        if (save) settings.Save();
+        Changed?.Invoke();
+    }
 
     /// <summary>Gleiche Lautstärke für Musik, Radio und Podcasts an?</summary>
     public bool Normalize => settings.AudioNormalize;

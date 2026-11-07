@@ -8,7 +8,7 @@ namespace MediaCenter.Core;
 /// </summary>
 public sealed partial class LibraryDb : IDisposable
 {
-    private const int SchemaVersion = 25;
+    private const int SchemaVersion = 26;
 
     private readonly SqliteConnection _connection;
     private SqliteTransaction? _tx;
@@ -28,7 +28,7 @@ public sealed partial class LibraryDb : IDisposable
     {
         var version = Scalar<int>("PRAGMA user_version;");
         if (version == SchemaVersion) return;
-        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 18 or 19 or 20 or 21 or 22 or 23 or 24))
+        if (version is not (0 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14 or 15 or 16 or 17 or 18 or 19 or 20 or 21 or 22 or 23 or 24 or 25))
         {
             throw new InvalidOperationException(
                 $"Datenbank hat Schema {version}, erwartet wird {SchemaVersion}. Ältere Entwicklungsstände (1) werden nicht migriert (Datei löschen).");
@@ -544,6 +544,16 @@ public sealed partial class LibraryDb : IDisposable
                     profile_id INTEGER PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
                     image BLOB NOT NULL
                 );
+                """);
+            // Schema 26: Favoriten der Musik (Nutzerdaten, je Profil). Verschwindet ein Titel oder ein Profil, verschwindet auch der Eintrag.
+            if (version < 26) Run("""
+                CREATE TABLE track_favorites (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                    added_utc TEXT NOT NULL,
+                    PRIMARY KEY (profile_id, track_id)
+                );
+                CREATE INDEX track_favorites_track ON track_favorites(track_id);
                 """);
             Run($"PRAGMA user_version = {SchemaVersion};");
         });

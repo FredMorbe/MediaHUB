@@ -43,6 +43,9 @@ public partial class PlayerOverlay : Window
     private IReadOnlyList<TrackInfo> _tracks = Array.Empty<TrackInfo>();
     private readonly System.Windows.Threading.DispatcherTimer _noticeTimer = new();
     private string _soundPreset = Equalizer.Flat;
+    private int _night = NightMode.Off;
+    private Slider? _nightSlider;
+    private TextBlock? _nightText;
     private SleepMode _sleepMode;
     private string _sleepLabel = "";
     private bool _compact;
@@ -53,6 +56,9 @@ public partial class PlayerOverlay : Window
 
     /// <summary>Equalizer-Voreinstellung gewählt (Id aus <see cref="Equalizer.Presets"/>).</summary>
     public event Action<string>? SoundPresetChosen;
+
+    /// <summary>Der Regler „Nachtmodus“ im Klang-Menü wurde bewegt (Prozent, 0 = aus); kommt schon beim Ziehen.</summary>
+    public event Action<int>? NightStrengthChanged;
 
     /// <summary>Das Menü „Übertragen“ wurde geöffnet oder „Erneut suchen“ gedrückt: der Empfänger soll nach Geräten suchen.</summary>
     public event Action? CastSearchRequested;
@@ -770,10 +776,76 @@ public partial class PlayerOverlay : Window
     /// <summary>Stand des Equalizers; das Klang-Menü markiert die gewählte Voreinstellung.</summary>
     public void SetSoundPreset(string presetId)
     {
+        // Unverändert: nichts neu bauen. Der Nachtmodus-Regler löst beim Ziehen dasselbe Ereignis aus, und ein Neuaufbau risse ihn aus der Hand.
+        if (presetId == _soundPreset) return;
         _soundPreset = presetId;
-        SoundButton.Tag = presetId == Equalizer.Flat ? null : "on";
+        RefreshSoundButton();
+    }
+
+    /// <summary>
+    /// Stand des Nachtmodus (Prozent). Eine Änderung durch den Regler selbst kommt hier als Echo an und wird übergangen:
+    /// Der Regler bleibt dieselbe Instanz, sonst bräche das Ziehen ab.
+    /// </summary>
+    public void SetNightStrength(int strength)
+    {
+        if (strength == _night) return;
+        _night = strength;
+        if (_nightSlider is not null && _nightText is not null)
+        {
+            _building = true;
+            _nightSlider.Value = strength;
+            _building = false;
+            _nightText.Text = NightMode.Label(strength);
+        }
+        UpdateSoundButton();
+    }
+
+    private void RefreshSoundButton()
+    {
+        UpdateSoundButton();
         if (_menuType == "sound") BuildMenu("sound");
     }
+
+    private void UpdateSoundButton()
+    {
+        SoundButton.Tag = _soundPreset == Equalizer.Flat && _night == NightMode.Off ? null : "on";
+        SoundButton.ToolTip = _night == NightMode.Off ? "Klang: Equalizer-Voreinstellungen, Nachtmodus" : $"Klang: Nachtmodus {NightMode.Label(_night)}";
+    }
+
+    /// <summary>Regler für den Nachtmodus im Klang-Menü; wird einmal gebaut und bei jedem Menüaufbau wieder eingesetzt.</summary>
+    private FrameworkElement NightControl()
+    {
+        if (_nightPanel is null)
+        {
+            _nightText = new TextBlock { Text = NightMode.Label(_night), FontFamily = (FontFamily)FindResource("BodySemiFont"), FontSize = 13, MinWidth = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            _nightSlider = new Slider
+            {
+                Minimum = NightMode.Off, Maximum = NightMode.Max, TickFrequency = NightMode.Step, IsSnapToTickEnabled = true, SmallChange = NightMode.Step, LargeChange = 20,
+                Value = _night, Width = 200, Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)), Style = (Style)FindResource("SeekSlider"), VerticalAlignment = VerticalAlignment.Center,
+            };
+            System.Windows.Automation.AutomationProperties.SetName(_nightSlider, "Nachtmodus Stärke");
+            _nightSlider.ValueChanged += (_, e) =>
+            {
+                if (_building) return;
+                _night = (int)Math.Round(e.NewValue);
+                _nightText.Text = NightMode.Label(_night);
+                UpdateSoundButton();
+                NightStrengthChanged?.Invoke(_night);
+            };
+
+            var heading = new TextBlock
+            {
+                Text = "Nachtmodus: Action leiser, Sprache verständlich", FontFamily = (FontFamily)FindResource("BodySemiFont"), FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxWidth = 300,
+                Foreground = new SolidColorBrush(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), Margin = new Thickness(8, 12, 8, 4),
+            };
+            _nightText.Margin = new Thickness(8, 0, 0, 0);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 0, 8, 4), Children = { _nightSlider, _nightText } };
+            _nightPanel = new StackPanel { Children = { heading, row } };
+        }
+        return _nightPanel;
+    }
+
+    private FrameworkElement? _nightPanel;
 
     /// <summary>Stand des Einschlaf-Timers; der Knopf zeigt die Restzeit.</summary>
     public void SetSleep(SleepMode mode, string label)
@@ -963,6 +1035,9 @@ public partial class PlayerOverlay : Window
                 Add(preset.Name, () => SoundPresetChosen?.Invoke(id), selected: _soundPreset == id);
             }
             if (_soundPreset == "custom") Add("Eigene Einstellung", () => { }, selected: true);
+
+            // Nachtmodus: Regler unter den Voreinstellungen, damit beides zugleich gelten kann. Das Menü bleibt beim Ziehen offen.
+            TrackList.Children.Add(NightControl());
         }
         else
         {

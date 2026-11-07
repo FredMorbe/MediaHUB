@@ -10,6 +10,7 @@ namespace MediaCenter.App.Controls;
 /// <summary>Leiste unten im Fenster für Musik, Radio und Podcasts; erscheint, solange etwas in der Warteschlange ist.</summary>
 public partial class MiniPlayer : UserControl
 {
+    private FavoriteButton? _favorite;
     private AudioController? _audio;
     private AppServices? _services;
     private Action? _openSoundSettings;
@@ -58,6 +59,8 @@ public partial class MiniPlayer : UserControl
         audio.Changed += Refresh;
         audio.Tick += UpdatePosition;
         services.Sleep.Changed += UpdateSleep;
+        _favorite = new FavoriteButton(services.Model, 0, 30) { Margin = new Thickness(0, 0, 8, 0) };
+        FavoriteHost.Content = _favorite;
         Refresh();
         UpdateSleep();
     }
@@ -119,6 +122,12 @@ public partial class MiniPlayer : UserControl
         var isRadio = item.Kind == QueueKind.Radio;
         var isTrack = item.Kind == QueueKind.Track;
         TitleText.Text = item.Title;
+        // Das Herz gibt es nur bei Musik (Radio und Podcasts haben keine Titel in der Bibliothek).
+        if (_favorite is not null)
+        {
+            _favorite.Visibility = isTrack && item.Id is not null ? Visibility.Visible : Visibility.Collapsed;
+            if (item.Id is { } trackId) _favorite.SetTrack(trackId);
+        }
         SubText.Text = isRadio && !string.IsNullOrWhiteSpace(audio.StreamTitle) ? audio.StreamTitle : item.Subtitle;
 
         var cover = ImageCache.Load(item.CoverPath, 116);

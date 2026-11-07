@@ -600,6 +600,11 @@ public sealed class SettingsPage : UserControl
                         "Wirkt sofort und gilt nicht für Video. Auch im Menü des Knopfs „Klang“ in der Musikleiste umschaltbar.",
                         Choice("Lautstärke angleichen", normalize))),
                 PageParts.Group(
+                    PageParts.SettingRow("Video: Nachtmodus",
+                        "Für Filme, deren Action laut und deren Sprache leise ist: Der Ton wird auf Stereo gemischt, die Sprache (Center-Kanal bei 5.1) um 6 dB angehoben und ein Kompressor mit Begrenzer drückt laute Stellen herunter. " +
+                        "Der Regler stellt die Stärke von 0 % (aus) bis 100 % ein und wirkt sofort, auch im Player über den Knopf „Klang“. Ab 5 % wird auf Stereo gemischt; läuft der Ton über eine 5.1-Anlage, bitte auf 0 % lassen.",
+                        NightSlider())),
+                PageParts.Group(
                     PageParts.SettingRow("Equalizer", "Klang für Musik, Radio, Podcasts und Video; Änderungen sind sofort zu hören. Auch über den Knopf „Klang“ in der Musikleiste wählbar.", EqualizerPanel(), stacked: true)),
             },
         };
@@ -848,6 +853,41 @@ public sealed class SettingsPage : UserControl
 
         var row = new WrapPanel { Margin = new Thickness(0, 12, 0, 0), Children = { keyField, userField, password, save, remove } };
         return new StackPanel { Children = { _accountStatus, row } };
+    }
+
+    // --- Nachtmodus ----------------------------------------------------------------------------------------
+
+    /// <summary>Regler für die Stärke des Video-Nachtmodus; der Ton ändert sich schon beim Ziehen, gespeichert wird, wenn der Regler ruht.</summary>
+    private UIElement NightSlider()
+    {
+        var sound = _shell.Services.Sound;
+        var value = PageParts.Muted(NightMode.Label(sound.Night), 13);
+        value.MinWidth = 48;
+        value.TextAlignment = TextAlignment.Right;
+        value.VerticalAlignment = VerticalAlignment.Center;
+        var slider = new Slider
+        {
+            Minimum = NightMode.Off, Maximum = NightMode.Max, TickFrequency = NightMode.Step, IsSnapToTickEnabled = true, SmallChange = NightMode.Step, LargeChange = 20,
+            Value = sound.Night, Width = 260, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        };
+        slider.SetResourceReference(StyleProperty, "SeekSlider");
+        AutomationProperties.SetName(slider, "Nachtmodus Stärke");
+
+        var saveTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        saveTimer.Tick += (_, _) =>
+        {
+            saveTimer.Stop();
+            sound.Save();
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            var strength = (int)Math.Round(e.NewValue);
+            sound.SetNight(strength, save: false);
+            value.Text = NightMode.Label(strength);
+            saveTimer.Stop();
+            saveTimer.Start();
+        };
+        return new StackPanel { Orientation = Orientation.Horizontal, Children = { slider, value } };
     }
 
     // --- Equalizer -----------------------------------------------------------------------------------------
@@ -1362,7 +1402,7 @@ public sealed class SettingsPage : UserControl
         }),
         ("Klang und Timer", new[]
         {
-            ("Knopf „Klang“", "Equalizer-Voreinstellung wählen (Musikleiste und Videoplayer); die Regler stehen unter Einstellungen → Wiedergabe"),
+            ("Knopf „Klang“", "Equalizer-Voreinstellung wählen (Musikleiste und Videoplayer); die Regler stehen unter Einstellungen → Wiedergabe. Im Videoplayer auch der Nachtmodus (Action leiser, Sprache verständlich), in der Musikleiste „Lautstärke angleichen“"),
             ("Knopf „Timer“ · Mond-Symbol", "Einschlaf-Timer: nach 15 bis 90 Minuten oder am Ende des Titels bzw. der Folge anhalten"),
             ("Jetzt läuft → Songtext", "Songtext zum laufenden Titel anzeigen (mitlaufend bei zeitgesteuerten Texten)"),
         }),

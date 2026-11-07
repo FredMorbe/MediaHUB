@@ -124,6 +124,38 @@ public static class LibraryActions
     public static bool RemoveVideo(IShell shell, VideoRow video) =>
         Remove(shell, $"Die Datei „{Path.GetFileName(video.RelPath)}“", () => shell.Services.Db.RemoveVideos(new[] { video.VideoId }));
 
+    /// <summary>
+    /// Nimmt Musiktitel (einen Titel oder ein ganzes Album) nach Rückfrage aus der Bibliothek; die Dateien auf der Festplatte bleiben unberührt.
+    /// Läuft einer der Titel gerade, spielt er weiter. Die Musik wird neu gelesen und die offene Musik-Seite baut sich selbst neu auf.
+    /// </summary>
+    /// <param name="what">Wen die Rückfrage nennt, etwa „Den Titel „Lied““ oder „Das Album „Platte“ mit 12 Titeln“.</param>
+    /// <returns>true, wenn entfernt wurde.</returns>
+    public static bool RemoveTracks(IShell shell, IReadOnlyList<TrackRow> tracks, string what)
+    {
+        if (tracks.Count == 0) throw new ArgumentException("Es gibt keine Titel zum Entfernen.", nameof(tracks));
+
+        var question = $"{what} aus dem Mediacenter entfernen?\n\n" +
+                       "• Die Dateien auf der Festplatte bleiben unverändert, es wird nichts gelöscht.\n" +
+                       "• Eigene Namen und Künstler, Favoriten und Plätze in Playlists dazu gehen verloren.\n" +
+                       "• „Neu scannen“ nimmt sie nicht wieder auf. Zurückholen: Laufwerke → „Entfernte Einträge wieder aufnehmen“.";
+        if (!shell.Confirm("Aus dem Mediacenter entfernen?", question, "Entfernen", danger: true)) return false;
+
+        int removed;
+        try
+        {
+            removed = shell.Services.Db.RemoveTracks(tracks.Select(t => t.TrackId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            shell.Services.Model.ReloadMusic(); // die Anzeige war veraltet (der Titel ist schon weg); jetzt stimmt sie wieder
+            shell.ShowMessage(ex.Message, isError: true);
+            return false;
+        }
+        shell.Services.Model.ReloadMusic();
+        shell.ShowMessage($"{removed} Titel aus dem Mediacenter entfernt, auf der Festplatte unverändert.");
+        return true;
+    }
+
     private static bool Remove(IShell shell, string what, Func<int> remove)
     {
         var question = $"{what} aus dem Mediacenter entfernen?\n\n" +

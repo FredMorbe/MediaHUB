@@ -32,6 +32,7 @@ public partial class MainWindow
     private readonly DispatcherTimer _nextTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     private readonly DispatcherTimer _adjustSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private readonly DispatcherTimer _nightSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _colorSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
 
     private MpvPlayer? _mpv;
@@ -139,10 +140,27 @@ public partial class MainWindow
             else Services.Sleep.StartCountdown(TimeSpan.FromMinutes(minutes));
         };
         _overlay.SoundPresetChosen += id => Services.Sound.SetPreset(id);
+        // Der Ton ändert sich schon beim Ziehen; gespeichert wird, wenn der Regler 500 ms ruht.
+        _nightSaveTimer.Tick += (_, _) =>
+        {
+            _nightSaveTimer.Stop();
+            Services.Sound.Save();
+        };
+        _overlay.NightStrengthChanged += strength =>
+        {
+            Services.Sound.SetNight(strength, save: false);
+            _nightSaveTimer.Stop();
+            _nightSaveTimer.Start();
+        };
         Services.Sleep.Changed += () => _overlay.SetSleep(Services.Sleep.Mode, Services.Sleep.Label);
-        Services.Sound.Changed += () => _overlay.SetSoundPreset(Services.Sound.Preset);
+        Services.Sound.Changed += () =>
+        {
+            _overlay.SetSoundPreset(Services.Sound.Preset);
+            _overlay.SetNightStrength(Services.Sound.Night);
+        };
         _overlay.SetSleep(Services.Sleep.Mode, Services.Sleep.Label);
         _overlay.SetSoundPreset(Services.Sound.Preset);
+        _overlay.SetNightStrength(Services.Sound.Night);
 
         // Der Einschlaf-Timer hält die Musik selbst an; das Video pausiert hier.
         Services.Sleep.Fired += message =>

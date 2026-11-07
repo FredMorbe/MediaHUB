@@ -129,7 +129,26 @@ public sealed class NowPlayingPanel : Border
         title.TextTrimming = TextTrimming.None;
         title.Margin = new Thickness(0, _tab == Tab.Queue ? 14 : 0, 0, 0);
         title.SetResourceReference(TextBlock.ForegroundProperty, "InkBrush");
-        _content.Children.Add(title);
+        if (current.Id is { } trackId)
+        {
+            // Herz neben dem Titel; der Knopf hält sich selbst aktuell.
+            var titleRow = new Grid();
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var heart = new FavoriteButton(_shell.Services.Model, trackId, 32)
+            {
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(8, _tab == Tab.Queue ? 10 : -4, 0, 0),
+            };
+            Grid.SetColumn(heart, 1);
+            titleRow.Children.Add(title);
+            titleRow.Children.Add(heart);
+            _content.Children.Add(titleRow);
+        }
+        else
+        {
+            _content.Children.Add(title);
+        }
 
         var sub = PageParts.Muted(current.Subtitle, 13);
         sub.Margin = new Thickness(0, 2, 0, 0);

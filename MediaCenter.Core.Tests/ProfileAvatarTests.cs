@@ -92,7 +92,7 @@ public sealed class ProfileAvatarTests : IDisposable
         {
             connection.Open();
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "DROP TABLE profile_avatars;" + (version == 23 ? " DROP TABLE audio_settings;" : "") + $" PRAGMA user_version = {version};";
+            cmd.CommandText = "DROP TABLE track_favorites; DROP TABLE profile_avatars;" + (version == 23 ? " DROP TABLE audio_settings;" : "") + $" PRAGMA user_version = {version};";
             cmd.ExecuteNonQuery();
         }
         SqliteConnection.ClearAllPools();

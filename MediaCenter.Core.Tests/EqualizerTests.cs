@@ -44,6 +44,55 @@ public sealed class EqualizerTests
         Assert.Equal($"lavfi=[equalizer=f=250:t=o:w=1:g=-4,{Equalizer.LoudnessFilter}]", Equalizer.ToMpvFilter(gains, normalize: true));
     }
 
+    [Fact]
+    public void The_night_mode_chain_comes_last_and_zero_adds_nothing()
+    {
+        var gains = Zeros();
+        gains[3] = -4;
+        var night = NightMode.Filter(50);
+
+        Assert.Null(NightMode.Filter(NightMode.Off));
+        Assert.Null(Equalizer.ToMpvFilter(Zeros(), night: NightMode.Filter(NightMode.Off)));
+        Assert.Equal($"lavfi=[equalizer=f=250:t=o:w=1:g=-4,{night}]", Equalizer.ToMpvFilter(gains, night: night));
+        Assert.Equal($"lavfi=[{Equalizer.LoudnessFilter},{night}]", Equalizer.ToMpvFilter(Zeros(), normalize: true, night: night));
+    }
+
+    [Fact]
+    public void The_night_strength_runs_from_the_gentlest_to_the_measured_strongest_setting()
+    {
+        // 100 % sind die gemessenen Werte der stärksten Stufe, die Mitte liegt zwischen zwei Stützpunkten (Schwelle −25 dB, Verhältnis 2,5).
+        var strongest = NightMode.Filter(100)!;
+        Assert.Contains("center_mix_level=2.0", strongest);
+        Assert.Contains("acompressor=threshold=-32dB:ratio=5:attack=5:release=250:makeup=11dB", strongest);
+        Assert.Contains("alimiter=limit=0.7:level=0", strongest);
+        Assert.Contains("acompressor=threshold=-25dB:ratio=2.5:attack=9:release=300:makeup=5.5dB", NightMode.Filter(50));
+
+        // Kleinster Schritt: Verhältnis nur knapp über 1, kein Begrenzer-Auto-Pegel.
+        Assert.Contains("ratio=1.15", NightMode.Filter(NightMode.Step));
+        for (var strength = NightMode.Step; strength <= NightMode.Max; strength += NightMode.Step)
+        {
+            var filter = NightMode.Filter(strength)!;
+            Assert.Contains("aresample=out_chlayout=stereo", filter);
+            Assert.Contains("level=0", filter);
+        }
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void A_night_strength_outside_zero_to_one_hundred_is_an_error(int strength)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => NightMode.Filter(strength));
+        Assert.Throws<ArgumentOutOfRangeException>(() => NightMode.Validated(strength));
+    }
+
+    [Fact]
+    public void The_night_strength_is_labelled_off_or_in_percent()
+    {
+        Assert.Equal("Aus", NightMode.Label(0));
+        Assert.Equal("60 %", NightMode.Label(60));
+    }
+
     [Theory]
     [InlineData(9)]
     [InlineData(11)]

@@ -150,9 +150,41 @@ public sealed class LibraryModel(LibraryDb db, LibraryService library, ArtworkSe
         Podcasts = Profile.Kids ? Array.Empty<PodcastInfo>() : db.ListPodcasts();
     }
 
+    /// <summary>Titel-Ids der Favoriten des aktiven Profils, der zuletzt markierte zuerst.</summary>
+    public IReadOnlyList<long> FavoriteIds { get; private set; } = Array.Empty<long>();
+
+    private HashSet<long> _favoriteSet = new();
+
+    /// <summary>Ein Titel wurde als Favorit markiert oder die Markierung zurückgenommen (Argument: Titel-Id).</summary>
+    public event Action<long>? FavoritesChanged;
+
+    public bool IsFavorite(long trackId) => _favoriteSet.Contains(trackId);
+
+    /// <summary>Die Favoriten als Titel, der zuletzt markierte zuerst; Ids ohne Titel (inzwischen entfernt) fallen weg.</summary>
+    public List<TrackRow> FavoriteTracks()
+    {
+        var byId = Tracks.ToDictionary(t => t.TrackId);
+        return FavoriteIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+    }
+
+    /// <summary>Markiert einen Titel als Favorit oder nimmt die Markierung zurück und meldet es; die übrige Momentaufnahme bleibt.</summary>
+    public void SetFavorite(long trackId, bool on)
+    {
+        db.SetTrackFavorite(trackId, on);
+        LoadFavorites();
+        FavoritesChanged?.Invoke(trackId);
+    }
+
+    private void LoadFavorites()
+    {
+        FavoriteIds = Profile.Kids ? Array.Empty<long>() : db.GetFavoriteTrackIds();
+        _favoriteSet = FavoriteIds.ToHashSet();
+    }
+
     private void LoadMusic()
     {
         Tracks = Profile.Kids ? Array.Empty<TrackRow>() : db.ListTracks();
+        LoadFavorites();
         Albums = MusicIndex.BuildAlbums(Tracks);
         Artists = MusicIndex.BuildArtists(Albums);
         SongArtists = MusicIndex.BuildSongArtists(Tracks);

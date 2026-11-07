@@ -10,6 +10,12 @@ public static class Changelog
 {
     public static IReadOnlyList<ChangelogEntry> Entries { get; } = new[]
     {
+        new ChangelogEntry("0.17.5", "08.11.2026", new[]
+        {
+            "Video: Nachtmodus gegen „Action zu laut, Sprache zu leise“. Die Stärke stellst du mit einem Regler von 0 % (aus) bis 100 % in 5-%-Schritten ein, direkt im Player im Menü des Knopfs „Klang“ (unter den Equalizer-Voreinstellungen, der Ton ändert sich schon beim Ziehen) und unter Einstellungen → Wiedergabe. Der Ton wird auf Stereo gemischt, die Sprache (bei 5.1 der Center-Kanal, den die normale Mischung herunterregelt) um 6 dB angehoben, ein Kompressor mit Begrenzer drückt laute Stellen herunter. Gemessen an einem Testsignal (Sprache −28 dB, Action −12 dB): Die Action sinkt bei 33 %, 67 % und 100 % um 6, 7 und 10 dB, die Sprache bleibt gleich laut. Der Wert bleibt gespeichert. Hinweis: Mit einer 5.1-Anlage bitte auf 0 % lassen.",
+            "Musik: Favoriten. Das Herz neben einem Titel (in Alben, Playlists, „Alle Titel“, Künstlerseiten, in der Musikleiste unten und in „Jetzt läuft“) markiert ihn als Favorit; auch im Rechtsklick-Menü („Zu Favoriten hinzufügen“). Links in der Bibliothek steht „Favoriten“ über „Alle Titel“: die Liste mit „Abspielen“ und „Zufällig“, der zuletzt markierte Titel zuerst. Favoriten gelten je Profil und bleiben bei verschobenen Dateien erhalten.",
+            "Musik: Titel und Alben lassen sich aus dem Mediacenter entfernen, wie schon Filme: Rechtsklick auf einen Titel („Aus Mediacenter entfernen …“), Rechtsklick auf eine Albumkarte und der Papierkorb-Knopf auf der Albumseite. Die Dateien auf der Festplatte bleiben unberührt, „Neu scannen“ nimmt sie nicht wieder auf; zurück geht es über Laufwerke → „Entfernte Einträge wieder aufnehmen“. Eigene Namen, Favoriten und Playlist-Plätze der entfernten Titel gehen verloren.",
+        }),
         new ChangelogEntry("0.17.4", "08.11.2026", new[]
         {
             "Schwebender Player: Er hat jetzt eine Zeitleiste. Ein Klick springt an die Stelle im Film, beim Überfahren steht die Zeit (und das Kapitel) darüber. Im Live-TV entfällt sie.",

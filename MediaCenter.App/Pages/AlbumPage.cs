@@ -12,6 +12,7 @@ namespace MediaCenter.App.Pages;
 public sealed class AlbumPage : UserControl
 {
     private const string PlayGlyph = "\uE768";
+    private const string RemoveGlyph = "\uE74D";
     private const string ShuffleGlyph = "\uE8B1";
     private const string RenameGlyph = "\uE70F";
 
@@ -33,8 +34,8 @@ public sealed class AlbumPage : UserControl
         // Bei Sammlungen mit wechselnden Künstlern bekommt die Tabelle eine Spalte für den Künstler.
         _showArtist = _album.Tracks.Select(t => t.Artist).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct(StringComparer.CurrentCultureIgnoreCase).Count() > 1;
         _columns = _showArtist
-            ? new[] { new GridLength(36), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) }
-            : new[] { new GridLength(36), new GridLength(1, GridUnitType.Star), new GridLength(56) };
+            ? new[] { new GridLength(36), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(44), new GridLength(56) }
+            : new[] { new GridLength(36), new GridLength(1, GridUnitType.Star), new GridLength(44), new GridLength(56) };
 
         var cover = PageParts.Thumb(ImageCache.Load(_model.AlbumArtPath(_album.Key), 360), 168);
         cover.CornerRadius = new CornerRadius(6);
@@ -93,12 +94,18 @@ public sealed class AlbumPage : UserControl
         tags.SetResourceReference(StyleProperty, "IconButton");
         System.Windows.Automation.AutomationProperties.SetName(tags, "Album-Tags in den Dateien ändern");
         tags.Click += (_, _) => TagEditorPage.ShowAlbum(_shell, _album.Key);
+        var remove = new Button { Content = RemoveGlyph, Margin = new Thickness(8, 0, 0, 0), ToolTip = "Album aus dem Mediacenter entfernen (die Dateien bleiben)" };
+        remove.SetResourceReference(StyleProperty, "IconButton");
+        System.Windows.Automation.AutomationProperties.SetName(remove, "Album aus dem Mediacenter entfernen");
+        remove.Click += (_, _) => LibraryActions.RemoveTracks(_shell, _album.Tracks,
+            $"Das Album „{_album.Title}“ mit {_album.Tracks.Count} Titel{(_album.Tracks.Count == 1 ? "" : "n")}");
         buttons.Children.Add(play);
         buttons.Children.Add(shuffle);
         buttons.Children.Add(queue);
         buttons.Children.Add(toPlaylist);
         buttons.Children.Add(rename);
         buttons.Children.Add(tags);
+        buttons.Children.Add(remove);
 
         var info = new StackPanel { Margin = new Thickness(20, 0, 0, 0), VerticalAlignment = VerticalAlignment.Bottom, Children = { kicker, title, artist, meta } };
         var header = new Grid { Margin = new Thickness(0, 0, 0, 0) };
@@ -108,7 +115,7 @@ public sealed class AlbumPage : UserControl
         header.Children.Add(cover);
         header.Children.Add(info);
 
-        var tableHead = PageParts.TableHeader(_columns, _showArtist ? new[] { "#", "Titel", "Künstler", "Dauer" } : new[] { "#", "Titel", "Dauer" });
+        var tableHead = PageParts.TableHeader(_columns, _showArtist ? new[] { "#", "Titel", "Künstler", "", "Dauer" } : new[] { "#", "Titel", "", "Dauer" });
         ((FrameworkElement)tableHead).Margin = new Thickness(0, 16, 0, 4);
         Content = new StackPanel { Children = { header, buttons, tableHead, _list } };
 
@@ -148,6 +155,7 @@ public sealed class AlbumPage : UserControl
             name.SetResourceReference(TextBlock.ForegroundProperty, playing ? "AccentBrush" : "InkBrush");
             var cells = new List<FrameworkElement> { PageParts.Cell(track.TrackNo?.ToString() ?? ""), name };
             if (_showArtist) cells.Add(PageParts.Cell(track.Artist ?? ""));
+            cells.Add(new MediaCenter.App.Controls.FavoriteButton(_model, track.TrackId, 28));
             cells.Add(PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)));
 
             var captured = index;
@@ -155,11 +163,13 @@ public sealed class AlbumPage : UserControl
             row = PageParts.TableRow(_columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, _album.Tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
                 menu: () => new (string, Action)[]
                 {
+                    (_model.IsFavorite(track.TrackId) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", () => _model.SetFavorite(track.TrackId, !_model.IsFavorite(track.TrackId))),
                     ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: true)),
                     ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)),
                     ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
                     ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
                     ("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)),
+                    ("Aus Mediacenter entfernen …", () => LibraryActions.RemoveTracks(_shell, new[] { track }, $"Den Titel „{track.Title}“")),
                 });
             _list.Children.Add(row);
         }

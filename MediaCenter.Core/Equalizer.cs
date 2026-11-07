@@ -61,7 +61,8 @@ public static class Equalizer
     /// Vor den Bändern senkt ein Vorverstärker um die größte Anhebung, damit der Pegel nicht übersteuert.
     /// </summary>
     /// <param name="normalize">Hängt die Lautstärke-Angleichung (<see cref="LoudnessFilter"/>) hinten an, damit auch der Klang nach dem Equalizer im Pegel liegt.</param>
-    public static string? ToMpvFilter(IReadOnlyList<int> gains, bool normalize = false)
+    /// <param name="night">Teilkette des Nachtmodus (<see cref="NightLevel.Filter"/>); steht zuletzt, damit der Equalizer noch auf allen Kanälen wirkt.</param>
+    public static string? ToMpvFilter(IReadOnlyList<int> gains, bool normalize = false, string? night = null)
     {
         Validated(gains);
         var filters = new List<string>();
@@ -73,6 +74,7 @@ public static class Equalizer
             filters.Add(string.Create(CultureInfo.InvariantCulture, $"equalizer=f={Bands[i]}:t=o:w=1:g={gains[i]}"));
         }
         if (normalize) filters.Add(LoudnessFilter);
+        if (night is not null) filters.Add(night);
         if (filters.Count == 0) return null;
 
         var text = new StringBuilder("lavfi=[").AppendJoin(',', filters).Append(']');

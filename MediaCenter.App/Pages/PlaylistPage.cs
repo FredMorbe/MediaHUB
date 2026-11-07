@@ -19,7 +19,7 @@ public sealed class PlaylistPage : UserControl
 
     private static readonly GridLength[] Columns =
     {
-        new(40), new(3, GridUnitType.Star), new(2, GridUnitType.Star), new(2, GridUnitType.Star), new(56),
+        new(40), new(3, GridUnitType.Star), new(2, GridUnitType.Star), new(2, GridUnitType.Star), new(44), new(56),
     };
 
     private readonly IShell _shell;
@@ -101,7 +101,7 @@ public sealed class PlaylistPage : UserControl
         buttons.Children.Add(IconButton(RenameGlyph, "Umbenennen", "Playlist umbenennen", StartRename));
         buttons.Children.Add(IconButton(DeleteGlyph, "Playlist löschen", "Playlist löschen", Delete));
 
-        var tableHead = PageParts.TableHeader(Columns, "#", "Titel", "Künstler", "Album", "Dauer");
+        var tableHead = PageParts.TableHeader(Columns, "#", "Titel", "Künstler", "Album", "", "Dauer");
         ((FrameworkElement)tableHead).Margin = new Thickness(0, 16, 0, 4);
         Content = new StackPanel { Children = { header, buttons, tableHead, _list } };
 
@@ -172,6 +172,7 @@ public sealed class PlaylistPage : UserControl
                 title,
                 PageParts.Cell(string.IsNullOrWhiteSpace(track.Artist) ? MusicIndex.ArtistOf(track) : track.Artist),
                 PageParts.Cell(track.Album ?? MusicIndex.UnknownAlbum),
+                new MediaCenter.App.Controls.FavoriteButton(_model, track.TrackId, 28),
                 PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)),
             };
 
@@ -188,6 +189,7 @@ public sealed class PlaylistPage : UserControl
         var menu = new List<(string Text, Action Click)>
         {
             ("Abspielen", async () => await AudioQueues.PlayTracksAsync(_shell, Current.Tracks, index)),
+            (_model.IsFavorite(track.TrackId) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", () => _model.SetFavorite(track.TrackId, !_model.IsFavorite(track.TrackId))),
         };
         if (index > 0) menu.Add(("An den Anfang", () => Move(track, 0)));
         if (index > 0) menu.Add(("Nach oben", () => Move(track, index - 1)));
@@ -197,6 +199,7 @@ public sealed class PlaylistPage : UserControl
         menu.Add(("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)));
         menu.Add(("Song bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)));
         menu.Add(("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)));
+        menu.Add(("Aus Mediacenter entfernen …", () => LibraryActions.RemoveTracks(_shell, new[] { track }, $"Den Titel „{track.Title}“")));
         menu.Add(("Aus Playlist entfernen", () =>
         {
             _model.Db.RemoveTrackFromPlaylist(_id, track.TrackId);

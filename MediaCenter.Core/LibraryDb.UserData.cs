@@ -310,6 +310,39 @@ public sealed partial class LibraryDb
         return removed;
     });
 
+    /// <summary>
+    /// Nimmt Musiktitel aus der Bibliothek, löscht aber nie eine Datei auf der Platte: der Titel samt eigenem Namen, Künstler, Favoriten und Playlist-Plätzen
+    /// verschwindet, der Pfad kommt auf die Liste der entfernten Dateien, damit ihn kein Scan wieder aufnimmt (Zurückholen wie bei Videos:
+    /// <see cref="ClearRemovedFiles"/>). Alben und Künstler ergeben sich aus den Titeln und verschwinden mit dem letzten Titel von selbst.
+    /// </summary>
+    /// <returns>Anzahl der entfernten Titel.</returns>
+    /// <exception cref="InvalidOperationException">Ein Titel ist nicht in der Bibliothek; dann wird nichts entfernt.</exception>
+    public int RemoveTracks(IEnumerable<long> trackIds) => InTransaction(() =>
+    {
+        var removed = 0;
+        foreach (var trackId in trackIds.Distinct())
+        {
+            long fileId, volumeId;
+            string relPath;
+            using (var cmd = Command("SELECT f.id, f.volume_id, f.rel_path FROM tracks t JOIN files f ON f.id = t.file_id WHERE t.id = $id", ("$id", trackId)))
+            using (var r = cmd.ExecuteReader())
+            {
+                if (!r.Read()) throw new InvalidOperationException($"Titel {trackId} ist nicht in der Bibliothek.");
+                fileId = r.GetInt64(0);
+                volumeId = r.GetInt64(1);
+                relPath = r.GetString(2);
+            }
+
+            Run("INSERT OR IGNORE INTO removed_files (volume_id, rel_path, removed_utc) VALUES ($vol, $rel, $utc)",
+                ("$vol", volumeId), ("$rel", relPath), ("$utc", Utc(DateTime.UtcNow)));
+            // Eine einzeln hinzugefügte Datei ist selbst die Quelle.
+            Run("DELETE FROM sources WHERE volume_id = $vol AND kind = 'file' AND rel_path = $rel COLLATE NOCASE", ("$vol", volumeId), ("$rel", relPath));
+            Run("DELETE FROM files WHERE id = $id", ("$id", fileId)); // Titel, Streams und alle Nutzerdaten dazu folgen per CASCADE
+            removed++;
+        }
+        return removed;
+    });
+
     /// <summary>Entfernt einen Film oder eine Serie mit allen Videos aus der Bibliothek (siehe <see cref="RemoveVideos"/>); auch ein Titel ohne Video verschwindet.</summary>
     /// <returns>Anzahl der entfernten Videos.</returns>
     public int RemoveTitle(long titleId) => InTransaction(() =>

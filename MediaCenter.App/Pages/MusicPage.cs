@@ -20,6 +20,7 @@ public sealed class MusicPage : UserControl
     private const int QuickTiles = 8;
     private const int RowItems = 12;
     private const double NowPlayingMinWidth = 1180;
+    private const string PlayGlyph = "\uE768";
 
     private enum Kind
     {
@@ -31,6 +32,7 @@ public sealed class MusicPage : UserControl
         Artist,
         ArtistSongs,
         Playlist,
+        Favorites,
     }
 
     /// <param name="Key">Albumschlüssel, Künstlername bzw. Id der Playlist.</param>
@@ -58,7 +60,7 @@ public sealed class MusicPage : UserControl
         if (openAlbumKey is not null) _view = new View(Kind.Album, openAlbumKey);
 
         _library = new MusicLibraryPanel(shell, key => Go(new View(Kind.Album, key)), name => Go(ArtistView(name)), () => Go(new View(Kind.Tracks)),
-            id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist, OnArtistBasisChanged)
+            id => Go(new View(Kind.Playlist, id.ToString())), NewPlaylist, OnArtistBasisChanged, () => Go(new View(Kind.Favorites)))
         {
             Margin = new Thickness(0, 0, 6, 0),
         };
@@ -116,8 +118,16 @@ public sealed class MusicPage : UserControl
         Content = root;
 
         SizeChanged += (_, e) => _nowPlaying.Suppressed = e.NewSize.Width < NowPlayingMinWidth;
-        Loaded += (_, _) => _model.MusicChanged += OnMusicChanged;
-        Unloaded += (_, _) => _model.MusicChanged -= OnMusicChanged;
+        Loaded += (_, _) =>
+        {
+            _model.MusicChanged += OnMusicChanged;
+            _model.FavoritesChanged += OnFavoritesChanged;
+        };
+        Unloaded += (_, _) =>
+        {
+            _model.MusicChanged -= OnMusicChanged;
+            _model.FavoritesChanged -= OnFavoritesChanged;
+        };
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key != Key.Escape || _back.Count == 0 || Keyboard.FocusedElement is TextBox) return;
@@ -181,16 +191,32 @@ public sealed class MusicPage : UserControl
     {
         View Remap(View view) => oldAlbumKey is not null && view.Kind == Kind.Album && view.Key == oldAlbumKey ? view with { Key = newAlbumKey } : view;
 
-        var kept = _back.Reverse().Select(Remap).ToList(); // der Stapel liefert die neueste zuerst
+        // Alben, die es nach dem Entfernen von Titeln nicht mehr gibt, fallen aus dem Verlauf; die offene Ansicht wechselt dann zur vorherigen.
+        bool Gone(View view) => view.Kind == Kind.Album && _model.Albums.All(a => a.Key != view.Key);
+        var kept = _back.Reverse().Select(Remap).Where(v => !Gone(v)).ToList(); // der Stapel liefert die neueste zuerst
         _back.Clear();
         foreach (var view in kept) _back.Push(view);
         _view = Remap(_view);
+        if (Gone(_view)) _view = _back.Count > 0 ? _back.Pop() : new View(Kind.Home);
 
         var offset = _scroll.VerticalOffset;
         Render(animate: false);
         _scroll.UpdateLayout();
         _scroll.ScrollToVerticalOffset(offset);
     }
+
+    /// <summary>Ein Herz wurde umgeschaltet: die Favoritenliste baut sich an derselben Stelle neu auf (der Titel fällt heraus oder kommt dazu).</summary>
+    private void OnFavoritesChanged(long trackId)
+    {
+        if (_view.Kind != Kind.Favorites) return;
+        var offset = _scroll.VerticalOffset;
+        Render(animate: false);
+        _scroll.UpdateLayout();
+        _scroll.ScrollToVerticalOffset(offset);
+    }
+
+    /// <summary>Wen die Rückfrage beim Entfernen nennt.</summary>
+    private static string AlbumWhat(AlbumInfo album) => $"Das Album „{album.Title}“ mit {album.Tracks.Count} Titel{(album.Tracks.Count == 1 ? "" : "n")}";
 
     /// <summary>Menü einer Albumkarte.</summary>
     private IReadOnlyList<(string Text, Action Click)> AlbumCardMenu(CardItem item) =>
@@ -201,6 +227,7 @@ public sealed class MusicPage : UserControl
                 ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, album.Tracks, next: false)),
                 ("Bearbeiten …", () => MusicRenamePage.ShowAlbum(_shell, album.Key)),
                 ("Tags in den Dateien ändern …", () => TagEditorPage.ShowAlbum(_shell, album.Key)),
+                ("Aus Mediacenter entfernen …", () => LibraryActions.RemoveTracks(_shell, album.Tracks, AlbumWhat(album))),
             }
             : Array.Empty<(string, Action)>();
 
@@ -214,6 +241,7 @@ public sealed class MusicPage : UserControl
             Kind.Albums => BuildAlbums(),
             Kind.Artists => BuildArtists(),
             Kind.Tracks => BuildTracks(),
+            Kind.Favorites => BuildFavorites(),
             Kind.Album => new AlbumPage(_shell, _view.Key!, name => Go(new View(Kind.Artist, name))),
             Kind.Artist => BuildArtist(_view.Key!),
             Kind.ArtistSongs => BuildArtistSongs(_view.Key!),
@@ -232,6 +260,7 @@ public sealed class MusicPage : UserControl
             Kind.Artist or Kind.ArtistSongs => $"artist:{_view.Key}",
             Kind.Playlist => $"playlist:{_view.Key}",
             Kind.Tracks => "tracks",
+            Kind.Favorites => "favorites",
             _ => null,
         });
     }
@@ -421,25 +450,7 @@ public sealed class MusicPage : UserControl
 
         // Abspielen und Zufällig beziehen sich auf die gerade angezeigte (gesuchte) Liste.
         var shown = new List<TrackRow>();
-        var play = new Button { Content = "", Width = 44, Height = 44, FontSize = 18, ToolTip = "Alle angezeigten Titel abspielen" };
-        play.SetResourceReference(StyleProperty, "AccentIconButton");
-        System.Windows.Automation.AutomationProperties.SetName(play, "Alle Titel abspielen");
-        play.Click += async (_, _) => await PlayShown(shuffle: false);
-        var random = PageParts.Compact(PageParts.Button("Zufällig", "GhostButton", async (_, _) => await PlayShown(shuffle: true), new Thickness(8, 0, 0, 0)));
-        random.VerticalAlignment = VerticalAlignment.Center;
-        random.ToolTip = "Alle angezeigten Titel in zufälliger Reihenfolge abspielen";
-        System.Windows.Automation.AutomationProperties.SetName(random, "Alle Titel zufällig abspielen");
-        stack.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12), Children = { play, random } });
-
-        async Task PlayShown(bool shuffle)
-        {
-            if (shown.Count == 0)
-            {
-                _shell.ShowMessage("Es gibt keine Titel zum Abspielen.", isError: true);
-                return;
-            }
-            await AudioQueues.PlayTracksAsync(_shell, shown, 0, shuffle);
-        }
+        stack.Children.Add(PlayRow(() => shown, "Alle Titel"));
 
         var (field, box) = PageParts.HintBox("Titel suchen …", 280, 13);
         box.Height = 32;
@@ -470,15 +481,62 @@ public sealed class MusicPage : UserControl
         return stack;
     }
 
+    /// <summary>Zeile mit „Abspielen“ und „Zufällig“ für die Titel, die <paramref name="current"/> gerade liefert (bei Suche die gefilterten).</summary>
+    /// <param name="subject">Für Namen der Knöpfe, etwa „Alle Titel“ oder „Favoriten“.</param>
+    private StackPanel PlayRow(Func<IReadOnlyList<TrackRow>> current, string subject)
+    {
+        async Task PlayShown(bool shuffle)
+        {
+            var tracks = current();
+            if (tracks.Count == 0)
+            {
+                _shell.ShowMessage("Es gibt keine Titel zum Abspielen.", isError: true);
+                return;
+            }
+            await AudioQueues.PlayTracksAsync(_shell, tracks, 0, shuffle);
+        }
+
+        var play = new Button { Content = PlayGlyph, Width = 44, Height = 44, FontSize = 18, ToolTip = "Alle angezeigten Titel abspielen" };
+        play.SetResourceReference(StyleProperty, "AccentIconButton");
+        System.Windows.Automation.AutomationProperties.SetName(play, $"{subject} abspielen");
+        play.Click += async (_, _) => await PlayShown(shuffle: false);
+        var random = PageParts.Compact(PageParts.Button("Zufällig", "GhostButton", async (_, _) => await PlayShown(shuffle: true), new Thickness(8, 0, 0, 0)));
+        random.VerticalAlignment = VerticalAlignment.Center;
+        random.ToolTip = "Alle angezeigten Titel in zufälliger Reihenfolge abspielen";
+        System.Windows.Automation.AutomationProperties.SetName(random, $"{subject} zufällig abspielen");
+        return new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12), Children = { play, random } };
+    }
+
+    /// <summary>Die Favoriten des Profils, der zuletzt markierte zuerst.</summary>
+    private FrameworkElement BuildFavorites()
+    {
+        var tracks = _model.FavoriteTracks();
+        var stack = new StackPanel();
+        var total = tracks.Sum(t => t.DurationSeconds ?? 0);
+        stack.Children.Add(PageParts.Header("Bibliothek", "Favoriten", string.Join(" · ", new[] { $"{tracks.Count} Titel", PageParts.FormatDuration(total) }.Where(x => x.Length > 0)), 36));
+        if (tracks.Count == 0)
+        {
+            stack.Children.Add(PageParts.EmptyState(FavoriteButton.OnGlyph, "Noch keine Favoriten",
+                "Mit dem Herz neben einem Titel (in Alben, Playlists, „Alle Titel“ und in der Musikleiste unten) merkst du ihn dir hier vor."));
+            return stack;
+        }
+
+        stack.Children.Add(PlayRow(() => tracks, "Favoriten"));
+        var (table, fill) = TrackTable();
+        stack.Children.Add(table);
+        fill(tracks, true);
+        return stack;
+    }
+
     /// <summary>
     /// Tabelle mit Titeln (Kopf und Zeilen). <c>fill(tracks, reset)</c> füllt sie neu; mit <c>reset</c> beginnt sie wieder bei den ersten
     /// <see cref="TracksPerPage"/> Zeilen, „Weitere anzeigen“ holt jeweils die nächsten.
     /// </summary>
     private (StackPanel Table, Action<List<TrackRow>, bool> Fill) TrackTable()
     {
-        var columns = new[] { new GridLength(40), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(56) };
+        var columns = new[] { new GridLength(40), new GridLength(3, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(2, GridUnitType.Star), new GridLength(44), new GridLength(56) };
         var table = new StackPanel();
-        table.Children.Add(PageParts.TableHeader(columns, "#", "Titel", "Künstler", "Album", "Dauer"));
+        table.Children.Add(PageParts.TableHeader(columns, "#", "Titel", "Künstler", "Album", "", "Dauer"));
         var list = new StackPanel();
         table.Children.Add(list);
         var shown = TracksPerPage;
@@ -498,6 +556,7 @@ public sealed class MusicPage : UserControl
                     title,
                     PageParts.Cell(string.IsNullOrWhiteSpace(track.Artist) ? MusicIndex.ArtistOf(track) : track.Artist),
                     PageParts.Cell(track.Album ?? MusicIndex.UnknownAlbum),
+                    new FavoriteButton(_model, track.TrackId, 28),
                     PageParts.Cell(PageParts.FormatClock(track.DurationSeconds)),
                 };
                 var captured = index;
@@ -505,11 +564,13 @@ public sealed class MusicPage : UserControl
                 row = PageParts.TableRow(columns, cells, async () => await AudioQueues.PlayTracksAsync(_shell, tracks, captured), track.Title, dimmed: _model.PathOf(track) is null,
                     menu: () => new (string, Action)[]
                     {
+                        (_model.IsFavorite(track.TrackId) ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen", () => _model.SetFavorite(track.TrackId, !_model.IsFavorite(track.TrackId))),
                         ("Als Nächstes spielen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: true)),
                         ("Zur Warteschlange hinzufügen", async () => await AudioQueues.EnqueueTracksAsync(_shell, new[] { track }, next: false)),
                         ("Zu Playlist hinzufügen …", () => PlaylistActions.ShowAddMenu(_shell, row!, new[] { track })),
                         ("Bearbeiten …", () => MusicRenamePage.ShowTrack(_shell, track.TrackId)),
                         ("Tags in der Datei ändern …", () => TagEditorPage.ShowTrack(_shell, track.TrackId)),
+                        ("Aus Mediacenter entfernen …", () => LibraryActions.RemoveTracks(_shell, new[] { track }, $"Den Titel „{track.Title}“")),
                     });
                 list.Children.Add(row);
             }

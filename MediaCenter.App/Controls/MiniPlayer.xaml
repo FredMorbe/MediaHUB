@@ -15,6 +15,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Border x:Name="CoverBox" Width="48" Height="48" CornerRadius="4" Background="{DynamicResource CardBgBrush}">
                     <TextBlock x:Name="CoverGlyph" Text="&#xE8D6;" FontFamily="{StaticResource IconFont}" FontSize="22"
@@ -25,6 +26,8 @@
                                Foreground="{DynamicResource InkBrush}"/>
                     <TextBlock x:Name="SubText" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}" Margin="0,2,0,0"/>
                 </StackPanel>
+                <!-- Herz des laufenden Titels (nur bei Musik); der Knopf entsteht beim Verbinden im Code -->
+                <ContentControl x:Name="FavoriteHost" Grid.Column="2" VerticalAlignment="Center" Focusable="False"/>
             </Grid>
 
             <StackPanel Grid.Column="1" VerticalAlignment="Center" MaxWidth="660">

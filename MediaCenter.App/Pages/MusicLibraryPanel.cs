@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using MediaCenter.App.Controls;
 using MediaCenter.App.Services;
 using MediaCenter.Core;
 
@@ -22,6 +23,8 @@ internal sealed class MusicLibraryPanel : Border
     private readonly Action<string> _openAlbum;
     private readonly Action<string> _openArtist;
     private readonly Action _openTracks;
+    private readonly Action _openFavorites;
+    private TextBlock? _favoritesMeta;
     private readonly Action<long> _openPlaylist;
     private readonly Action _newPlaylist;
     private readonly StackPanel _list = new();
@@ -38,13 +41,14 @@ internal sealed class MusicLibraryPanel : Border
     private long? _playingTrack;
 
     /// <param name="artistBasisChanged">Der Schalter „Nach Album / Nach Song“ wurde umgelegt; die Musik-Seite baut Start und Künstlerliste neu.</param>
-    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks, Action<long> openPlaylist, Action newPlaylist, Action artistBasisChanged)
+    public MusicLibraryPanel(IShell shell, Action<string> openAlbum, Action<string> openArtist, Action openTracks, Action<long> openPlaylist, Action newPlaylist, Action artistBasisChanged, Action openFavorites)
     {
         _shell = shell;
         _model = shell.Services.Model;
         _openAlbum = openAlbum;
         _openArtist = openArtist;
         _openTracks = openTracks;
+        _openFavorites = openFavorites;
         _openPlaylist = openPlaylist;
         _newPlaylist = newPlaylist;
         _mode = shell.Services.Settings.MusicLibraryMode; // die Auswahl vom letzten Mal
@@ -136,6 +140,7 @@ internal sealed class MusicLibraryPanel : Border
             _shell.Services.Audio.Changed += OnAudioChanged;
             _model.PlaylistsChanged += OnPlaylistsChanged;
             _model.MusicChanged += OnMusicChanged;
+            _model.FavoritesChanged += OnFavoritesChanged;
             OnAudioChanged();
         };
         Unloaded += (_, _) =>
@@ -143,8 +148,17 @@ internal sealed class MusicLibraryPanel : Border
             _shell.Services.Audio.Changed -= OnAudioChanged;
             _model.PlaylistsChanged -= OnPlaylistsChanged;
             _model.MusicChanged -= OnMusicChanged;
+            _model.FavoritesChanged -= OnFavoritesChanged;
         };
     }
+
+    /// <summary>Ein Herz wurde umgeschaltet: nur die Zahl unter „Favoriten“ ändert sich, die Liste bleibt, wie sie ist.</summary>
+    private void OnFavoritesChanged(long trackId)
+    {
+        if (_favoritesMeta is not null) _favoritesMeta.Text = FavoritesSubtitle();
+    }
+
+    private string FavoritesSubtitle() => $"{_model.FavoriteIds.Count} Titel";
 
     /// <summary>Ein Song oder Album wurde umbenannt: die Liste baut sich mit den neuen Namen neu auf, ohne dass sie nach oben springt.</summary>
     private void OnMusicChanged(string? oldAlbumKey, string? newAlbumKey)
@@ -206,6 +220,7 @@ internal sealed class MusicLibraryPanel : Border
         var text = _search.Text.Trim();
         if (text.Length == 0)
         {
+            _rows.Add(() => Row("favorites", null, false, FavoritesSubtitle(), "Favoriten", _openFavorites, null, accentTile: true, symbol: FavoriteButton.OnGlyph, captureMeta: meta => _favoritesMeta = meta));
             _rows.Add(() => Row("tracks", null, false, $"{_model.Tracks.Count} Titel", "Alle Titel", _openTracks, null, accentTile: true));
         }
 
@@ -274,7 +289,7 @@ internal sealed class MusicLibraryPanel : Border
         for (; _shown < end; _shown++) _list.Children.Add(_rows[_shown]());
     }
 
-    private UIElement Row(string selectKey, ImageSource? image, bool round, string sub, string title, Action open, string? albumKey, bool accentTile = false, string symbol = NoteGlyph)
+    private UIElement Row(string selectKey, ImageSource? image, bool round, string sub, string title, Action open, string? albumKey, bool accentTile = false, string symbol = NoteGlyph, Action<TextBlock>? captureMeta = null)
     {
         var thumb = PageParts.Thumb(image, 40, symbol);
         thumb.CornerRadius = new CornerRadius(round ? 20 : 4);
@@ -288,6 +303,7 @@ internal sealed class MusicLibraryPanel : Border
         var meta = PageParts.Muted(sub, 11);
         meta.TextWrapping = TextWrapping.NoWrap;
         meta.TextTrimming = TextTrimming.CharacterEllipsis;
+        captureMeta?.Invoke(meta);
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
